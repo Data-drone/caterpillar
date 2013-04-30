@@ -1,3 +1,4 @@
 *.pyc
 .gitreview
 .DS_Store
+.idea
