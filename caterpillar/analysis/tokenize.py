@@ -5,7 +5,6 @@
 
 from nltk.internals import convert_regexp_to_nongrouping
 from nltk.tokenize.api import TokenizerI
-from nltk.tokenize.util import regexp_span_tokenize
 
 import regex
 
@@ -97,3 +96,80 @@ class ParagraphTokenizer(NewRegexpTokenizer):
                                     ur'(?<=[\u002E\u2024\uFE52\uFF0E\u0021\u003F][\S]*)\s*\n+',
                                     gaps=True)
 
+
+class WordTokenizer(NewRegexpTokenizer):
+    """
+    Tokenize a string into words.
+
+    Split on whitespaces and whitespace-adjacent punctuation (except leading '#' and '@' characters).
+
+    """
+    def __init__(self):
+        p = '[\p{P}--[#@]]'
+        NewRegexpTokenizer.__init__(self,
+                                    # capture punctuation at start of sentence
+                                    ur'^'+p+'*'
+                                    # whitespace, and adjacent punctuation
+                                    + '|\p{P}*\s+'+p+'*'
+                                    # capture punctuation at end of sentence
+                                    + '|\p{P}$',
+                                    gaps=True)
+
+
+class TokenFilter(object):
+    """
+    Base class for Token Filters.
+
+    All Token Filters must implement a filter method.
+
+    """
+    def filter(self, tokens):
+        raise NotImplementedError()
+
+
+class StopwordTokenFilter(TokenFilter):
+    """
+    Remove stopwords and words with too few characters.
+
+    """
+    def __init__(self, stopwords, min_word_size):
+        self.stopwords = stopwords
+        self.min_word_size = min_word_size
+
+    def filter(self, tokens):
+        """
+        Return a filtered list of tokens.
+
+        """
+        return filter(lambda t: t.lower() not in self.stopwords and len(t) > self.min_word_size, tokens)
+
+
+def regexp_span_tokenize(s, regexp):
+    r"""
+
+    Direct copy from NLTK, except for replacing reference of re module with new regex module.
+
+
+    Return the offsets of the tokens in *s*, as a sequence of ``(start, end)``
+    tuples, by splitting the string at each successive match of *regexp*.
+
+        >>> from nltk.tokenize import WhitespaceTokenizer
+        >>> s = '''Good muffins cost $3.88\nin New York.  Please buy me
+        ... two of them.\n\nThanks.'''
+        >>> list(WhitespaceTokenizer().span_tokenize(s))
+        [(0, 4), (5, 12), (13, 17), (18, 23), (24, 26), (27, 30), (31, 36),
+        (38, 44), (45, 48), (49, 51), (52, 55), (56, 58), (59, 64), (66, 73)]
+
+    :param s: the string to be tokenized
+    :type s: str
+    :param regexp: regular expression that matches token separators
+    :type regexp: str
+    :rtype: iter(tuple(int, int))
+    """
+    left = 0
+    for m in regex.finditer(regexp, s):
+        right, next = m.span()
+        if right != 0:
+            yield left, right
+        left = next
+    yield left, len(s)

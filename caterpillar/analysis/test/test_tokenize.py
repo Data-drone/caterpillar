@@ -4,7 +4,7 @@
 # Author: Ryan Stuart <ryan@mammothlabs.com.au>
 
 import os
-from caterpillar.analysis.tokenize import ParagraphTokenizer
+from caterpillar.analysis.tokenize import ParagraphTokenizer, WordTokenizer
 
 
 def test_paragraph_tokenizer_alice():
@@ -19,3 +19,7 @@ def test_paragraph_tokenizer_economics():
         data = f.read()
         paragraphs = ParagraphTokenizer().tokenize(data)
         assert len(paragraphs) == 4
+
+def test_word_tokenizer():
+    words = WordTokenizer().tokenize("--#Hello, this is a #tweet... It was made by @me!")
+    assert words == ['#Hello', 'this', 'is', 'a', '#tweet', 'It', 'was', 'made', 'by', '@me']
