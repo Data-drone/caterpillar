@@ -3,3 +3,5 @@ ENV
 .gitreview
 .DS_Store
 .idea
+.tox
+caterpillar.egg-info
