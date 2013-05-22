@@ -5,8 +5,7 @@
 
 import nltk.corpus
 
-from caterpillar.analysis.frames import frame_stream
-from caterpillar.analysis.tokenize import StopwordTokenFilter, WordTokenizer
+from caterpillar.processing.tokenize import StopwordTokenFilter, WordTokenizer
 
 
 class TextIndex(object):
@@ -29,6 +28,12 @@ class TextIndex(object):
             }
         }
 
+    **term_frequencies_by_frame** gives frequency counts at the frame resolution for all words in the format::
+
+        {
+            term: count
+        }
+
     **frames** gives raw ``Frame`` objects by frame id
 
     """
@@ -36,8 +41,17 @@ class TextIndex(object):
         self.term_positions = {}
         self.term_associations = {}
         self.frames = {}
+        self.term_frequencies_by_frame = nltk.probability.FreqDist()
+
+    def inc_term_frequency(self, term, amount=1):
+        """
+        Increment the frequency count of a term.
+
+        """
+        self.term_frequencies_by_frame.inc(term, amount)
 
 MIN_WORD_SIZE = 2
+
 
 def build_text_index(frames, filters=[StopwordTokenFilter(nltk.corpus.stopwords.words('english'), MIN_WORD_SIZE)]):
     """
@@ -53,9 +67,6 @@ def build_text_index(frames, filters=[StopwordTokenFilter(nltk.corpus.stopwords.
 
     for frame in frames:
 
-        # Store frame object
-        index.frames[frame.id] = frame
-
         # Tokenize words in frame
         positions = list(word_tokenizer.span_tokenize(frame.text))
         words = [frame.text[l:r] for l,r in positions]
@@ -64,6 +75,12 @@ def build_text_index(frames, filters=[StopwordTokenFilter(nltk.corpus.stopwords.
         # Apply filters
         for f in filters:
             unique_words = f.filter(unique_words)
+
+        # Store the unique words with the frame
+        frame.unique_words = set(unique_words)
+
+        # Store frame object
+        index.frames[frame.id] = frame
 
         # Marshall word positions in this frame
         word_positions = {w: [] for w in unique_words}
@@ -82,6 +99,9 @@ def build_text_index(frames, filters=[StopwordTokenFilter(nltk.corpus.stopwords.
             except KeyError:
                 # Handle first frame that a word appears in
                 index.term_positions[word] = {frame.id : word_positions[word]}
+
+            # Record frequency information
+            index.inc_term_frequency(word)
 
             # Loop through possible word pairs
             for other_word in unique_words:

@@ -4,7 +4,7 @@
 # Author: Ryan Stuart <ryan@mammothlabs.com.au>
 
 import uuid
-from caterpillar.analysis.tokenize import ParagraphTokenizer
+from caterpillar.processing.tokenize import ParagraphTokenizer
 
 import nltk.data
 
@@ -12,12 +12,12 @@ import nltk.data
 class Frame(object):
     """
     A frame is a piece of text who's size is measured in sentences. A frame has a minimum size of 1. A frame also has
-    additional information about itself including a dict of word frequencies, a list of dict of metadata, a string
-    representation of its original form, a unique identifier and a sequence number.
+    additional information about itself including a dict of word frequencies, a dict of metadata, a string
+    representation of its original form, a unique identifier, a sequence number and optionally a list of unique words.
 
     """
 
-    def __init__(self, id, sequence, text, metadata=None):
+    def __init__(self, id, sequence, text, metadata=None, unique_words=None):
         """
         Create a new frame from the passed id string, sequence int, text string, frequencies dict and optional metadata
         dict.
@@ -27,12 +27,14 @@ class Frame(object):
         self.text = text
         self.sequence = sequence
         self.metadata = metadata
+        self.unique_words = unique_words
 
 
 WINDOW_SIZE = 1024*1024*10  # our sliding window of text will be 10MB big
 
 
-def frame_stream(text_file, frame_size=2, tokenizer=nltk.data.load('tokenizers/punkt/english.pickle'), meta_data=None):
+def frame_stream(text_file, frame_size=2, tokenizer=nltk.data.load('tokenizers/punkt/english.pickle'), meta_data=None,
+                 encoding='utf-8'):
 
     """
     This generator function yields text frames parsed from text_file.
@@ -54,7 +56,7 @@ def frame_stream(text_file, frame_size=2, tokenizer=nltk.data.load('tokenizers/p
     input = text_file.read(WINDOW_SIZE)
     sequence_number = 1
     while input:
-        window += input.decode('utf8')
+        window += input.decode(encoding)
         paragraphs = ParagraphTokenizer().tokenize(window)
         for paragraph in paragraphs[:-1]:  # Never tokenize the last paragraph in case it isn't complete
             sentences = tokenizer.tokenize(paragraph, realign_boundaries=True)
