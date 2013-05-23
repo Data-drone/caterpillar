@@ -1,4 +1,6 @@
 ENV
+build/
+dist/
 *.pyc
 .gitreview
 .DS_Store
