@@ -24,7 +24,7 @@ requires = [
 setup(
     name='caterpillar',
     version='0.1',
-    packages=['caterpillar'],
+    packages=['caterpillar', 'caterpillar.analytics', 'caterpillar.processing'],
     url='http://www.mammothlabs.com.au',
     license='Commercial',
     install_requires=requires,
