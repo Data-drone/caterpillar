@@ -112,7 +112,7 @@ class WordTokenizer(NewRegexpTokenizer):
                                     # whitespace, and adjacent punctuation
                                     + '|\p{P}*\s+'+p+'*'
                                     # capture punctuation at end of sentence
-                                    + '|\p{P}$',
+                                    + '|\p{P}*$',
                                     gaps=True)
 
 
