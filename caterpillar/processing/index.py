@@ -6,6 +6,7 @@
 import nltk.corpus
 
 from caterpillar.processing.tokenize import StopwordTokenFilter, WordTokenizer
+from caterpillar.processing import stopwords
 
 
 class TextIndex(object):
@@ -50,10 +51,8 @@ class TextIndex(object):
         """
         self.term_frequencies_by_frame.inc(term, amount)
 
-MIN_WORD_SIZE = 2
 
-
-def build_text_index(frames, filters=[StopwordTokenFilter(nltk.corpus.stopwords.words('english'), MIN_WORD_SIZE)]):
+def build_text_index(frames, filters=[StopwordTokenFilter(stopwords.ENGLISH, stopwords.MIN_WORD_SIZE)]):
     """
     This function constructs and returns a ``TextIndex`` object based on frame data.
 

@@ -6,12 +6,14 @@ import os
 
 from caterpillar.processing.frames import frame_stream
 from caterpillar.processing.index import build_text_index
+from caterpillar.processing.tokenize import StopwordTokenFilter
+from caterpillar.processing import stopwords
 
 
 def test_index_alice():
     frames = list(frame_stream(open(os.path.abspath('caterpillar/processing/test/alice_test_data.txt'), 'r'),
                                meta_data={'document': 'alice_test_data.txt'}))
-    index = build_text_index(frames)
+    index = build_text_index(frames, filters=[StopwordTokenFilter(stopwords.ENGLISH_TEST, stopwords.MIN_WORD_SIZE)])
 
     assert len(index.term_positions['nice']) == 3
     assert len(index.term_positions['key']) == 5
