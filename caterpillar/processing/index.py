@@ -52,7 +52,7 @@ class TextIndex(object):
         self.term_frequencies_by_frame.inc(term, amount)
 
 
-def build_text_index(frames, filters=[StopwordTokenFilter(stopwords.ENGLISH, stopwords.MIN_WORD_SIZE)]):
+def build_text_index(frames, filters=[StopwordTokenFilter(stopwords.ENGLISH, stopwords.MIN_WORD_SIZE)], detect_compound_names=True):
     """
     This function constructs and returns a ``TextIndex`` object based on frame data.
 
@@ -62,7 +62,7 @@ def build_text_index(frames, filters=[StopwordTokenFilter(stopwords.ENGLISH, sto
 
     """
     index = TextIndex()
-    word_tokenizer = WordTokenizer()
+    word_tokenizer = WordTokenizer(detect_compound_names=detect_compound_names)
 
     for frame in frames:
 

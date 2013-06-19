@@ -101,19 +101,25 @@ class WordTokenizer(NewRegexpTokenizer):
     """
     Tokenize a string into words.
 
-    Split on whitespaces and whitespace-adjacent punctuation (except leading '#' and '@' characters).
-
     """
-    def __init__(self):
-        p = '[\p{P}--[#@]]'
-        NewRegexpTokenizer.__init__(self,
-                                    # capture punctuation at start of sentence
-                                    ur'^'+p+'*'
-                                    # whitespace, and adjacent punctuation
-                                    + '|\p{P}*\s+'+p+'*'
-                                    # capture punctuation at end of sentence
-                                    + '|\p{P}*$',
-                                    gaps=True)
+    # Email pattern, lifted from http://www.regular-expressions.info/email.html
+    EMAIL = "(\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,4}\\b)"
+
+    # Capture multi-term names (no lowercase separators supported yet).
+    # We exclude 'The' from the beggining of mult-term names.
+    NAME_COMPOUND = u"((?!The)([A-Z][a-z]+\.?)(?:[^\S\n][A-Z][a-z]+)+)"
+
+    # Capture decimal numbers with allowable punctuation that would get split up with the word pattern
+    NUM = u"(\d+(?:[\.\,]{1}\d+)+)"
+
+    # Basic word pattern, strips all punctuation besides special leading characters
+    WORD = u"((?:[#@]?)\w+)"
+
+    def __init__(self, detect_compound_names=True):
+        pattern = self.EMAIL + '|' +  self.NUM + '|' + self.WORD
+        if detect_compound_names:
+            pattern = self.NAME_COMPOUND + '|' + pattern
+        NewRegexpTokenizer.__init__(self, pattern, gaps=False)
 
 
 class TokenFilter(object):

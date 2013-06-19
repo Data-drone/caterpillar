@@ -21,6 +21,6 @@ def test_index_alice():
     assert index.term_associations['Alice']['poor'] == index.term_associations['poor']['Alice'] == 3
     assert index.term_associations['key']['golden'] == index.term_associations['golden']['key'] == 3
 
-    assert len(index.term_frequencies_by_frame) == 513
-    assert index.term_frequencies_by_frame.N() == 869
-    assert index.term_frequencies_by_frame['Alice'] == 23
+    assert len(index.term_frequencies_by_frame) == 500
+    assert index.term_frequencies_by_frame.N() == 855
+    assert index.term_frequencies_by_frame['Alice'] == 24

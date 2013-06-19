@@ -20,13 +20,34 @@ def test_paragraph_tokenizer_economics():
         paragraphs = ParagraphTokenizer().tokenize(data)
         assert len(paragraphs) == 4
 
-def test_word_tokenizer_():
+def test_word_tokenizer_tags():
     words = WordTokenizer().tokenize("--#Hello, this is a #tweet... It was made by @me!")
     assert words == ['#Hello', 'this', 'is', 'a', '#tweet', 'It', 'was', 'made', 'by', '@me']
+
 
 def test_word_tokenizer_bush():
     with open(os.path.abspath('caterpillar/processing/test/bush_test_data.txt'), 'r') as f:
         data = f.read()
         words = WordTokenizer().tokenize(data)
         assert words[-1] == 'Applause'
-        assert len(words) == 81
+        assert len(words) == 75
+
+
+def test_word_tokenizer_economics():
+    with open(os.path.abspath('caterpillar/processing/test/economics_test_data.txt'), 'r') as f:
+        data = f.read()
+        words = WordTokenizer().tokenize(data.decode('utf-8'))
+        assert len(words) == 311
+
+
+def test_word_tokenizer_email():
+    words = WordTokenizer().tokenize("A test sentence with the email adress John_Smith@domain123.org.au embedded in it.")
+    assert words[7] == 'John_Smith@domain123.org.au'
+    words = WordTokenizer().tokenize("Another example with disposable.style.email.with+symbol@example.com.")
+    assert words[-1] == 'disposable.style.email.with+symbol@example.com'
+
+
+def test_word_tokenizer_number():
+    words = WordTokenizer().tokenize("A sentence with numbers 1, 100,000, 100,000,000.123 and $50.")
+    assert len(words) == 9
+    assert words[6] == '100,000,000.123'
