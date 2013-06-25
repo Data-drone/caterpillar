@@ -17,8 +17,9 @@ class Tox(TestCommand):
 
 
 requires = [
-    'nltk',        
-    'regex',        
+    'nltk',
+    'numpy',
+    'regex',
 ]
 
 setup(
