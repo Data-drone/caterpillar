@@ -108,9 +108,9 @@ class WordTokenizer(NewRegexpTokenizer):
     # Email pattern, lifted from http://www.regular-expressions.info/email.html
     EMAIL = "(\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,4}\\b)"
 
-    # Capture multi-term names (no lowercase separators supported yet).
-    # We exclude 'The' from the beggining of mult-term names.
-    NAME_COMPOUND = u"((?!The)([A-Z][a-z]+\.?)(?:[^\S\n][A-Z][a-z]+)+)"
+    # Capture multi-term names (optionally with 'of' as the second term).
+    # We exclude [The, But] from the beggining of multi-term names.
+    NAME_COMPOUND = u"((?!(The|But))([A-Z][a-z]+\.?)([^\S\n]of)?([^\S\n][A-Z][a-z]+)+)"
 
     # Capture decimal numbers with allowable punctuation that would get split up with the word pattern
     NUM = u"(\d+(?:[\.\,]{1}\d+)+)"

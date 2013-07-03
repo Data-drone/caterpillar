@@ -31,6 +31,11 @@ def test_word_tokenizer_contractions():
     assert words == ["I've", "observed", "that", "it", "wasn't", "the", "dog", "s", "fault"]
 
 
+def test_word_tokenizer_names():
+    words = WordTokenizer().tokenize("But John was sure to kneel before him. The King of Scotland was a rash man.")
+    assert words == ['But', 'John', 'was', 'sure', 'to', 'kneel', 'before', 'him', 'The', 'King of Scotland', 'was', 'a', 'rash', 'man']
+
+
 def test_word_tokenizer_bush():
     with open(os.path.abspath('caterpillar/processing/test/bush_test_data.txt'), 'r') as f:
         data = f.read()
