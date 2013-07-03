@@ -79,6 +79,7 @@ into
 is
 isn't
 it
+it'll
 it's
 its
 itself

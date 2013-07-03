@@ -20,9 +20,15 @@ def test_paragraph_tokenizer_economics():
         paragraphs = ParagraphTokenizer().tokenize(data)
         assert len(paragraphs) == 4
 
+
 def test_word_tokenizer_tags():
     words = WordTokenizer().tokenize("--#Hello, this is a #tweet... It was made by @me!")
     assert words == ['#Hello', 'this', 'is', 'a', '#tweet', 'It', 'was', 'made', 'by', '@me']
+
+
+def test_word_tokenizer_contractions():
+    words = WordTokenizer().tokenize("I've observed that it wasn't the dog's fault.")
+    assert words == ["I've", "observed", "that", "it", "wasn't", "the", "dog", "s", "fault"]
 
 
 def test_word_tokenizer_bush():

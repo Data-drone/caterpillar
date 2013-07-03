@@ -102,6 +102,9 @@ class WordTokenizer(NewRegexpTokenizer):
     Tokenize a string into words.
 
     """
+    # Match all word contractions, except possessives which we split to retain the root owner.
+    CONTRACTION = "([A-Za-z]+\'[A-RT-Za-rt-z]+)"
+
     # Email pattern, lifted from http://www.regular-expressions.info/email.html
     EMAIL = "(\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,4}\\b)"
 
@@ -116,7 +119,7 @@ class WordTokenizer(NewRegexpTokenizer):
     WORD = u"((?:[#@]?)\w+)"
 
     def __init__(self, detect_compound_names=True):
-        pattern = self.EMAIL + '|' +  self.NUM + '|' + self.WORD
+        pattern = self.EMAIL + '|' +  self.NUM + '|' + self.CONTRACTION + '|' + self.WORD
         if detect_compound_names:
             pattern = self.NAME_COMPOUND + '|' + pattern
         NewRegexpTokenizer.__init__(self, pattern, gaps=False)
