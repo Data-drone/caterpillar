@@ -5,7 +5,7 @@
 import os
 
 from caterpillar.processing.frames import frame_stream
-from caterpillar.processing.index import build_text_index
+from caterpillar.processing.index import *
 from caterpillar.processing.tokenize import StopwordTokenFilter
 from caterpillar.processing import stopwords
 
@@ -24,3 +24,20 @@ def test_index_alice():
     assert len(index.term_frequencies_by_frame) == 510
     assert index.term_frequencies_by_frame.N() == 869
     assert index.term_frequencies_by_frame['Alice'] == 24
+
+
+def test_index_alice_with_bigram_words():
+    frames = list(frame_stream(open(os.path.abspath('examples/alice.txt'), 'r')))
+    bigrams, frame_bigrams = find_bigram_words(frames)
+
+    frames = frame_stream(open(os.path.abspath('examples/alice.txt'), 'r'))
+    index = build_text_index(frames, frame_ngrams=frame_bigrams)
+    assert index.term_frequencies_by_frame['golden key'] == 6
+
+
+def test_find_bigram_words():
+    frames = frame_stream(open(os.path.abspath('examples/moby.txt'), 'r'))
+
+    bigrams, frame_bigrams = find_bigram_words(frames)
+    assert ('vinegar', 'cruet') in bigrams
+    assert len(bigrams) == 1

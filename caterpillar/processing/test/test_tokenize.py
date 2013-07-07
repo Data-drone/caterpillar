@@ -56,8 +56,8 @@ def test_word_tokenizer_contractions():
 
 
 def test_word_tokenizer_names():
-    words = WordTokenizer().tokenize("But John was sure to kneel before him. The King of Scotland was a rash man.")
-    assert words == ['But', 'John', 'was', 'sure', 'to', 'kneel', 'before', 'him', 'The', 'King of Scotland', 'was', 'a', 'rash', 'man']
+    words = WordTokenizer().tokenize("But John McGee was sure to kneel before him. The King of Scotland was a rash man.")
+    assert words == ['But', 'John McGee', 'was', 'sure', 'to', 'kneel', 'before', 'him', 'The', 'King of Scotland', 'was', 'a', 'rash', 'man']
 
 
 def test_word_tokenizer_bush():

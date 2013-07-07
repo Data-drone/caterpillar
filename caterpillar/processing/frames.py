@@ -98,6 +98,7 @@ def frame_stream(text_file, frame_size=2, tokenizer=nltk.data.load('tokenizers/p
     encoding -- The encoding of the strings read from text_file.
 
     """
+    text_file.seek(0)   # Always read from start of the file
     sequence_number = 1
     if frame_size > 0:
         # Break text up into frames of frame_size sentences long
@@ -157,6 +158,8 @@ def frame_stream_csv(csv_file, column_spec, frame_size=2, tokenizer=nltk.data.lo
     delimiter -- A one-character string used to separate fields. It defaults to ','.
 
     """
+    csv_file.seek(0)   # Always read from start of the file
+
     # Try and guess a dialect by parsing a sample
     snipit = csv_file.read(4096)
     sniffer = csv.Sniffer()
