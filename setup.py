@@ -29,7 +29,7 @@ setup(
     url='http://www.mammothlabs.com.au',
     license='Commercial',
     install_requires=requires,
-    tests_require=['tox'],
+    tests_require=['tox', 'pytest'],
     cmdclass={'test': Tox},
     author='Mammoth Labs',
     author_email='contact@mammothlabs.com.au',

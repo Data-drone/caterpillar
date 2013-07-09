@@ -1,4 +1,4 @@
-ENV
+.coverage
 build/
 dist/
 *.pyc

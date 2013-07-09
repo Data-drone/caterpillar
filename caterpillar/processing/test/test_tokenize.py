@@ -4,14 +4,38 @@
 # Author: Ryan Stuart <ryan@mammothlabs.com.au>
 
 import os
-from caterpillar.processing.tokenize import ParagraphTokenizer, WordTokenizer
+import pytest
+from caterpillar.processing.tokenize import *
 
 
+#### Some basic error condition and plumbing tests ####
+def test_regex_tokenizer_invalid_pattern():
+    with pytest.raises(ValueError):
+        NewRegexpTokenizer('*&&jkbbj&&')  # An invalid regex
+
+
+def test_token_filter_base_cls():
+    with pytest.raises(NotImplementedError):
+        TokenFilter().filter([])  # Base class, can't instantiate it.
+
+
+def test_regex_tokenizer_repr():
+    assert 'NewRegexpTokenizer(pattern=\w, gaps=False, flags=312)' == NewRegexpTokenizer('\w').__repr__()
+
+
+#### Actually test the tokenizers ####
 def test_paragraph_tokenizer_alice():
     with open(os.path.abspath('caterpillar/processing/test/alice_test_data.txt'), 'r') as f:
         data = f.read()
         paragraphs = ParagraphTokenizer().tokenize(data)
         assert len(paragraphs) == 22
+
+
+def test_paragraph_tokenizer_offsets_alice():
+    with open(os.path.abspath('caterpillar/processing/test/alice_test_data.txt'), 'r') as f:
+        data = f.read()
+        offsets = list(ParagraphTokenizer().span_tokenize(data))
+        assert len(offsets) == 22
 
 
 def test_paragraph_tokenizer_economics():
