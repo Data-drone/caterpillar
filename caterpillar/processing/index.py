@@ -57,8 +57,79 @@ class TextIndex(object):
         """
         self.term_frequencies_by_frame.inc(term, amount)
 
+    def fold_term_case(self, merge_threshold=0.7):
+        """
+        Perform case folding on the index in its current state, merging words into names and vice-versa
+        depending on the specified threshold.
 
-def build_text_index(frames, filters=[StopwordTokenFilter(stopwords.ENGLISH, stopwords.MIN_WORD_SIZE)], detect_compound_names=True, frame_ngrams={}):
+        Keyword Arguments:
+        merge_threshold -- Merge when ratio between word and name version of term falls below this threshold.
+
+        """
+        term_transforms = []
+        for w, freq in self.term_frequencies_by_frame.items():
+            if w.islower() and w.title() in self.term_frequencies_by_frame:
+                freq_name = self.term_frequencies_by_frame[w.title()]
+                if freq / freq_name < merge_threshold:
+                    # Merge into name
+                    term_transforms.append((w, w.title()))
+                elif freq_name / freq < merge_threshold:
+                    # Merge into word
+                    term_transforms.append((w.title(), w))
+        self._update_for_term_transofrms(term_transforms)
+
+    def _update_for_term_transofrms(self, transforms):
+        """
+        Update the index based on a list of term transformations.
+
+        Each transformation is encoded in a tuple like: (old_term, new_term)
+
+        """
+        for old_term, new_term in transforms:
+
+            # Update term positions in frames
+            for frame_id, positions in self.term_positions[old_term].items():
+                try:
+                    self.term_positions[new_term][frame_id].extend(positions)
+                except KeyError:
+                    # New term had not been recorded in this frame
+                    self.term_positions[new_term][frame_id] = positions
+                # Update frame words
+                self.frames[frame_id].unique_words.add(new_term)
+                self.frames[frame_id].unique_words.remove(old_term)
+            del self.term_positions[old_term]
+
+            # Update term associations
+            if old_term in self.term_associations:
+
+                if new_term not in self.term_associations:
+                    # Handle rare case when new term has no recorded associations yet
+                    self.term_associations[new_term] = self.term_associations[old_term]
+                else:
+                    # Normal operation
+                    for other_term, freq in self.term_associations[old_term].items():
+                        # Update new term
+                        try:
+                            self.term_associations[new_term][other_term] += freq
+                        except KeyError:
+                            # New term had no recorded associations with other term
+                            self.term_associations[new_term][other_term] = freq
+                        # Update other term
+                        try:
+                            self.term_associations[other_term][new_term] += self.term_associations[other_term][old_term]
+                        except KeyError:
+                            # Other term had no recorded associations with new term
+                            self.term_associations[other_term][new_term] = self.term_associations[other_term][old_term]
+                        del self.term_associations[other_term][old_term]
+                del self.term_associations[old_term]
+
+            # Update term frequency
+            self.term_frequencies_by_frame[new_term] += self.term_frequencies_by_frame[old_term]
+            del self.term_frequencies_by_frame[old_term]
+
+
+def build_text_index(frames, filters=[StopwordTokenFilter(stopwords.ENGLISH, stopwords.MIN_WORD_SIZE)],
+                     detect_compound_names=True, frame_ngrams={}, case_folding=False):
     """
     This function constructs and returns a ``TextIndex`` object based on frame data.
 
@@ -79,6 +150,11 @@ def build_text_index(frames, filters=[StopwordTokenFilter(stopwords.ENGLISH, sto
         # Tokenize words in frame
         positions = list(word_tokenizer.span_tokenize(frame.text))
         words = [frame.text[l:r] for l,r in positions]
+
+        # TODO
+        # Should this be here?
+        if case_folding and len(words) > 0 and ' ' not in words[0]:     # Don't lowercase name compounds
+            words[0] = words[0].lower()
 
         # Ngram Identification
         if frame.sequence in frame_ngrams.keys():
@@ -165,6 +241,9 @@ def build_text_index(frames, filters=[StopwordTokenFilter(stopwords.ENGLISH, sto
                     # Handle first association recorded for a word
                     index.term_associations[word] = {other_word : 1}
     logger.info("Indexed {} frames, inserted {} n-grams".format(len(index.frames), total_ngrams_inserted))
+
+    if case_folding:
+        index.fold_term_case()
 
     return index
 

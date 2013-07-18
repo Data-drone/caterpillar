@@ -35,6 +35,15 @@ def test_index_alice_with_bigram_words():
     assert index.term_frequencies_by_frame['golden key'] == 6
 
 
+def test_index_moby_with_case_folding():
+    frames = list(frame_stream(open(os.path.abspath('examples/moby.txt'), 'r')))
+    index = build_text_index(frames, filters=[StopwordTokenFilter(stopwords.ENGLISH_TEST, stopwords.MIN_WORD_SIZE)], case_folding=True)
+    assert 'flask' not in index.term_frequencies_by_frame
+    assert index.term_frequencies_by_frame['Flask'] == 87
+    assert 'Well' not in index.term_frequencies_by_frame
+    assert index.term_frequencies_by_frame['well'] == 211
+
+
 def test_find_bigram_words():
     frames = frame_stream(open(os.path.abspath('examples/moby.txt'), 'r'))
 
