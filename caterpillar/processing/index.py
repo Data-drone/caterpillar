@@ -1,14 +1,18 @@
 # caterpillar: Tools to create and store a text index
 #
 # Copyright (C) 2012-2013 Mammoth Labs
-# Author: Kris Rogers <kris@mammothlabs.com.au>
+# Author: Kris Rogers <kris@mammothlabs.com.au>, Ryan Stuart <ryan@mammothlabs.com.au>
 from __future__ import division
+import logging
 
 import nltk
 import numpy
 
 from caterpillar.processing.tokenize import StopwordTokenFilter, WordTokenizer
 from caterpillar.processing import stopwords
+
+
+logger = logging.getLogger(__name__)
 
 
 class TextIndex(object):
@@ -67,6 +71,8 @@ def build_text_index(frames, filters=[StopwordTokenFilter(stopwords.ENGLISH, sto
     """
     index = TextIndex()
     word_tokenizer = WordTokenizer(detect_compound_names=detect_compound_names)
+    total_ngrams_inserted = 0
+    logger.info('Performing index')
 
     # Process frames
     for frame in frames:
@@ -92,12 +98,12 @@ def build_text_index(frames, filters=[StopwordTokenFilter(stopwords.ENGLISH, sto
                         # Didn't break loop; this means an ngram was matched
                         matches.append(word_cursor)
                         # Update cursor position, Do NOT allow for overlapping ngrams.
-                        word_cursor = word_cursor + ngram_size
+                        word_cursor += ngram_size
 
                 num_insertions = 0
                 # Update tokenisation results with ngrams
                 for ngram_start_index in matches:
-                    ngram_start_index = ngram_start_index - num_insertions * ngram_size    # Adjust position for replaced matches
+                    ngram_start_index -= num_insertions * ngram_size  # Adjust position for replaced matches
                     ngram_end_index = ngram_start_index + ngram_size - 1
                     # Get character-based positions
                     start_char_pos = positions[ngram_start_index][0]
@@ -108,7 +114,9 @@ def build_text_index(frames, filters=[StopwordTokenFilter(stopwords.ENGLISH, sto
                     # Insert new records
                     positions.insert(ngram_start_index, (start_char_pos, end_char_pos))
                     words.insert(ngram_start_index, ' '.join(ngram))
-                    num_insertions = num_insertions + 1
+                    num_insertions += 1
+                total_ngrams_inserted += num_insertions
+                logger.debug("{} n-grams merged in frame {}".format(num_insertions, frame.id))
 
         unique_words = set(words)
 
@@ -156,6 +164,7 @@ def build_text_index(frames, filters=[StopwordTokenFilter(stopwords.ENGLISH, sto
                 except KeyError:
                     # Handle first association recorded for a word
                     index.term_associations[word] = {other_word : 1}
+    logger.info("Indexed {} frames, inserted {} n-grams".format(len(index.frames), total_ngrams_inserted))
 
     return index
 
@@ -178,6 +187,7 @@ def find_bigram_words(frames, stopwords=stopwords.ENGLISH, min_word_size=stopwor
     """
     word_tokenizer = WordTokenizer()
     frequencies = nltk.probability.FreqDist()
+    logger.info("Identifying n-grams")
 
     # Convert to dict for faster access
     stopwords = {s : None for s in stopwords}
@@ -210,8 +220,8 @@ def find_bigram_words(frames, stopwords=stopwords.ENGLISH, min_word_size=stopwor
     mean = numpy.mean(vals)
     std = numpy.std(vals)
     candidate_bigrams_list = filter(lambda (k, v): len(v) > min_bigram_freq, candidate_bigrams.items())
-    candidate_bigrams_list = filter(lambda (k, v): len(v) / frequencies[k[0]] > min_bigram_coverage and len(v) / frequencies[k[1]] > min_bigram_coverage,
-                                    candidate_bigrams_list)
+    candidate_bigrams_list = filter(lambda (k, v): len(v) / frequencies[k[0]] > min_bigram_coverage and
+                                    len(v) / frequencies[k[1]] > min_bigram_coverage, candidate_bigrams_list)
     candidate_bigrams_list = sorted(candidate_bigrams_list, key=lambda (k, v): len(v), reverse=True)
 
     # Build index of bigrams for frames
@@ -222,5 +232,6 @@ def find_bigram_words(frames, stopwords=stopwords.ENGLISH, min_word_size=stopwor
                 frame_bigrams[frame_seq].append(b[0])
             except KeyError:
                 frame_bigrams[frame_seq] = [b[0]]
+    logger.info("{} n-grams identified".format(len(candidate_bigrams_list)))
 
     return [b[0] for b in candidate_bigrams_list], frame_bigrams

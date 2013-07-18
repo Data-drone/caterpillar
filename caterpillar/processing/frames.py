@@ -2,13 +2,17 @@
 #
 # Copyright (C) 2012-2013 Mammoth Labs
 # Author: Ryan Stuart <ryan@mammothlabs.com.au>, Kris Rogers <kris@mammothlabs.com.au>
-from StringIO import StringIO
 import csv
+import logging
+from StringIO import StringIO
 
 import uuid
 from caterpillar.processing.tokenize import ParagraphTokenizer
 
 import nltk.data
+
+
+logger = logging.getLogger(__name__)
 
 
 class ColumnDataType(object):
@@ -98,6 +102,7 @@ def frame_stream(text_file, frame_size=2, tokenizer=nltk.data.load('tokenizers/p
     encoding -- The encoding of the strings read from text_file.
 
     """
+    logger.info('Extracting frames from stream')
     text_file.seek(0)   # Always read from start of the file
     sequence_number = 1
     if frame_size > 0:
@@ -127,10 +132,11 @@ def frame_stream(text_file, frame_size=2, tokenizer=nltk.data.load('tokenizers/p
         # Return all text in 1 frame
         input = text_file.read().decode(encoding)
         yield Frame(uuid.uuid4(), sequence_number, input.strip(), meta_data)
+    logger.info('Frame extraction complete')
 
 
 def frame_stream_csv(csv_file, column_spec, frame_size=2, tokenizer=nltk.data.load('tokenizers/punkt/english.pickle'),
-                     meta_data=dict(), encoding='utf-8', delimiter=',', quotechar='"'):
+                     meta_data=None, encoding='utf-8', delimiter=',', quotechar='"'):
     """
     This generator function yields text frames parsed from csv_file.
 
@@ -158,6 +164,7 @@ def frame_stream_csv(csv_file, column_spec, frame_size=2, tokenizer=nltk.data.lo
     delimiter -- A one-character string used to separate fields. It defaults to ','.
 
     """
+    logger.info('Extracting frames from CSV')
     csv_file.seek(0)   # Always read from start of the file
 
     # Try and guess a dialect by parsing a sample
@@ -177,7 +184,7 @@ def frame_stream_csv(csv_file, column_spec, frame_size=2, tokenizer=nltk.data.lo
     # meta data.
     row_seq = 1  # Might be interesting to have, so store it
     for row in csv_reader:
-        row_meta_data = meta_data.copy()
+        row_meta_data = meta_data.copy() if meta_data else dict()
         row_meta_data['row_seq'] = str(row_seq)
         row_seq += 1
         text_queue = []
@@ -196,3 +203,4 @@ def frame_stream_csv(csv_file, column_spec, frame_size=2, tokenizer=nltk.data.lo
             for frame in frame_stream(StringIO(text_cell[1]), frame_size=frame_size, tokenizer=tokenizer,
                                       meta_data=cell_meta_data, encoding=encoding):
                 yield frame
+    logger.info('Frame extraction complete')

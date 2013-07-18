@@ -2,11 +2,14 @@
 #
 # Copyright (C) 2012-2013 Mammoth Labs
 # Author: Ryan Stuart <ryan@mammothlabs.com.au>
-
+import logging
 from nltk.internals import convert_regexp_to_nongrouping
 from nltk.tokenize.api import TokenizerI
 
 import regex
+
+
+logger = logging.getLogger(__name__)
 
 
 class NewRegexpTokenizer(TokenizerI):
@@ -142,6 +145,7 @@ class StopwordTokenFilter(TokenFilter):
         Return a filtered list of tokens.
 
         """
+        logger.debug('Applying stopword filter')
         return filter(lambda t: t.lower() not in self.stopwords and len(t) > self.min_word_size, tokens)
 
 
