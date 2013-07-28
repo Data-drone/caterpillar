@@ -5,4 +5,5 @@
 from caterpillar.processing.frames import *
 
 with open('examples/moby.txt', 'r') as file:
-    frames = list(frame_stream(file))
+    # Frames will be a generator
+    frames = frame_stream(file)

@@ -8,3 +8,4 @@ dist/
 .tox
 caterpillar.egg-info
 build
+coverage_report

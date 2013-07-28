@@ -2,26 +2,45 @@
 #
 # Copyright (C) 2012-2013 Mammoth Labs
 # Author: Ryan Stuart <ryan@mammothlabs.com.au>
-
-
 import os
 from caterpillar.processing.frames import *
+from caterpillar.processing.schema import ColumnSpec
 
 
+#### Error and plumbing tests ####
+def test_frame():
+    frame = Frame()
+    frame.update("id", 0, ['A sentence.'])
+    frame_copy = frame.copy()
+
+    assert frame_copy.id == frame.id
+    assert frame_copy.sequence == frame.sequence
+    assert frame_copy.sentences == frame.sentences
+
+
+#### Functional tests ####
 def test_frame_stream_alice():
     """Test frame extraction on Chapter 1 of Alice in Wonderland."""
-    frames = list(frame_stream(open(os.path.abspath('caterpillar/processing/test/alice_test_data.txt'), 'r'),
-                               meta_data={'document': 'alice_test_data.txt'}))
-    assert len(frames) == 49
-    assert frames[0].metadata['document'] == 'alice_test_data.txt'
+    with open(os.path.abspath('caterpillar/resources/alice_test_data.txt'), 'r') as f:
+        frames = frame_stream(f, meta_data={'document': 'alice_test_data.txt'})
+        index = 0
+        for f in frames:
+            if index == 0:
+                assert f.metadata['document'] == 'alice_test_data.txt'
+            index += 1
+        assert index == 49
 
 
 def test_frame_stream_economics():
     """Test frame extraction on a Wikipedia page about Economics."""
-    frames = list(frame_stream(open(os.path.abspath('caterpillar/processing/test/economics_test_data.txt'), 'r'),
-                               meta_data={'document': 'economics_test_data.txt'}))
-    assert len(frames) == 7
-    assert frames[0].metadata['document'] == 'economics_test_data.txt'
+    with open(os.path.abspath('caterpillar/resources/economics_test_data.txt'), 'r') as f:
+        frames = frame_stream(f, meta_data={'document': 'economics_test_data.txt'})
+        index = 0
+        for f in frames:
+            if index == 0:
+                assert f.metadata['document'] == 'economics_test_data.txt'
+            index += 1
+        assert index == 7
 
 
 def test_frame_stream_csv_regular():
@@ -33,12 +52,17 @@ def test_frame_stream_csv_regular():
                ColumnSpec('disliked', ColumnDataType.TEXT),
                ColumnSpec('would_like', ColumnDataType.TEXT),
                ColumnSpec('nps', ColumnDataType.INTEGER)]
-    frames = list(frame_stream_csv(open(os.path.abspath('caterpillar/processing/test/test_small.csv'), 'rbU'), columns,
-                  meta_data={'document': 'test_small.csv'}))
-    assert len(frames) == 39
-    assert frames[0].metadata['document'] == 'test_small.csv'
-    assert frames[0].metadata['row_seq'] == '1'
-    assert frames[14].metadata['nps'] == '1'
+    with open(os.path.abspath('caterpillar/resources/test_small.csv'), 'rbU') as f:
+        frames = frame_stream_csv(f, columns, meta_data={'document': 'test_small.csv'})
+        index = 0
+        for f in frames:
+            if index == 0:
+                assert f.metadata['document'] == 'test_small.csv'
+                assert f.metadata['row_seq'] == '1'
+            elif index == 14:
+                assert f.metadata['nps'] == '1'
+            index += 1
+        assert index == 39
 
 
 def test_frame_stream_csv_with_cr():
@@ -50,12 +74,17 @@ def test_frame_stream_csv_with_cr():
                ColumnSpec('disliked', ColumnDataType.TEXT),
                ColumnSpec('would_like', ColumnDataType.TEXT),
                ColumnSpec('nps', ColumnDataType.INTEGER)]
-    frames = list(frame_stream_csv(open(os.path.abspath('caterpillar/processing/test/test_with_CR.csv'), 'rbU'), columns,
-                  meta_data={'document': 'test_small.csv'}))
-    assert len(frames) == 39
-    assert frames[0].metadata['document'] == 'test_small.csv'
-    assert frames[0].metadata['row_seq'] == '1'
-    assert frames[14].metadata['nps'] == '1'
+    with open(os.path.abspath('caterpillar/resources/test_with_CR.csv'), 'rbU') as f:
+        frames = frame_stream_csv(f, columns, meta_data={'document': 'test_small.csv'})
+        index = 0
+        for f in frames:
+            if index == 0:
+                assert f.metadata['document'] == 'test_small.csv'
+                assert f.metadata['row_seq'] == '1'
+            elif index == 14:
+                assert f.metadata['nps'] == '1'
+            index += 1
+        assert index == 39
 
 
 def test_frame_stream_csv_cell_as_frame():
@@ -67,18 +96,24 @@ def test_frame_stream_csv_cell_as_frame():
                ColumnSpec('disliked', ColumnDataType.TEXT),
                ColumnSpec('would_like', ColumnDataType.TEXT),
                ColumnSpec('nps', ColumnDataType.INTEGER)]
-    frames = list(frame_stream_csv(open(os.path.abspath('caterpillar/processing/test/test_small.csv'), 'rbU'), columns,
-                  meta_data={'document': 'test_small.csv'}, frame_size=0))
-    assert len(frames) == 35
-    assert frames[0].metadata['document'] == 'test_small.csv'
-    assert frames[0].metadata['row_seq'] == '1'
-    assert frames[14].metadata['nps'] == '1'
+    with open(os.path.abspath('caterpillar/resources/test_small.csv'), 'rbU') as f:
+        frames = frame_stream_csv(f, columns,meta_data={'document': 'test_small.csv'}, frame_size=0)
+        index = 0
+        for f in frames:
+            if index == 0:
+                assert f.metadata['document'] == 'test_small.csv'
+                assert f.metadata['row_seq'] == '1'
+            elif index == 14:
+                assert f.metadata['nps'] == '1'
+            index += 1
+        assert index == 35
 
 
 def test_frame_stream_csv_bad_row():
     """Test CSV frame extraction with row with extraneous cells."""
     columns = [ColumnSpec('Sentiment', ColumnDataType.IGNORE),
                ColumnSpec('Text', ColumnDataType.TEXT)]
-    frames = list(frame_stream_csv(open(os.path.abspath('caterpillar/processing/test/twitter_sentiment.csv'), 'rbU'), columns,
-                  meta_data={'document': 'twitter_sentiment.csv'}, frame_size=0))
-    assert len(frames) == 400
+    with open(os.path.abspath('caterpillar/resources/twitter_sentiment.csv'), 'rbU') as f:
+        frames = list(frame_stream_csv(f, columns, meta_data={'document': 'twitter_sentiment.csv'}, frame_size=0))
+
+        assert len(frames) == 400

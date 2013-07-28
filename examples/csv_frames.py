@@ -5,7 +5,8 @@
 from caterpillar.processing.frames import *
 
 with open('examples/big.csv', 'rbU') as csvfile:
-    frames = list(frame_stream_csv(csvfile,
+    # Frames will be a generator
+    frames = frame_stream_csv(csvfile,
                               [ColumnSpec('respondant', ColumnDataType.INTEGER),
                                ColumnSpec('region', ColumnDataType.STRING),
                                ColumnSpec('store', ColumnDataType.STRING),
@@ -13,4 +14,4 @@ with open('examples/big.csv', 'rbU') as csvfile:
                                ColumnSpec('disliked', ColumnDataType.TEXT),
                                ColumnSpec('would_like', ColumnDataType.TEXT),
                                ColumnSpec('nps', ColumnDataType.INTEGER)
-                               ]))
+                               ])

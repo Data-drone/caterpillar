@@ -7,10 +7,10 @@ import logging
 from StringIO import StringIO
 import uuid
 
-from caterpillar.processing.schema import ColumnDataType, ColumnSpec
-from caterpillar.processing.tokenize import ParagraphTokenizer
-
 import nltk.data
+
+from caterpillar.processing.analysis.tokenize import ParagraphTokenizer
+from caterpillar.processing.schema import ColumnDataType
 
 
 logger = logging.getLogger(__name__)
@@ -24,19 +24,45 @@ class Frame(object):
     frequencies, a dict of metadata, a string representation of its original form, a unique identifier, a sequence
     number and optionally a list of unique words.
 
+    Because object instantiation in Python is slow all frame_stream functions use this class as singleton. This means
+    that ONE SINGLE Token object is YIELD OVER AND OVER by frame_stream functions, changing the attributes each time.
+
     """
 
-    def __init__(self, id, sequence, text, metadata=None, unique_words=None):
+    def __init__(self):
+        self.id = None
+        self.sentences = None
+        self.sequence = None
+        self.metadata = None
+        self.unique_terms = None
+
+    def update(self, id, sequence, sentences, metadata=None, unique_terms=None):
         """
-        Create a new frame from the passed id string, sequence int, text string, frequencies dict and optional metadata
-        dict, unique_words dict.
+        Reinitialise this frame.
+
+        Required Arguments:
+        id -- A string that uniquely identifies this frame.
+        sequence -- A int sequence number for this frame.
+        sentences -- A list of sentence strings for this frame.
+        matedata -- A dict of metadata for this frame
+        unique_terms -- A set of unique_terms for this frame.
 
         """
         self.id = id
-        self.text = text
+        self.sentences = sentences
         self.sequence = sequence
         self.metadata = metadata
-        self.unique_words = unique_words
+        self.unique_terms = unique_terms
+        return self
+
+    def copy(self):
+        """
+        Return a deep copy of this object.
+
+        """
+        frame = Frame()
+        frame.update(self.id, self.sequence, self.sentences, self.metadata, self.unique_terms)
+        return frame
 
 
 WINDOW_SIZE = 1024*1024*10  # our sliding window of text will be 10MB big
@@ -45,9 +71,9 @@ WINDOW_SIZE = 1024*1024*10  # our sliding window of text will be 10MB big
 def frame_stream(text_file, frame_size=2, tokenizer=nltk.data.load('tokenizers/punkt/english.pickle'), meta_data=None,
                  encoding='utf-8'):
     """
-    This generator function yields text frames parsed from text_file.
+    This generator function yields text ``Frame``s parsed from text_file.
 
-    A frame is defined as a block of text who's size is measured in sentences and is at least on sentence long. A frame
+    A ``Frame`` is defined as a block of text who's size is measured in sentences and is at least on sentence long. It
     can have metadata associated with it. Some of this metadata is passed to this function directly (original document
     name as text for example or maybe even document author). Other metadata could possibly be emergent from the text
     frames themselves.
@@ -62,7 +88,12 @@ def frame_stream(text_file, frame_size=2, tokenizer=nltk.data.load('tokenizers/p
     meta_data -- A dict of meta data values.
     encoding -- The encoding of the strings read from text_file.
 
+    Returns frame objects. WARNING for performance reasons only 1 instance of Frame is created and it is reused by this
+    generator. Do no store references to the returned object! If you really need to store ``Frame`` objects call the
+    instance's copy method.
+
     """
+    frame = Frame()  # Only use one instance of frame for performance!
     logger.info('Extracting frames from stream')
     text_file.seek(0)   # Always read from start of the file
     sequence_number = 1
@@ -73,26 +104,32 @@ def frame_stream(text_file, frame_size=2, tokenizer=nltk.data.load('tokenizers/p
         while input:
             window += input.decode(encoding)
             paragraphs = ParagraphTokenizer().tokenize(window)
-            for paragraph in paragraphs[:-1]:  # Never tokenize the last paragraph in case it isn't complete
-                sentences = tokenizer.tokenize(paragraph, realign_boundaries=True)
-                frames_text = (" ".join(sentences[i:i+frame_size]) for i in xrange(0, len(sentences), frame_size))
-                for text in frames_text:
-                    yield Frame(uuid.uuid4(), sequence_number, text, meta_data)
-                    sequence_number += 1
-            window = window[window.rfind(paragraphs[-1]):]
+            # Because the tokenizers need to be generators for performance, the following code isn't very nice.
+            last_paragraph = None
+            for paragraph in paragraphs:  # Never tokenize the last paragraph in case it isn't complete
+                if last_paragraph:
+                    sentences = tokenizer.tokenize(last_paragraph, realign_boundaries=True)
+                    # Create a list of sentences per frame, re-init the frame and yield
+                    sentences_in_frames = [sentences[i:i+frame_size] for i in xrange(0, len(sentences), frame_size)]
+                    for sentence_list in sentences_in_frames:
+                        yield frame.update(uuid.uuid4(), sequence_number, sentence_list, meta_data)
+                        sequence_number += 1
+                last_paragraph = paragraph.value  # Can't store paragraph directly, it is the single Token object!
+            window = window[window.rfind(last_paragraph):]
             window = window.lstrip()  # Don't want it starting with spaces!
             input = text_file.read(WINDOW_SIZE - len(window))
         paragraphs = ParagraphTokenizer().tokenize(window)
         for paragraph in paragraphs:
-            sentences = tokenizer.tokenize(paragraph, realign_boundaries=True)
-            frames_text = (" ".join(sentences[i:i+frame_size]) for i in xrange(0, len(sentences), frame_size))
-            for text in frames_text:
-                yield Frame(uuid.uuid4(), sequence_number, text, meta_data)
+            sentences = tokenizer.tokenize(paragraph.value, realign_boundaries=True)
+            sentences_in_frames = [sentences[i:i+frame_size] for i in xrange(0, len(sentences), frame_size)]
+            for sentence_list in sentences_in_frames:
+                yield frame.update(uuid.uuid4(), sequence_number, sentence_list, meta_data)
                 sequence_number += 1
     else:
         # Return all text in 1 frame
         input = text_file.read().decode(encoding)
-        yield Frame(uuid.uuid4(), sequence_number, input.strip(), meta_data)
+        sentences = tokenizer.tokenize(input.strip(), realign_boundaries=True)
+        yield frame.update(uuid.uuid4(), sequence_number, sentences, meta_data)
     logger.info('Frame extraction complete')
 
 
@@ -123,6 +160,10 @@ def frame_stream_csv(csv_file, column_spec, frame_size=2, tokenizer=nltk.data.lo
     meta_data -- A dict of meta data values for this file.
     encoding -- The encoding of the strings read from text_file.
     delimiter -- A one-character string used to separate fields. It defaults to ','.
+
+    Returns frame objects. WARNING for performance reasons only 1 instance of Frame is created and it is reused by this
+    generator. Do no store references to the returned object! If you really need to store ``Frame`` objects call the
+    instance's copy method.
 
     """
     logger.info('Extracting frames from CSV')
