@@ -158,8 +158,8 @@ def build_text_index(frames, filters=[StopwordTokenFilter(stopwords.ENGLISH, sto
 
         # Ngram Identification
         if frame.sequence in frame_ngrams.keys():
-            num_words = len(words)
             for ngram in frame_ngrams[frame.sequence]:
+                num_words = len(words)
                 matches = []
                 ngram_size = len(ngram)
 
@@ -223,6 +223,7 @@ def build_text_index(frames, filters=[StopwordTokenFilter(stopwords.ENGLISH, sto
             except KeyError:
                 # Handle first frame that a word appears in
                 index.term_positions[word] = {frame.id : word_positions[word]}
+                index.term_associations[word] = {}
 
             # Record frequency information
             index.inc_term_frequency(word)
@@ -235,11 +236,7 @@ def build_text_index(frames, filters=[StopwordTokenFilter(stopwords.ENGLISH, sto
                     continue
 
                 # Record word associations on text index
-                try:
-                    index.term_associations[word][other_word] = index.term_associations[word].get(other_word, 0) + 1
-                except KeyError:
-                    # Handle first association recorded for a word
-                    index.term_associations[word] = {other_word : 1}
+                index.term_associations[word][other_word] = index.term_associations[word].get(other_word, 0) + 1
     logger.info("Indexed {} frames, inserted {} n-grams".format(len(index.frames), total_ngrams_inserted))
 
     if case_folding:

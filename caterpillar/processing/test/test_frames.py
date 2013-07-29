@@ -73,3 +73,12 @@ def test_frame_stream_csv_cell_as_frame():
     assert frames[0].metadata['document'] == 'test_small.csv'
     assert frames[0].metadata['row_seq'] == '1'
     assert frames[14].metadata['nps'] == '1'
+
+
+def test_frame_stream_csv_bad_row():
+    """Test CSV frame extraction with row with extraneous cells."""
+    columns = [ColumnSpec('Sentiment', ColumnDataType.IGNORE),
+               ColumnSpec('Text', ColumnDataType.TEXT)]
+    frames = list(frame_stream_csv(open(os.path.abspath('caterpillar/processing/test/twitter_sentiment.csv'), 'rbU'), columns,
+                  meta_data={'document': 'twitter_sentiment.csv'}, frame_size=0))
+    assert len(frames) == 400

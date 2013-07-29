@@ -5,54 +5,15 @@
 import csv
 import logging
 from StringIO import StringIO
-
 import uuid
+
+from caterpillar.processing.schema import ColumnDataType, ColumnSpec
 from caterpillar.processing.tokenize import ParagraphTokenizer
 
 import nltk.data
 
 
 logger = logging.getLogger(__name__)
-
-
-class ColumnDataType(object):
-    """
-    A ColumnDataType object identifies different data types in a CSV column.
-
-    There are five possible data types:
-    FLOAT -- A floating point number. Should be a string in a format that float() can parse.
-    INTEGER -- A integer. Should be in a format that int() can parse.
-    STRING -- A string type. This type ISN'T analysed. It is just stored.
-    TEXT -- A string type. This is like STRING but it IS analysed and stored (it is used to generate a frame stream).
-    IGNORE -- Ignore this column.
-
-    """
-    FLOAT = 1
-    INTEGER = 2
-    STRING = 3
-    TEXT = 4
-    IGNORE = 5
-
-
-class ColumnSpec(object):
-    """
-    A ColumnSpec object represents information about a column in a CSV file.
-
-    This includes the column's name and its type.
-
-    """
-
-    def __init__(self, name, type):
-        """
-        Create a new ColumnSpec. A ColumnSpec must have a name and a type.
-
-        Required
-        name -- A string name for this column.
-        type -- The type of this column as a ColumnDataType object.
-
-        """
-        self.name = name
-        self.type = type
 
 
 class Frame(object):
@@ -169,11 +130,16 @@ def frame_stream_csv(csv_file, column_spec, frame_size=2, tokenizer=nltk.data.lo
 
     # Try and guess a dialect by parsing a sample
     snipit = csv_file.read(4096)
-    sniffer = csv.Sniffer()
-    dialect = sniffer.sniff(snipit, delimiter)
-
-    # Reset back to the start of the file and actually read it
     csv_file.seek(0)
+    sniffer = csv.Sniffer()
+    dialect = None
+    try:
+        dialect = sniffer.sniff(snipit, delimiter)
+    except Exception:
+        # Fall back to excel csv dialect
+        dialect = csv.excel
+
+    # Now actually read the file
     csv_reader = csv.reader(csv_file, dialect)
     # Don't parse the header
     if sniffer.has_header(snipit):
@@ -183,6 +149,7 @@ def frame_stream_csv(csv_file, column_spec, frame_size=2, tokenizer=nltk.data.lo
     # for this row. Then, return to the queue of TEXT columns and extract teh frames from each passing in the discovered
     # meta data.
     row_seq = 1  # Might be interesting to have, so store it
+    num_cols = len(column_spec)
     for row in csv_reader:
         row_meta_data = meta_data.copy() if meta_data else dict()
         row_meta_data['row_seq'] = str(row_seq)
@@ -190,6 +157,10 @@ def frame_stream_csv(csv_file, column_spec, frame_size=2, tokenizer=nltk.data.lo
         text_queue = []
         index = 0
         for cell in row:
+            if index >= num_cols:
+                # Row goes beyond column spec range; don't process any more cells in this row.
+                logger.warning('Row {} has cell outside of column spec range at index {}. Skipping remainder of row.'.format(row_seq, index))
+                break
             if column_spec[index].type != ColumnDataType.IGNORE and cell:
                 if column_spec[index].type == ColumnDataType.TEXT:
                     text_queue.append((column_spec[index].name, cell))
