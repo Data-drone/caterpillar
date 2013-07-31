@@ -102,7 +102,7 @@ def frame_stream(text_file, frame_size=2, tokenizer=nltk.data.load('tokenizers/p
         window = u""
         input = text_file.read(WINDOW_SIZE)
         while input:
-            window += input.decode(encoding)
+            window += input.decode(errors='ignore')
             paragraphs = ParagraphTokenizer().tokenize(window)
             # Because the tokenizers need to be generators for performance, the following code isn't very nice.
             last_paragraph = None
