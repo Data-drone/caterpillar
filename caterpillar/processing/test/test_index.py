@@ -2,7 +2,7 @@
 #
 # Copyright (C) 2012-2013 Mammoth Labs
 # Author: Kris Rogers <kris@mammothlabs.com.au>
-import StringIO
+from __future__ import division
 import os
 
 from caterpillar.processing.analysis.analyse import DefaultTestAnalyser
