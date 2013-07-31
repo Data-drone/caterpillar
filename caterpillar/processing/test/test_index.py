@@ -36,6 +36,8 @@ def test_index_alice_with_bigram_words():
         assert len(bi_grams) == 5
         assert 'golden key' in bi_grams
         assert index.term_frequencies_by_frame['golden key'] == 6
+        assert index.term_frequencies_by_frame['golden'] == 1
+        assert index.term_frequencies_by_frame['key'] == 3
 
 
 def test_index_moby_with_case_folding():
@@ -63,3 +65,5 @@ def test_find_bigram_words():
         assert len(bi_grams) == 3
         assert 'vinegar cruet' in bi_grams
         assert index.term_frequencies_by_frame['vinegar cruet'] == 4
+        assert 'vinegar' not in index.term_frequencies_by_frame
+        assert 'cruet' not in index.term_frequencies_by_frame

@@ -137,7 +137,6 @@ class BiGramFilter(Filter):
                     continue
                 else:
                     yield prev_token
-                    yield t
             prev_token = t.copy()
         if prev_token:  # Don't forget the last token!!
             yield prev_token
