@@ -133,8 +133,8 @@ def frame_stream(text_file, frame_size=2, tokenizer=nltk.data.load('tokenizers/p
     logger.info('Frame extraction complete')
 
 
-def frame_stream_csv(csv_file, column_spec, frame_size=2, tokenizer=nltk.data.load('tokenizers/punkt/english.pickle'),
-                     meta_data=None, encoding='utf-8', delimiter=',', quotechar='"'):
+def frame_stream_csv(csv_file, csv_schema, frame_size=2, tokenizer=nltk.data.load('tokenizers/punkt/english.pickle'),
+                     meta_data=None, encoding='utf-8', delimiter=','):
     """
     This generator function yields text frames parsed from csv_file.
 
@@ -151,7 +151,7 @@ def frame_stream_csv(csv_file, column_spec, frame_size=2, tokenizer=nltk.data.lo
     Required arguments:
     csv_file -- A file like object returned by something like open() where the text data is to be read from. If this
                 is a file object it must be opened with the 'rbU' flag.
-    column_spec -- A list of ColumnSpec objects in column order.
+    csv_schema -- A ``schema.CsvSchema`` object that will define how to process the csv data file.
 
     Keyword arguments:
     frame_size -- The size of the frames to yield from text cells as an int (default 2). If this argument is less than 1
@@ -168,27 +168,17 @@ def frame_stream_csv(csv_file, column_spec, frame_size=2, tokenizer=nltk.data.lo
     """
     logger.info('Extracting frames from CSV')
     csv_file.seek(0)   # Always read from start of the file
+    csv_reader = csv.reader(csv_file, csv_schema.dialect)
 
-    # Try and guess a dialect by parsing a sample
-    snipit = csv_file.read(4096)
-    csv_file.seek(0)
-    sniffer = csv.Sniffer()
-    dialect = None
-    try:
-        dialect = sniffer.sniff(snipit, delimiter)
-    except Exception:
-        # Fall back to excel csv dialect
-        dialect = csv.excel
-
-    # Now actually read the file
-    csv_reader = csv.reader(csv_file, dialect)
     # Don't parse the header
-    if sniffer.has_header(snipit):
+    if csv_schema.has_header:
         csv_reader.next()
+
     # Do the actual work. Go through row-by-row then cell-by-cell looking at the data type for each cell. If it is a
     # TEXT cell, then add it to a queue for this row. Otherwise, if it isn't an IGNORE cell, add it to the meta data
     # for this row. Then, return to the queue of TEXT columns and extract teh frames from each passing in the discovered
     # meta data.
+    column_spec = csv_schema.columns
     row_seq = 1  # Might be interesting to have, so store it
     num_cols = len(column_spec)
     for row in csv_reader:

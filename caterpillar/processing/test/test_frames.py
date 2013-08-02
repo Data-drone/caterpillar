@@ -4,7 +4,7 @@
 # Author: Ryan Stuart <ryan@mammothlabs.com.au>
 import os
 from caterpillar.processing.frames import *
-from caterpillar.processing.schema import ColumnSpec
+from caterpillar.processing.schema import *
 
 
 #### Error and plumbing tests ####
@@ -52,8 +52,9 @@ def test_frame_stream_csv_regular():
                ColumnSpec('disliked', ColumnDataType.TEXT),
                ColumnSpec('would_like', ColumnDataType.TEXT),
                ColumnSpec('nps', ColumnDataType.INTEGER)]
+    csv_schema = CsvSchema(columns, True, csv.excel)
     with open(os.path.abspath('caterpillar/resources/test_small.csv'), 'rbU') as f:
-        frames = frame_stream_csv(f, columns, meta_data={'document': 'test_small.csv'})
+        frames = frame_stream_csv(f, csv_schema, meta_data={'document': 'test_small.csv'})
         index = 0
         for f in frames:
             if index == 0:
@@ -74,8 +75,9 @@ def test_frame_stream_csv_with_cr():
                ColumnSpec('disliked', ColumnDataType.TEXT),
                ColumnSpec('would_like', ColumnDataType.TEXT),
                ColumnSpec('nps', ColumnDataType.INTEGER)]
+    csv_schema = CsvSchema(columns, True, csv.excel)
     with open(os.path.abspath('caterpillar/resources/test_with_CR.csv'), 'rbU') as f:
-        frames = frame_stream_csv(f, columns, meta_data={'document': 'test_small.csv'})
+        frames = frame_stream_csv(f, csv_schema, meta_data={'document': 'test_small.csv'})
         index = 0
         for f in frames:
             if index == 0:
@@ -96,8 +98,9 @@ def test_frame_stream_csv_cell_as_frame():
                ColumnSpec('disliked', ColumnDataType.TEXT),
                ColumnSpec('would_like', ColumnDataType.TEXT),
                ColumnSpec('nps', ColumnDataType.INTEGER)]
+    csv_schema = CsvSchema(columns, True, csv.excel)
     with open(os.path.abspath('caterpillar/resources/test_small.csv'), 'rbU') as f:
-        frames = frame_stream_csv(f, columns,meta_data={'document': 'test_small.csv'}, frame_size=0)
+        frames = frame_stream_csv(f, csv_schema, meta_data={'document': 'test_small.csv'}, frame_size=0)
         index = 0
         for f in frames:
             if index == 0:
@@ -113,7 +116,8 @@ def test_frame_stream_csv_bad_row():
     """Test CSV frame extraction with row with extraneous cells."""
     columns = [ColumnSpec('Sentiment', ColumnDataType.IGNORE),
                ColumnSpec('Text', ColumnDataType.TEXT)]
+    csv_schema = CsvSchema(columns, True, csv.excel)
     with open(os.path.abspath('caterpillar/resources/twitter_sentiment.csv'), 'rbU') as f:
-        frames = list(frame_stream_csv(f, columns, meta_data={'document': 'twitter_sentiment.csv'}, frame_size=0))
+        frames = list(frame_stream_csv(f, csv_schema, meta_data={'document': 'twitter_sentiment.csv'}, frame_size=0))
 
         assert len(frames) == 400

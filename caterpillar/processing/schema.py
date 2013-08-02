@@ -2,8 +2,10 @@
 #
 # Copyright (C) 2012-2013 Mammoth Labs
 # Kris Rogers <kris@mammothlabs.com.au>
+from __future__ import division
 import csv
 import regex
+from StringIO import StringIO
 
 
 class ColumnDataType(object):
@@ -46,10 +48,29 @@ class ColumnSpec(object):
         self.type = type
 
 
+class CsvSchema(object):
+    """
+    This class represents the schema required to process a particular CSV data file.
+
+    Required Arguments:
+    columns -- A list of ``ColumnSpec`` objects to define how the data should be processed.
+    has_header -- A boolean indicating whether the first row of the file contains headers.
+    dialect -- The dialect to use when parsing the file.
+
+    Optional Arguments:
+    sample_rows -- A list of row data that was used to generate the schema.
+
+    """
+    def __init__(self, columns, has_header, dialect, sample_rows=[]):
+        self.columns = columns
+        self.has_header = has_header
+        self.dialect = dialect
+        self.sample_rows = sample_rows
+
+
 AVG_WORDS_TEXT = 5  # Minimum number of average words per row to consider a column as text
 NUM_PEEK_ROWS_CSV = 20  # Number of csv rows to consider when generating automatic schema
-
-def generate_csv_schema(csv_file, delimiter=','):
+def generate_csv_schema(csv_file, delimiter=',', encoding='utf8'):
     """
     Attempt to generate a schema for the csv file automatically.
 
@@ -58,6 +79,7 @@ def generate_csv_schema(csv_file, delimiter=','):
 
     Optional Arguments:
     delimiter -- CSV delimiter character.
+    encoding -- Character encoding of the file.
 
     Returns a 2-tuple containing the generated schema and the sample rows used to generate the schema.
 
@@ -76,7 +98,8 @@ def generate_csv_schema(csv_file, delimiter=','):
     # Now actually read the file
     reader = csv.reader(csv_file, dialect)
     headers = []
-    if sniffer.has_header(snipit):
+    has_header = csv_has_header(snipit, dialect)
+    if has_header:
         headers = reader.next()
 
     # Collect column statistics
@@ -96,16 +119,48 @@ def generate_csv_schema(csv_file, delimiter=','):
             column_stats[j]['total_words'] += len(regex.findall(r'\w+', col))
 
     # Define columns and generate schema
-    csv_schema = []
+    columns = []
     for index, stats in column_stats.items():
-        name = index
         if headers and index < len(headers):
-            name = headers[index]
+            name = unicode(headers[index], encoding, errors='ignore')
+        else:
+            name = index + 1
         if stats['total_words'] / NUM_PEEK_ROWS_CSV >= AVG_WORDS_TEXT:
             # Enough words for a text column
-            csv_schema.append(ColumnSpec(name, ColumnDataType.TEXT))
+            columns.append(ColumnSpec(name, ColumnDataType.TEXT))
         else:
             # Didn't match anything, default to IGNORE
-            csv_schema.append(ColumnSpec(name, ColumnDataType.IGNORE))
+            columns.append(ColumnSpec(name, ColumnDataType.IGNORE))
 
-    return csv_schema, sample_rows
+    return CsvSchema(columns, has_header, dialect, sample_rows)
+
+
+MAX_HEADER_SIZE_PERCENTAGE = 0.33    # Maximum size for header row as a percentage of the average row size for following rows
+def csv_has_header(sample, dialect):
+    """
+    Custom heuristic for recognising header in CSV files. Intended to be used as an alternative
+    for the ``csv.Sniffer.has_header`` method which doesn't work well for mostly-text CSV files.
+
+    The heuristic we use simply checks the total size of the header row compared to the average row size for
+    the following rows. If a large discrepancy is found, we assume that the first row contains headers.
+
+    Required Arguments:
+    sample -- A sample of data from the CSV.
+    dialect -- CSV dialect to use.
+
+    """
+    reader = csv.reader(StringIO(sample), dialect)
+    header = reader.next() # assume first row is header
+    header_size = sum([len(col) for col in header])
+
+    # Compute average row size
+    total_row_size = 0
+    checked = 0
+    for row in reader:
+        if checked == 20:
+            break
+        total_row_size += sum([len(col) for col in row])
+        checked += 1
+    avg_row_size = total_row_size / checked
+
+    return header_size / avg_row_size <= MAX_HEADER_SIZE_PERCENTAGE
