@@ -2,9 +2,10 @@
 #
 # Copyright (C) 2012-2013 Mammoth Labs
 # Author: Ryan Stuart <ryan@mammothlabs.com.au>
-from caterpillar.processing import index
-from caterpillar.processing.frames import frame_stream
+from caterpillar.processing.index import Index
+from caterpillar.processing.schema import TEXT, Schema, NUMERIC
 
 with open('examples/moby.txt', 'r') as file:
-    frames = frame_stream(file)
-    text_index = index.build_text_index(frames)
+    data = file.read()
+    text_index = Index.create(Schema(text=TEXT, some_number=NUMERIC))
+    text_index.add_document(fold_case=True, text=data, some_number=1)

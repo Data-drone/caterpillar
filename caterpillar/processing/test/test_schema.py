@@ -4,10 +4,53 @@
 # Author: Kris Rogers <kris@mammothlabs.com.au>
 import csv
 import os
+import pytest
 
 from caterpillar.processing import schema
+from caterpillar.processing.index import Index
+from caterpillar.processing.schema import Schema, TEXT, FieldConfigurationError
 
 
+# Plumbing tests
+def test_schema():
+    simple_schema = Schema(test=TEXT)
+    names = simple_schema.names()
+    items = simple_schema.items()
+
+    assert len(simple_schema) == 1
+    assert len(names) == 1
+    assert 'test' in names
+    assert len(items) == 1
+
+    for field in iter(simple_schema):
+        assert isinstance(field, TEXT)
+
+    assert isinstance(simple_schema['test'], TEXT)
+    with pytest.raises(KeyError):
+        field = simple_schema['no_item']
+
+    assert 'test' in simple_schema
+    assert not 'text' in simple_schema
+
+    with pytest.raises(FieldConfigurationError):
+        simple_schema.add("_test", TEXT)
+    with pytest.raises(FieldConfigurationError):
+        simple_schema.add("a test", TEXT)
+    with pytest.raises(FieldConfigurationError):
+        simple_schema.add("test", TEXT)
+    with pytest.raises(FieldConfigurationError):
+        simple_schema.add("text", Index)
+    with pytest.raises(FieldConfigurationError):
+        simple_schema.add("text", str)
+
+    with pytest.raises(KeyError):
+        simple_schema.remove('text')
+    simple_schema.remove('test')
+    assert 'test' not in simple_schema
+
+
+
+# Functional tests
 def test_csv_has_header_sentiment():
     """Test function for recognising headers for small CSV file."""
     with open(os.path.abspath('caterpillar/resources/twitter_sentiment.csv'), 'rbU') as f:

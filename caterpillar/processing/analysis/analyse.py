@@ -5,7 +5,7 @@
 import logging
 from caterpillar.processing.analysis import stopwords
 from caterpillar.processing.analysis.filter import StopFilter, PositionalLowercaseWordFilter, BiGramFilter, PotentialBiGramFilter
-from caterpillar.processing.analysis.tokenize import WordTokenizer
+from caterpillar.processing.analysis.tokenize import WordTokenizer, EverythingTokenizer
 
 
 logger = logging.getLogger(__name__)
@@ -102,6 +102,24 @@ class BiGramAnalyser(Analyser):
         return self._filters
 
 
+class BiGramTestAnalyser(Analyser):
+    """
+    Same as ``BiGramAnalyser`` but uses a fixed stoplist that never changes.
+
+    """
+    _tokenizer = WordTokenizer(detect_compound_names=True)
+
+    def __init__(self, bi_grams):
+        self._filters = [StopFilter(stopwords.ENGLISH_TEST, minsize=stopwords.MIN_WORD_SIZE),
+                         PositionalLowercaseWordFilter(0), BiGramFilter(bi_grams)]
+
+    def get_tokenizer(self):
+        return self._tokenizer
+
+    def get_filters(self):
+        return self._filters
+
+
 class PotentialBiGramAnalyser(Analyser):
     """
     A PotentialBiGramAnalyser returns a list of possible bi-grams from a stream.
@@ -113,6 +131,21 @@ class PotentialBiGramAnalyser(Analyser):
     _tokenizer = WordTokenizer(detect_compound_names=True)
     _filters = [StopFilter(stopwords.ENGLISH, minsize=stopwords.MIN_WORD_SIZE), PositionalLowercaseWordFilter(0),
                 PotentialBiGramFilter()]
+
+    def get_tokenizer(self):
+        return self._tokenizer
+
+    def get_filters(self):
+        return self._filters
+
+
+class EverythingAnalyser(Analyser):
+    """
+    A EverythingAnalyser just returns the entire input string as a token.
+
+    """
+    _tokenizer = EverythingTokenizer()
+    _filters = []
 
     def get_tokenizer(self):
         return self._tokenizer

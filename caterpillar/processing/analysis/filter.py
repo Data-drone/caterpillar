@@ -3,7 +3,6 @@
 # Copyright (C) 2012-2013 Mammoth Labs
 # Author: Ryan Stuart <ryan@mammothlabs.com.au>
 import regex
-from caterpillar.processing.analysis.tokenize import Token
 
 
 class Filter(object):

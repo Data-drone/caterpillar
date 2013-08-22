@@ -4,7 +4,7 @@
 # Author: Ryan Stuart <ryan@mammothlabs.com.au>
 import pytest
 from caterpillar.processing.analysis.filter import *
-from caterpillar.processing.analysis.tokenize import WordTokenizer
+from caterpillar.processing.analysis.tokenize import WordTokenizer, Token
 
 
 TEST_STRING = 'This is my test-string. Isn\'t it great?'

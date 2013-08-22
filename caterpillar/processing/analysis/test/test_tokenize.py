@@ -107,3 +107,8 @@ def test_word_tokenizer_number():
         words.append(t.value)
     assert len(words) == 9
     assert words[6] == '100,000,000.123'
+
+
+def test_everything_tokenizer():
+    token = EverythingTokenizer().tokenize("Test")
+    assert token.value == 'Test'

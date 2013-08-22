@@ -17,6 +17,7 @@ class Tox(TestCommand):
 
 
 requires = [
+    'ujson',
     'nltk',
     'numpy',
     'regex',
@@ -24,8 +25,13 @@ requires = [
 
 setup(
     name='caterpillar',
-    version='0.1',
-    packages=['caterpillar', 'caterpillar.analytics', 'caterpillar.processing'],
+    version='1.0-alpha',
+    packages=[
+        'caterpillar',
+        'caterpillar.analytics',
+        'caterpillar.data',
+        'caterpillar.processing',
+    ],
     url='http://www.mammothlabs.com.au',
     license='Commercial',
     install_requires=requires,

@@ -4,7 +4,6 @@
 # Author: Ryan Stuart <ryan@mammothlabs.com.au>
 import logging
 from nltk.internals import convert_regexp_to_nongrouping
-from nltk.tokenize.api import TokenizerI
 
 import regex
 
@@ -170,6 +169,8 @@ class WordTokenizer(RegexpTokenizer):
 
     """
     # Match all word contractions, except possessives which we split to retain the root owner.
+    # We discard possessives because the are of no use (in english anyway).
+    # TODO: This won't work for languages like French!!
     CONTRACTION = "([A-Za-z]+\'[A-RT-Za-rt-z]+)"
 
     # Email pattern, lifted from http://www.regular-expressions.info/email.html
@@ -177,7 +178,7 @@ class WordTokenizer(RegexpTokenizer):
 
     # Capture multi-term names (optionally with 'of' as the second term).
     # We exclude [The, But] from the beggining of multi-term names.
-    NAME_COMPOUND = u"((?!(The|But))([A-Z][a-z]+\.?)([^\S\n]of)?([^\S\n][A-Z]+[A-Za-z]+)+)"
+    NAME_COMPOUND = u"((?!(The|But))([A-Z][a-z]+|[A-Z][a-z]{0,2}\.)([^\S\n]of)?([^\S\n][A-Z]+[A-Za-z]+)+)"
 
     # Capture decimal numbers with allowable punctuation that would get split up with the word pattern
     NUM = u"(\d+(?:[\.\,]{1}\d+)+)"
@@ -191,3 +192,14 @@ class WordTokenizer(RegexpTokenizer):
             pattern = self.NAME_COMPOUND + '|' + pattern
 
         RegexpTokenizer.__init__(self, pattern, gaps=False)
+
+
+class EverythingTokenizer(Tokenizer):
+    """
+    Returns entire input string as a single token.
+
+    """
+    def tokenize(self, value):
+        t = Token()
+        return t.update(value, stopped=False, position=0, index=(0, len(value),))
+
