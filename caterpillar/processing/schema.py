@@ -157,7 +157,7 @@ def csv_has_header(sample, dialect):
     total_row_size = 0
     checked = 0
     for row in reader:
-        if checked == 20:
+        if checked == 50:
             break
         total_row_size += sum([len(col) for col in row])
         checked += 1
