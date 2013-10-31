@@ -120,4 +120,4 @@ def test_frame_stream_csv_bad_row():
     with open(os.path.abspath('caterpillar/resources/twitter_sentiment.csv'), 'rbU') as f:
         frames = list(frame_stream_csv(f, csv_schema, meta_data={'document': 'twitter_sentiment.csv'}, frame_size=0))
 
-        assert len(frames) == 400
+        assert len(frames) == 401

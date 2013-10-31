@@ -23,18 +23,12 @@ def test_index_destroy():
     with open(os.path.abspath('caterpillar/resources/alice_test_data.txt'), 'r') as f:
         data = f.read()
         index = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser()),
-                                        document=TEXT(analyser=DefaultTestAnalyser(), indexed=False)))
+                                    document=TEXT(analyser=DefaultTestAnalyser(), indexed=False)))
         index.add_document(text=data, document='alice.txt', frame_size=2, fold_case=False)
         index.destroy()
 
         with pytest.raises(KeyError):
             index.get_associations_index()
-
-
-def test_index_searcher():
-    with pytest.raises(NotImplementedError):
-        index = Index.create(Schema(text=TEXT))
-        index.searcher()
 
 
 # Functional tests
@@ -85,6 +79,7 @@ def test_index_moby_small():
         assert len(index.get_term_positions('Mr. Chace')) == 1
         assert len(index.get_term_positions('CONVERSATIONS')) == 1
         assert len(index.get_frequencies()) == 38
+
 
 def test_index_alice_with_bigram_words():
     with open(os.path.abspath('caterpillar/resources/alice.txt'), 'r') as f:

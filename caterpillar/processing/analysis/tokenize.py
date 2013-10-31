@@ -184,7 +184,7 @@ class WordTokenizer(RegexpTokenizer):
     NUM = u"(\d+(?:[\.\,]{1}\d+)+)"
 
     # Basic word pattern, strips all punctuation besides special leading characters
-    WORD = u"((?:[#@]?)\w+)"
+    WORD = u"([#@]?\w+)"
 
     def __init__(self, detect_compound_names=True):
         pattern = self.EMAIL + '|' + self.NUM + '|' + self.CONTRACTION + '|' + self.WORD

@@ -17,6 +17,7 @@ class Tox(TestCommand):
 
 
 requires = [
+    'lrparsing',
     'ujson',
     'nltk',
     'numpy',

@@ -11,6 +11,8 @@ import nltk
 from caterpillar.data.storage import RamStorage, DuplicateContainerError
 from caterpillar.processing.analysis.analyse import PotentialBiGramAnalyser
 from caterpillar.processing.analysis.tokenize import ParagraphTokenizer
+from caterpillar.searching import IndexSearcher
+from caterpillar.searching.scoring import TfidfScorer
 
 
 logger = logging.getLogger(__name__)
@@ -189,12 +191,12 @@ class Index(object):
         """
         return self._storage.get_document(d_id)
 
-    def searcher(self):
+    def searcher(self, scorer_cls=TfidfScorer):
         """
         Return a searcher for this Index.
 
         """
-        raise NotImplementedError
+        return IndexSearcher(self, scorer_cls)
 
     def add_document(self, frame_size=2, fold_case=False, update_index=True, encoding='utf-8', **fields):
         """

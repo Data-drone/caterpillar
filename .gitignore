@@ -9,3 +9,4 @@ dist/
 caterpillar.egg-info
 build
 coverage_report
+*.komodoproject
