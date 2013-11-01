@@ -162,3 +162,23 @@ def test_find_bigram_words():
             index.get_term_positions('vinegar')
         with pytest.raises(KeyError):
             index.get_term_positions('cruet')
+
+
+def test_utf8():
+    with open(os.path.abspath('caterpillar/resources/mt_warning_utf8.txt'), 'r') as f:
+        data = f.read()
+        index = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser()),
+                                    document=TEXT(analyser=DefaultTestAnalyser(), indexed=False)))
+        doc_id = index.add_document(text=data, document='alice.txt', frame_size=2, fold_case=False, update_index=True)
+        assert doc_id
+
+
+def test_latin1():
+    with open(os.path.abspath('caterpillar/resources/mt_warning_latin1.txt'), 'r') as f:
+        data = f.read()
+        index = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser()),
+                                    document=TEXT(analyser=DefaultTestAnalyser(), indexed=False)))
+        doc_id = index.add_document(text=data, document='alice.txt', frame_size=2, fold_case=False, update_index=True,
+                                    encoding='latin1')
+        assert doc_id
+

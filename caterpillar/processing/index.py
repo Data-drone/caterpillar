@@ -196,7 +196,7 @@ class Index(object):
         """
         raise NotImplementedError
 
-    def add_document(self, frame_size=2, fold_case=False, update_index=True, **fields):
+    def add_document(self, frame_size=2, fold_case=False, update_index=True, encoding='utf-8', **fields):
         """
         Add a document to this index.
 
@@ -219,7 +219,8 @@ class Index(object):
         frame_size -- the int size of the text frames to break each indexed ``TEXT`` field of this document into.
                       Defaults to 2. A value < 1 will result in only frame being created containing all the text.
         fold_case -- A boolean flag indicating whether to perform case folding after re-indexing.
-        update_index -- A boolean flag indicating whehter to update the index after adding this document or not.
+        update_index -- A boolean flag indicating whether to update the index after adding this document or not.
+        encoding -- this str argument is passed to ``str.decode()`` to decode all text fields.
 
         """
         logger.info('Adding document')
@@ -245,7 +246,7 @@ class Index(object):
         for field in schema_fields:
             if field[1].indexed() and field[0] in fields:  # Only index field if it's in the schema and is to be indexed
                 # Break up into paragraphs first
-                paragraphs = ParagraphTokenizer().tokenize(fields[field[0]])
+                paragraphs = ParagraphTokenizer().tokenize(fields[field[0]].decode(encoding))
                 for paragraph in paragraphs:
                     # Next we need the sentences grouped by frame
                     sentences = sentence_tokenizer.tokenize(paragraph.value, realign_boundaries=True)
