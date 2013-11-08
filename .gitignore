@@ -10,3 +10,4 @@ caterpillar.egg-info
 build
 coverage_report
 *.komodoproject
+*.db

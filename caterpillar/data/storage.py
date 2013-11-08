@@ -3,11 +3,15 @@
 # Copyright (C) 2012-2013 Mammoth Labs
 # Author: Ryan Stuart <ryan@mammothlabs.com.au>
 import abc
-import copy
 
 
 class DuplicateContainerError(Exception):
     """A container by the same name already exists."""
+    pass
+
+
+class DuplicateStorageError(Exception):
+    """A storage object already exists at the specified location."""
     pass
 
 
@@ -16,9 +20,8 @@ class ContainerNotFoundError(Exception):
     pass
 
 
-class DocumentNotFoundError(Exception):
-    """Can't find the specified documents."""
-    pass
+class StorageNotFoundError(Exception):
+    """No storage object found at the specified location."""
 
 
 class Storage(object):
@@ -35,14 +38,6 @@ class Storage(object):
 
     """
     __metaclass__ = abc.ABCMeta
-
-    @abc.abstractmethod
-    def get_schema(self):
-        """
-        Return the ``Schema`` for this storage instance.
-
-        """
-        return
 
     @abc.abstractmethod
     def add_container(self, c_id):
@@ -147,42 +142,6 @@ class Storage(object):
         return
 
     @abc.abstractmethod
-    def get_document(self, d_id):
-        """
-        Get a document using the passed d_id.
-
-        Required Arguments:
-        d_id -- the string id that identifies the document.
-
-        Returns the document data as a dict.
-
-        """
-        return
-
-    @abc.abstractmethod
-    def store_document(self, d_id, data):
-        """
-        Store the passed document. It is the callers responsibility to update index structures.
-
-        Required Arguments:
-        d_id -- the string id that identifies the document.
-        data -- a dict of document data to store which matches the schema for this index.
-
-        """
-        return
-
-    @abc.abstractmethod
-    def remove_document(self, d_id):
-        """
-        Remove a document from storage.
-
-        Required Arguments:
-        d_id -- the string id that identifies the document.
-
-        """
-        return
-
-    @abc.abstractmethod
     def clear(self, container=None):
         """
         Clears this storage object of all data. If container is passed only clears container.
@@ -193,88 +152,17 @@ class Storage(object):
     @abc.abstractmethod
     def destroy(self):
         """
-        Permanently destroy this index by removing all traces of it off any persistent storage it utilises.
+        Permanently destroy this storage object, deleting all data it encapsulates.
 
         BE WARNED, THIS IS IRREVERSIBLE!
 
         """
         return
 
+    @abc.abstractmethod
+    def create(name, path, acid=True, containers=None):
+        pass
 
-class RamStorage(Storage):
-    """
-    This class uses Python data structures to store relevant information in memory.
-
-    This storage implementation doesn't define an open class method because it isn't persistent.
-
-    BE WARNED: This class is not persistent! Things are ONLY stored in memory!
-
-    """
-    def __init__(self, schema, containers=None):
-        if containers:
-            self._containers = {str(c_id): {} for c_id in containers}
-        else:
-            self._containers = {}
-        self._documents = {}
-        self._schema = schema
-
-    @classmethod
-    def create(cls, schema, containers=None):
-        return RamStorage(schema, containers)
-
-    def destroy(self):
-        self.clear()
-
-    def clear(self, container=None):
-        if container:
-            self._containers[container].clear()
-        else:
-            self._documents.clear()
-            self._containers.clear()
-
-    def get_schema(self):
-        return self._schema
-
-    def store_document(self, d_id, data):
-        self._documents[d_id] = data
-
-    def remove_document(self, d_id):
-        del self._documents[d_id]
-
-    def get_document(self, d_id):
-        try:
-            return self._documents[d_id]
-        except KeyError:
-            raise DocumentNotFoundError('No such document {}'.format(d_id))
-
-    def add_container(self, c_id):
-        if str(c_id) in self._containers:
-            raise DuplicateContainerError('\'{}\' container already exists'.format(c_id))
-        self._containers[str(c_id)] = {}
-
-    def delete_container(self, c_id):
-        if str(c_id) not in self._containers:
-            raise ContainerNotFoundError('No container \'{}\''.format(c_id))
-        del self._containers[str(c_id)]
-
-    def get_container_item(self, c_id, key):
-        return self._containers[str(c_id)][str(key)]
-
-    def get_container_items(self, c_id, keys=None):
-        container = str(c_id)
-        if keys:
-            return {str(k): self._containers[container].get(str(k), '') for k in keys}
-        else:
-            return copy.deepcopy(self._containers[str(c_id)])
-
-    def set_container_item(self, c_id, key, value):
-        self._containers[str(c_id)][str(key)] = str(value)
-
-    def set_container_items(self, c_id, items):
-        self._containers[str(c_id)].update(items)
-
-    def delete_container_item(self, c_id, key):
-        del self._containers[str(c_id)][str(key)]
-
-    def clear_container(self, c_id):
-        self._containers[c_id].clear()
+    @abc.abstractmethod
+    def open(name, path):
+        pass

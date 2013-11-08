@@ -5,17 +5,30 @@
 from __future__ import division
 import ujson as json
 import logging
+import os
 import uuid
 
 import nltk
-from caterpillar.data.storage import RamStorage, DuplicateContainerError
+from caterpillar import get_cls
+from caterpillar.data.storage import DuplicateContainerError, StorageNotFoundError
+from caterpillar.data.sqlite import SqliteMemoryStorage
 from caterpillar.processing.analysis.analyse import PotentialBiGramAnalyser
 from caterpillar.processing.analysis.tokenize import ParagraphTokenizer
+from caterpillar.processing.schema import Schema
 from caterpillar.searching import IndexSearcher
 from caterpillar.searching.scoring import TfidfScorer
 
 
 logger = logging.getLogger(__name__)
+
+
+class DocumentNotFoundError(Exception):
+    """No document by that name exists."""
+    pass
+
+
+class IndexNotFoundError(Exception):
+    """No index exists at specified location."""
 
 
 class Index(object):
@@ -24,60 +37,84 @@ class Index(object):
 
     Required Arguments:
     schema -- a ``schema.Schema`` instance that describes the structure of documents that reside in this index.
-    storage -- a ``data.storage.Storage`` instance that will be used to write and read this index into storage.
+    data_storage -- a ``data.storage.Storage`` instance that will be used to write and read document, frame and config
+    data.
+    results_storage -- a ``data.storage.Storage`` instance that will be used to write and read processing results.
 
     """
 
-    POSITIONS_CONTAINER = "positions"
+    # Data storage
+    DATA_STORAGE = "data.db"
+    DOCUMENTS_CONTAINER = "documents"
+    FRAMES_CONTAINER = "frames"
+    SETTINGS_CONTAINER = "settings"
+    SETTINGS_SCHEMA = "schema"
+
+    # Results storage
+    RESULTS_STORAGE = "results.db"
     ASSOCIATIONS_CONTAINER = "associations"
     FREQUENCIES_CONTAINER = "frequencies"
-    FRAMES_CONTAINER = "frames"
+    POSITIONS_CONTAINER = "positions"
 
-    def __init__(self, schema, storage):
+    def __init__(self, schema, data_storage, results_storage):
         self._schema = schema
-        self._storage = storage
+        self._data_storage = data_storage
+        self._results_storage = results_storage
         self._plugins = dict()
+        # Store schema
+        self._data_storage.set_container_item(Index.SETTINGS_CONTAINER, Index.SETTINGS_SCHEMA, schema.dumps())
 
     @staticmethod
-    def create(schema, storage_cls=RamStorage, **args):
+    def create(schema, path=None, storage_cls=SqliteMemoryStorage, **args):
         """
         Create a new index object with the specified path, schema and a instance of the passed storage class.
 
         Required Arguments:
         schema -- the ``Schema`` for the index.
-        storage_cls -- the class to instantiate for the storage object. Defaults to ``RamStorage``. The create()
-                       method will be called on this instance.
+
+        Optional Arguments:
+        path -- path to store index data under. MUST be specified if persistent storage is used.
+        storage_cls -- the class to instantiate for the storage object. Defaults to ``SqliteMemoryStorage``.
+        The create() method will be called on this instance.
         **args -- any keyword arguments that need to be passed onto the storage instance.
         """
-        storage = storage_cls.create(schema, [
+        data_storage = storage_cls.create(Index.DATA_STORAGE, path=path, acid=True, containers=[
+            Index.DOCUMENTS_CONTAINER,
+            Index.FRAMES_CONTAINER,
+            Index.SETTINGS_CONTAINER
+        ], **args)
+        results_storage = storage_cls.create(Index.RESULTS_STORAGE, path=path, acid=False, containers=[
             Index.POSITIONS_CONTAINER,
             Index.ASSOCIATIONS_CONTAINER,
-            Index.FREQUENCIES_CONTAINER,
-            Index.FRAMES_CONTAINER
+            Index.FREQUENCIES_CONTAINER
         ], **args)
-        return Index(schema, storage)
+        return Index(schema, data_storage, results_storage)
 
     @staticmethod
     def open(path, storage_cls):
         """
-        Open an existing Index with the given path.
+        Open an existing Index with the given path. Only supported for persistent storage backed Index.
 
         Required Arguments:
-        path -- the string path to the stored index.
-        storage_cls -- the class to instantiate for the storage object. Defaults to ``RamStorage``. The open() method
-                       will be called on this instance.
+        path -- path to the stored Index.
+        storage_cls -- class to instantiate for the storage object. The open() method will be called on this object.
 
         """
-        #storage = storage_cls.open(path)
-        #return Index(storage.get_schema(), storage)
-        raise NotImplementedError  # TODO: Only makes sense when we have a persistent storage backed
+        try:
+            data_storage = storage_cls.open(Index.DATA_STORAGE, path)
+            results_storage = storage_cls.open(Index.RESULTS_STORAGE, path)
+        except StorageNotFoundError:
+            raise IndexNotFoundError("No index exists at path '{}".format(path))
+        schema = Schema.loads(data_storage.get_container_item(Index.SETTINGS_CONTAINER, Index.SETTINGS_SCHEMA))
+        return Index(schema, data_storage, results_storage)
 
     def destroy(self):
         """
         Permanently destroy this index.
 
         """
-        self._storage.destroy()
+        self._data_storage.destroy()
+        self._results_storage.destroy()
 
     def get_positions_index(self):
         """
@@ -94,7 +131,10 @@ class Index(object):
         }
 
         """
-        return {k: json.loads(v) for k, v in self._storage.get_container_items(Index.POSITIONS_CONTAINER).items()}
+        return {
+            k: json.loads(v)
+            for k, v in self._results_storage.get_container_items(Index.POSITIONS_CONTAINER).items()
+        }
 
     def get_term_positions(self, term):
         """
@@ -109,7 +149,7 @@ class Index(object):
         }
 
         """
-        return json.loads(self._storage.get_container_item(Index.POSITIONS_CONTAINER, term))
+        return json.loads(self._results_storage.get_container_item(Index.POSITIONS_CONTAINER, term))
 
     def get_associations_index(self):
         """
@@ -127,7 +167,10 @@ class Index(object):
         }
 
         """
-        return {k: json.loads(v) for k, v in self._storage.get_container_items(Index.ASSOCIATIONS_CONTAINER).items()}
+        return {
+            k: json.loads(v)
+            for k, v in self._results_storage.get_container_items(Index.ASSOCIATIONS_CONTAINER).items()
+        }
 
     def get_term_association(self, term, assc):
         """
@@ -138,7 +181,7 @@ class Index(object):
         assc -- the str associated term.
 
         """
-        return json.loads(self._storage.get_container_item(Index.ASSOCIATIONS_CONTAINER, term))[assc]
+        return json.loads(self._results_storage.get_container_item(Index.ASSOCIATIONS_CONTAINER, term))[assc]
 
     def get_frequencies(self):
         """
@@ -152,7 +195,10 @@ class Index(object):
         }
 
         """
-        return {k: json.loads(v) for k, v in self._storage.get_container_items(Index.FREQUENCIES_CONTAINER).items()}
+        return {
+            k: json.loads(v)
+            for k, v in self._results_storage.get_container_items(Index.FREQUENCIES_CONTAINER).items()
+        }
 
     def get_term_frequency(self, term):
         """
@@ -162,14 +208,14 @@ class Index(object):
         term -- the str term.
 
         """
-        return json.loads(self._storage.get_container_item(Index.FREQUENCIES_CONTAINER, term))
+        return json.loads(self._results_storage.get_container_item(Index.FREQUENCIES_CONTAINER, term))
 
     def get_frame_count(self):
         """
         Return the count of frames stored on this index.
 
         """
-        return len(self._storage.get_container_items(Index.FRAMES_CONTAINER))
+        return len(self._data_storage.get_container_items(Index.FRAMES_CONTAINER))
 
     def get_frame(self, frame_id):
         """
@@ -179,7 +225,7 @@ class Index(object):
         frame_id -- the str id of the frame.
 
         """
-        return json.loads(self._storage.get_container_item(Index.FRAMES_CONTAINER, frame_id))
+        return json.loads(self._data_storage.get_container_item(Index.FRAMES_CONTAINER, frame_id))
 
     def get_document(self, d_id):
         """
@@ -189,7 +235,24 @@ class Index(object):
         d_id -- the string id of the document.
 
         """
-        return self._storage.get_document(d_id)
+        try:
+            return json.loads(self._data_storage.get_container_item(Index.DOCUMENTS_CONTAINER, d_id))
+        except KeyError:
+            raise DocumentNotFoundError("No document '{}'".format(d_id))
+
+    def get_document_count(self):
+        """
+        Returns the count of documents added to this index.
+
+        """
+        return len(self._data_storage.get_container_items(Index.DOCUMENTS_CONTAINER))
+
+    def get_schema(self):
+        """
+        Get the schema for this index.
+
+        """
+        return self._schema
 
     def searcher(self, scorer_cls=TfidfScorer):
         """
@@ -310,11 +373,11 @@ class Index(object):
         if update_index:
             logger.info('Updating index.')
             # Start by fetching what we need
-            positions_index = {k: json.loads(v) if v else {} for k, v in self._storage.get_container_items(
+            positions_index = {k: json.loads(v) if v else {} for k, v in self._results_storage.get_container_items(
                 Index.POSITIONS_CONTAINER, positions.keys()).items()}
-            assocs_index = {k: json.loads(v) if v else {} for k, v in self._storage.get_container_items(
+            assocs_index = {k: json.loads(v) if v else {} for k, v in self._results_storage.get_container_items(
                 Index.ASSOCIATIONS_CONTAINER, associations.keys()).items()}
-            frequencies_index = {k: json.loads(v) if v else 0 for k, v in self._storage.get_container_items(
+            frequencies_index = {k: json.loads(v) if v else 0 for k, v in self._results_storage.get_container_items(
                 Index.FREQUENCIES_CONTAINER, frequencies.keys()).items()}
 
             # Now update the indexes
@@ -327,7 +390,7 @@ class Index(object):
                         positions_index[term][frame_id] = index
             for key, value in positions_index.items():
                 positions_index[key] = json.dumps(positions_index[key])
-            self._storage.set_container_items(Index.POSITIONS_CONTAINER, positions_index)
+            self._results_storage.set_container_items(Index.POSITIONS_CONTAINER, positions_index)
 
             # Associations next
             for term, value in associations.items():
@@ -335,21 +398,22 @@ class Index(object):
                     assocs_index[term][other_term] = assocs_index[term].get(other_term, 0) + count
             for key, value in assocs_index.items():
                 assocs_index[key] = json.dumps(assocs_index[key])
-            self._storage.set_container_items(Index.ASSOCIATIONS_CONTAINER, assocs_index)
+            self._results_storage.set_container_items(Index.ASSOCIATIONS_CONTAINER, assocs_index)
 
             # Finally frequencies
             for key, value in frequencies.items():
                 frequencies_index[key] = frequencies_index[key] + value
             for key, value in frequencies_index.items():
                 frequencies_index[key] = json.dumps(frequencies_index[key])
-            self._storage.set_container_items(Index.FREQUENCIES_CONTAINER, frequencies_index)
+            self._results_storage.set_container_items(Index.FREQUENCIES_CONTAINER, frequencies_index)
 
         # Store the frames - really easy
-        self._storage.set_container_items(Index.FRAMES_CONTAINER, {k: json.dumps(v) for k, v in frames.items()})
+        self._data_storage.set_container_items(Index.FRAMES_CONTAINER, {k: json.dumps(v) for k, v in frames.items()})
 
         # Finally add the document to storage.
         fields.update({'_id': document_id})
-        self._storage.store_document(document_id, fields)
+        doc_data = json.dumps(fields).decode(encoding)
+        self._data_storage.set_container_item(Index.DOCUMENTS_CONTAINER, document_id, doc_data)
 
         if fold_case:
             logger.info('Performing case folding.')
@@ -377,7 +441,7 @@ class Index(object):
         positions = {}  # Inverted term positions index:: term -> [(start, end,), (star,end,), ...]
         associations = {}  # Inverted term co-occurrence index:: term -> other_term -> count
         frequencies = nltk.probability.FreqDist()  # Inverted term frequency index:: term -> count
-        frames = self._storage.get_container_items(Index.FRAMES_CONTAINER)  # All frames on the index
+        frames = self._data_storage.get_container_items(Index.FRAMES_CONTAINER)  # All frames on the index
 
         for data in frames.values():
             frame = json.loads(data)
@@ -405,16 +469,16 @@ class Index(object):
         # Positions
         for key, value in positions.items():
             positions[key] = json.dumps(positions[key])
-        self._storage.set_container_items(Index.POSITIONS_CONTAINER, positions)
+        self._results_storage.set_container_items(Index.POSITIONS_CONTAINER, positions)
         # Associations
         for key, value in associations.items():
             associations[key] = json.dumps(associations[key])
-        self._storage.set_container_items(Index.ASSOCIATIONS_CONTAINER, associations)
+        self._results_storage.set_container_items(Index.ASSOCIATIONS_CONTAINER, associations)
         # Frequencies
         frequencies_index = {}
         for key, value in frequencies.items():
             frequencies_index[key] = json.dumps(frequencies[key])
-        self._storage.set_container_items(Index.FREQUENCIES_CONTAINER, frequencies_index)
+        self._results_storage.set_container_items(Index.FREQUENCIES_CONTAINER, frequencies_index)
         logger.info("Re-indexed {} frames.".format(len(frames)))
 
         if fold_case:
@@ -431,7 +495,7 @@ class Index(object):
         id -- the string id of the document to delete.
 
         """
-        self._storage.remove_document(d_id)
+        self._data_storage.delete_container_item(Index.DOCUMENTS_CONTAINER, d_id)
 
     def fold_term_case(self, merge_threshold=0.7):
         """
@@ -444,48 +508,65 @@ class Index(object):
         """
         count = 0
         frequencies_index = {k: json.loads(v) if v else 0
-                             for k, v in self._storage.get_container_items(Index.FREQUENCIES_CONTAINER).items()}
+                             for k, v in self._results_storage.get_container_items(Index.FREQUENCIES_CONTAINER).items()}
         # Because getting the associations index is so expensive we just do it once and pass it round.
-        associations_index = {k: json.loads(v) if v else {}
-                              for k, v in self._storage.get_container_items(Index.ASSOCIATIONS_CONTAINER).items()}
+        associations_index = {
+            k: json.loads(v) if v else {}
+            for k, v in self._results_storage.get_container_items(Index.ASSOCIATIONS_CONTAINER).items()
+        }
+        positions_index = {
+            k: json.loads(v) if v else {}
+            for k, v in self._results_storage.get_container_items(Index.POSITIONS_CONTAINER).items()
+        }
+        frames = {
+            k: json.loads(v)
+            for k, v in self._data_storage.get_container_items(Index.FRAMES_CONTAINER).items()
+        }
         for w, freq in frequencies_index.items():
             if w.islower() and w.title() in frequencies_index:
                 freq_name = frequencies_index[w.title()]
                 if freq / freq_name < merge_threshold:
                     # Merge into name
                     logger.debug('Merging {} & {}'.format(w, w.title()))
-                    self._merge_terms(w, w.title(), associations_index)
+                    self._merge_terms(w, w.title(), associations_index, positions_index, frequencies_index, frames)
                     count += 1
                 elif freq_name / freq < merge_threshold:
                     # Merge into word
                     logger.debug('Merging {} & {}'.format(w.title(), w))
-                    self._merge_terms(w.title(), w, associations_index)
+                    self._merge_terms(w.title(), w, associations_index, positions_index, frequencies_index, frames)
                     count += 1
-        self._storage.clear(Index.ASSOCIATIONS_CONTAINER)
-        self._storage.set_container_items(Index.ASSOCIATIONS_CONTAINER,
-                                          {k: json.dumps(v) for k, v in associations_index.items()})
+
+        # Update stored data structures
+        self._results_storage.clear(Index.ASSOCIATIONS_CONTAINER)
+        self._results_storage.set_container_items(Index.ASSOCIATIONS_CONTAINER,
+                                                  {k: json.dumps(v) for k, v in associations_index.items()})
+        self._results_storage.clear(Index.POSITIONS_CONTAINER)
+        self._results_storage.set_container_items(Index.POSITIONS_CONTAINER,
+                                                  {k: json.dumps(v) for k, v in positions_index.items()})
+        self._results_storage.clear(Index.FREQUENCIES_CONTAINER)
+        self._results_storage.set_container_items(Index.FREQUENCIES_CONTAINER,
+                                                  {k: json.dumps(v) for k, v in frequencies_index.items()})
+        self._data_storage.set_container_items(Index.FRAMES_CONTAINER,
+                                               {f_id: json.dumps(d) for f_id, d in frames.items()})
         logger.info("Merged {} terms during case folding.".format(count))
 
-    def _merge_terms(self, old_term, new_term, associations):
-        storage = self._storage
-        old_positions = json.loads(storage.get_container_item(Index.POSITIONS_CONTAINER, old_term))
-        new_positions = json.loads(storage.get_container_item(Index.POSITIONS_CONTAINER, new_term))
-        frames = {k: json.loads(v)
-                  for k, v in storage.get_container_items(Index.FRAMES_CONTAINER, old_positions.keys()).items()}
+    def _merge_terms(self, old_term, new_term, associations, positions, frequencies, frames):
+        old_positions = positions[old_term]
+        new_positions = positions[new_term]
         # Update term positions globally and positions and associations in frames
-        for frame_id, positions in old_positions.items():
+        for frame_id, frame_positions in old_positions.items():
             # Update global positions
             try:
-                new_positions[frame_id].extend(positions)
+                new_positions[frame_id].extend(frame_positions)
             except KeyError:
                 # New term had not been recorded in this frame
-                new_positions[frame_id] = positions
+                new_positions[frame_id] = frame_positions
             # Update frame positions
             try:
-                frames[frame_id]['_positions'][new_term].extend(positions)
+                frames[frame_id]['_positions'][new_term].extend(frame_positions)
             except KeyError:
                 # New term had not been recorded in this frame
-                frames[frame_id]['_positions'][new_term] = positions
+                frames[frame_id]['_positions'][new_term] = frame_positions
             # Update frame associations
             frames[frame_id]['_associations'].clear()
             for term in frames[frame_id]['_positions']:
@@ -500,13 +581,12 @@ class Index(object):
             for term, asscs in frames[frame_id]['_associations'].items():
                 frames[frame_id]['_associations'][term] = set(asscs)
             del frames[frame_id]['_positions'][old_term]
-        storage.set_container_items(Index.FRAMES_CONTAINER, {f_id: json.dumps(d) for f_id, d in frames.items()})
-        storage.set_container_item(Index.POSITIONS_CONTAINER, new_term,
-                                   json.dumps({k: v for k, v in new_positions.items()}))
-        storage.delete_container_item(Index.POSITIONS_CONTAINER, old_term)
+
+        # Update positions index
+        positions[new_term] = new_positions
+        del positions[old_term]
 
         # Update term associations
-
         if old_term in associations:
             for other_term, freq in associations[old_term].items():
                 # Update new term
@@ -525,10 +605,8 @@ class Index(object):
             del associations[old_term]
 
         # Update term frequency
-        freqs = {k: json.loads(v) if v else 0
-                 for k, v in storage.get_container_items(Index.FREQUENCIES_CONTAINER, [old_term, new_term]).items()}
-        storage.set_container_item(Index.FREQUENCIES_CONTAINER, new_term, sum(freqs.values()))
-        storage.delete_container_item(Index.FREQUENCIES_CONTAINER, old_term)
+        frequencies[new_term] = frequencies[new_term] + frequencies[old_term]
+        del frequencies[old_term]
 
     def run_plugin(self, cls, **args):
         """
@@ -550,18 +628,18 @@ class Index(object):
 
         for container, value in result.items():
             # Max sure the container exists and is clear
-            container_id = "{}:{}".format(plugin.get_name(), container)
+            container_id = Index._plugin_container_name(plugin.get_name(), container)
             try:
-                self._storage.add_container(container_id)
+                self._results_storage.add_container(container_id)
             except DuplicateContainerError:
-                self._storage.clear_container(container_id)
+                self._results_storage.clear_container(container_id)
 
             # Make sure items are seralised
             for key, data in value.items():
                 value[key] = json.dumps(value[key])
 
             # Store items
-            self._storage.set_container_items(container_id, value)
+            self._results_storage.set_container_items(container_id, value)
 
     def get_plugin_data(self, plugin, container):
         """
@@ -572,7 +650,15 @@ class Index(object):
         container -- The str name of the container.
 
         """
-        return self._storage.get_container_items("{}:{}".format(plugin.get_name(), container))
+        return self._results_storage.get_container_items(Index._plugin_container_name(plugin.get_name(), container))
+
+    @staticmethod
+    def _plugin_container_name(plugin, container):
+        """
+        Naming convention for plugin containers.
+
+        """
+        return '{}__{}'.format(plugin, container)
 
 
 def find_bi_gram_words(frames, min_bi_gram_freq=3, min_bi_gram_coverage=0.65):
