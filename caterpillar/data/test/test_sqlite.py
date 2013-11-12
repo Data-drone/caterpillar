@@ -48,6 +48,8 @@ def test_sqlite_storage():
         with pytest.raises(ContainerNotFoundError):
             storage.delete_container_item("fake", "bad")
         with pytest.raises(ContainerNotFoundError):
+            storage.delete_container_items("fake", ["bad"])
+        with pytest.raises(ContainerNotFoundError):
             storage.get_container_item("fake", "bad")
         with pytest.raises(ContainerNotFoundError):
             storage.set_container_item("fake", "bad", "bad")

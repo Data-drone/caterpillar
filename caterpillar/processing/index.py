@@ -469,15 +469,18 @@ class Index(object):
         # Positions
         for key, value in positions.items():
             positions[key] = json.dumps(positions[key])
+        self._results_storage.clear_container(Index.POSITIONS_CONTAINER)
         self._results_storage.set_container_items(Index.POSITIONS_CONTAINER, positions)
         # Associations
         for key, value in associations.items():
             associations[key] = json.dumps(associations[key])
+        self._results_storage.clear_container(Index.ASSOCIATIONS_CONTAINER)
         self._results_storage.set_container_items(Index.ASSOCIATIONS_CONTAINER, associations)
         # Frequencies
         frequencies_index = {}
         for key, value in frequencies.items():
             frequencies_index[key] = json.dumps(frequencies[key])
+        self._results_storage.clear_container(Index.FREQUENCIES_CONTAINER)
         self._results_storage.set_container_items(Index.FREQUENCIES_CONTAINER, frequencies_index)
         logger.info("Re-indexed {} frames.".format(len(frames)))
 
@@ -485,16 +488,31 @@ class Index(object):
             logger.info('Performing case folding.')
             self.fold_term_case()
 
-    def delete_document(self, d_id):
+    def delete_document(self, d_id, update_index=True):
         """
         Delete the document with given id.
 
         Raises a DocumentNotFound exception if the id doesn't match any document.
 
+        This method needs to update the index to reflect that the document has been deleted. This is an optional step.
+        However, if it isn't performed, you may see odd results for things like `get_frequencies()`.
+
         Required Arguments:
         id -- the string id of the document to delete.
 
+        Optional Arguments:
+        fold_case -- a bool flag indicating whether to update the index or not. If set to ``False`` the index won't
+                     reflect the fact that the document has been deleted until `reindex()` has been run.
+
         """
+        frames = {k: json.loads(v) for k,v in self._data_storage.get_container_items(Index.FRAMES_CONTAINER).items()}
+        frames_to_delete = []
+        for f_id, frame in frames.items():
+            if frame['_doc_id'] == d_id:
+                frames_to_delete.append(f_id)
+        self._data_storage.delete_container_items(Index.FRAMES_CONTAINER, frames_to_delete)
+        if update_index:
+            self.reindex(fold_case=False)
         self._data_storage.delete_container_item(Index.DOCUMENTS_CONTAINER, d_id)
 
     def fold_term_case(self, merge_threshold=0.7):

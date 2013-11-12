@@ -131,6 +131,18 @@ class Storage(object):
         return
 
     @abc.abstractmethod
+    def delete_container_items(self, c_id, keys):
+        """
+        Delete multiple key value pairs from this container.
+
+        Required Arguments:
+        c_id -- the string container id. This will be forced to a string by calling ``str`` on it.
+        keys -- the list of string item key. This will be forced to a string by calling ``str`` on it.
+
+        """
+        return
+
+    @abc.abstractmethod
     def clear_container(self, c_id):
         """
         Clear all values from this container.

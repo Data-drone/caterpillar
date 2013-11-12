@@ -72,10 +72,13 @@ def test_index_alice(storage_cls):
         assert len(index.get_frequencies()) == 504
         assert index.get_term_frequency('Alice') == 23
 
-        index.delete_document(doc_id)
+        index.delete_document(doc_id, update_index=True)
 
         with pytest.raises(DocumentNotFoundError):
             index.get_document(doc_id)
+        assert not 'Alice' in index.get_frequencies()
+        assert not 'Alice' in index.get_associations_index()
+        assert not 'Alice' in index.get_positions_index()
 
 
 @pytest.mark.parametrize("storage_cls", STORAGE)
