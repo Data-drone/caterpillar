@@ -33,7 +33,7 @@ def test_searching_alice():
         assert searcher.count("Queen or K??g") == 123 == searcher.count("King or Queen")
         assert searcher.count("King AND Queen") == 4
         assert searcher.count("King NOT Queen") == 56
-        assert searcher.count('"golden key"') == 6
+        assert searcher.count('golden key') == 6
         assert searcher.count('*ing') == 514
 
         assert "jury" in searcher.search("jury", limit=1)[0].text

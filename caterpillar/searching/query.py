@@ -54,7 +54,7 @@ class QueryEvaluator(object):
         if eval_method_name in self.__class__.__dict__:
             # This type of node has an evaluation method defined
             self.__class__.__dict__[eval_method_name](self, node)
-        elif type(node[1]) != str:
+        elif type(node[1]) != str and type(node[1]) != unicode:
             # All non-leaf nodes that are not specially evaluated are
             # containers that should inherit state data from children.
             child_node = node[1] if node[0].name != 'brackets' else node[2]
@@ -150,7 +150,7 @@ class QueryEvaluator(object):
         Extract term value from an operand node; handles arbitrary number of term components (compounds).
 
         """
-        return ' '.join([regex.sub(self.QUOTES_RE, '', str(n)) for n in node[1:]])
+        return ' '.join([n[1] for n in node[1:]])
 
 
 class QueryResult(object):
