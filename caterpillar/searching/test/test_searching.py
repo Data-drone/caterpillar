@@ -5,11 +5,14 @@
 import csv
 import os
 
+import pytest
+
 from caterpillar.analytics.influence import InfluenceAnalyticsPlugin
 from caterpillar.processing.analysis.analyse import BiGramTestAnalyser
 from caterpillar.processing.index import Index, find_bi_gram_words
 from caterpillar.processing import schema
 from caterpillar.processing.frames import frame_stream
+from caterpillar.searching.query import QueryError
 from caterpillar.searching.scoring import SimpleScorer
 
 
@@ -105,15 +108,17 @@ def test_searching_mt_warning():
         assert searcher.count('1,900') == 1
         assert searcher.count('4.4') == 1
 
+        assert searcher.count('*') == index.get_frame_count()
+
 
 def test_searching_twitter():
     """Test searching twitter data."""
     with open('caterpillar/resources/twitter_sentiment.csv', 'rbU') as f:
-        index = Index.create(schema.Schema(text=schema.TEXT))
+        index = Index.create(schema.Schema(text=schema.TEXT, sentiment=schema.CATEGORICAL_TEXT(indexed=True)))
         csv_reader = csv.reader(f)
         csv_reader.next()  # Skip header
         for row in csv_reader:
-            index.add_document(text=row[1])
+            index.add_document(text=row[1], sentiment=row[0])
         index.reindex()
         index.run_plugin(InfluenceAnalyticsPlugin,
                          influence_contribution_threshold=0,
@@ -123,3 +128,78 @@ def test_searching_twitter():
 
         assert searcher.count('@NYSenate') == 1
         assert searcher.count('summerdays@gmail.com') == 1
+
+        assert searcher.count('sentiment=positive') + searcher.count('sentiment=negative') == index.get_frame_count()
+
+
+def test_searching_nps():
+    """Test searching nps-backed data."""
+    with open('caterpillar/resources/big.csv', 'rbU') as f:
+        index = Index.create(schema.Schema(respondant=schema.NUMERIC, region=schema.CATEGORICAL_TEXT(indexed=True),
+                                           store=schema.CATEGORICAL_TEXT(indexed=True), liked=schema.TEXT,
+                                           disliked=schema.TEXT, would_like=schema.TEXT,
+                                           nps=schema.NUMERIC(indexed=True), fake=schema.NUMERIC(indexed=True),
+                                           fake2=schema.CATEGORICAL_TEXT(indexed=True)))
+        csv_reader = csv.reader(f)
+        csv_reader.next()  # Skip header
+        for row in csv_reader:
+            index.add_document(update_index=False, respondant=row[0], region=row[1], store=row[2], liked=row[3],
+                               disliked=row[4], would_like=row[5], nps=row[6], fake2=None)
+
+        index.reindex()
+        index.run_plugin(InfluenceAnalyticsPlugin,
+                         influence_contribution_threshold=0,
+                         cumulative_influence_smoothing=False)
+
+        searcher = index.searcher()
+
+        assert searcher.count('nps=10 and store=DANNEVIRKE') == 6
+
+        docs = set()
+        results = searcher.search('region=Otago and nps<5')
+        for hit in results:
+            docs.add(hit.doc_id)
+        assert len(docs) == 5
+        assert len(results) == 15
+
+        num_christchurch = searcher.count('region=Christchurch')
+        num_null_nps_christchurch = num_christchurch - searcher.count('region=Christchurch and nps > 0')
+        assert num_christchurch == searcher.count('region=Christchurch and nps < 8') \
+            + searcher.count('region=Christchurch and nps >= 8') \
+            + num_null_nps_christchurch
+        assert searcher.count('region=Christchurch and nps>7 and (reliable or quick)') \
+            == searcher.count('region=Christchurch and nps>7') \
+            - searcher.count('region=Christchurch and nps>7 not (reliable or quick)')
+
+        assert searcher.count('nps>0') == searcher.count('nps<=7') + searcher.count('nps>7')
+
+        assert searcher.count('region=Christ*') == num_christchurch == 1395
+
+        with pytest.raises(QueryError):
+            searcher.count('nps>=1?')
+        with pytest.raises(QueryError):
+            searcher.count('nps=?')
+        with pytest.raises(QueryError):
+            searcher.count('n*s=10')
+        with pytest.raises(QueryError):
+            searcher.count('badfield=something')
+        with pytest.raises(QueryError):
+            searcher.count('region>something')
+        with pytest.raises(QueryError):
+            searcher.count('region>=something')
+        with pytest.raises(QueryError):
+            searcher.count('region<something')
+        with pytest.raises(QueryError):
+            searcher.count('region<=something')
+        with pytest.raises(QueryError):
+            searcher.count('liked=something')
+        with pytest.raises(QueryError):
+            searcher.count('respondant=something')
+        with pytest.raises(QueryError):
+            searcher.count('region>Christchurch')
+        with pytest.raises(QueryError):
+            searcher.count('nps>bad')
+
+        assert searcher.count('fake=1') == 0
+        assert searcher.count('fake2=something') == 0
+        assert searcher.count('region=nonexistentregion') == 0

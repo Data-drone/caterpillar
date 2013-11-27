@@ -5,15 +5,16 @@
 from __future__ import division
 import abc
 import csv
-import inspect
+import pickle
 import ujson as json
+import re
 from StringIO import StringIO
 import sys
 
 import regex
 
-from caterpillar import get_full_cls_name, get_cls
 from caterpillar.processing.analysis.analyse import EverythingAnalyser, DefaultAnalyser
+from caterpillar.processing.analysis.tokenize import Token
 
 
 class FieldConfigurationError(Exception):
@@ -31,19 +32,26 @@ class FieldType(object):
     If you don't provide an analyser for your field, it will default to a ``EverythingAnalyser``.
 
     """
-    def __init__(self, analyser=EverythingAnalyser(), indexed=False):
+    # Convenience hash of operators -> methods
+    FIELD_OPS = {'<': 'lt', '<=': 'lte', '>': 'gt', '>=': 'gte'}
+
+    def __init__(self, analyser=EverythingAnalyser(), indexed=False, categorical=False):
         """
         Optional Arguments:
         analyser -- the ``Analyser`` for this field.
         indexed -- a boolean flag indicating if this field should be indexed or not.
+        categorical -- a boolean flag indicating if this field is categorical or not. Categorical fields only support
+        indexing for the purpose of searching and do not collect full statistics such as positions and associations.
+
+
         """
         self._analyser = analyser
         self._indexed = indexed
+        self._categorical = categorical
 
     def analyse(self, value):
         """
-        Use the ``Analyser`` for this field to return tokens. This method yields tokens from the ``Analyser``'s
-        analyse() method.
+        Analyse this field, converting its value to a ``Token`` generator.
 
         Required Arguments:
         value -- the value of the field to analyse.
@@ -51,6 +59,13 @@ class FieldType(object):
         """
         for token in self._analyser.analyse(value):
             yield token
+
+    def categorical(self):
+        """
+        Is this field categorical data?
+
+        """
+        return self._categorical
 
     def indexed(self):
         """
@@ -70,25 +85,139 @@ class FieldType(object):
         """
         return
 
+    def evaluate_op(self, operator, value1, value2):
+        """
+        Evaluate the specified operation.
 
-class ID(FieldType):
+        Required Arguments:
+        operator -- string operator.
+        value1 -- first operand field value.
+        value2 -- second operand field value.
+
+        """
+        op_method = getattr(self, FieldType.FIELD_OPS[operator])
+        return op_method(value1, value2)
+
+    def equals(self, value1, value2):
+        """
+        Returns whether ``value1`` is equal to ``value2``.
+
+        """
+        raise NotImplementedError('Equality operator not supported for field type {}.'.format(self.__class__.__name__))
+
+    def equals_wildcard(self, value, wildcard_value):
+        """
+        Returns whether ``value`` matches regex ``wildcard_value``.
+
+        """
+        raise NotImplementedError('Wildcard equality operator not supported for field type {}.'
+                                  .format(self.__class__.__name__))
+
+    def gt(self, value1, value2):
+        """
+        Returns whether ``value1`` is greater than ``value2``.
+
+        """
+        raise NotImplementedError('Greater-than operator not supported for field type {}.'
+                                  .format(self.__class__.__name__))
+
+    def gte(self, value1, value2):
+        """
+        Returns whether ``value1`` is greater than or equal to ``value2``.
+
+        """
+        raise NotImplementedError('Greater-than-or-equals operator not supported for field type {}.'
+                                  .format(self.__class__.__name__))
+
+    def lt(self, value1, value2):
+        """
+        Returns whether ``value1`` is less than ``value2``.
+
+        """
+        raise NotImplementedError('Less-than operator not supported for field type {}.'
+                                  .format(self.__class__.__name__))
+
+    def lte(self, value1, value2):
+        """
+        Returns whether ``value1`` is less than or equal to ``value2``.
+
+        """
+        raise NotImplementedError('Less-than-or-equals operator not supported for field type {}.'
+                                  .format(self.__class__.__name__))
+
+
+class CategoricalFieldType(FieldType):
+    """
+    Represents a categorical field type. Categorical fields can extend this class for convenience.
+
+    """
+    def __init__(self, analyser=EverythingAnalyser(), indexed=False):
+        super(CategoricalFieldType, self).__init__(analyser=analyser, indexed=indexed, categorical=True)
+
+    def value_of(self, raw_value):
+        """
+        Return the value of ``raw_value`` after being processed by this field type's analyse method.
+
+        """
+        return list(self.analyse(raw_value))[0].value
+
+    def equals(self, value1, value2):
+        return self.value_of(value1) == self.value_of(value2)
+
+
+class ID(CategoricalFieldType):
     """
     Configured field type that indexes the entire value of the field as one token. This is useful for data you don't
     want to tokenize, such as the path of a file.
 
     """
-    pass
+    def __init__(self, indexed=False):
+        super(ID, self).__init__(indexed=indexed)
 
 
-class NUMERIC(FieldType):
+class NUMERIC(CategoricalFieldType):
     """
     Special field type that lets you index integer or floating point numbers.
 
     """
-    pass
+    TYPES = (int, float)
+
+    def __init__(self, indexed=False, num_type=int, default_value=None):
+        """
+        Optional Arguments:
+        num_type -- python number type to use for this field (float or int)
+        default_value -- default value when no data present.
+
+        """
+        if num_type not in NUMERIC.TYPES:
+            raise ValueError("Invalid num_type '{}'".format(num_type))
+        self._num_type = num_type
+        self._default_value = default_value
+        super(NUMERIC, self).__init__(analyser=None, indexed=indexed)
+
+    def analyse(self, value):
+        try:
+            yield Token(self._num_type(value))
+        except (TypeError, ValueError) as e:
+            if value is None or len(value) == 0:
+                yield Token(self._default_value)
+            else:
+                raise e
+
+    def gt(self, value1, value2):
+        return self.value_of(value1) > self.value_of(value2)
+
+    def gte(self, value1, value2):
+        return self.value_of(value1) >= self.value_of(value2)
+
+    def lt(self, value1, value2):
+        return self.value_of(value1) < self.value_of(value2)
+
+    def lte(self, value1, value2):
+        return self.value_of(value1) <= self.value_of(value2)
 
 
-class BOOLEAN(FieldType):
+class BOOLEAN(CategoricalFieldType):
     """
     Special field type that lets you index boolean values (True and False). The field converts the boolean values to
     text for you before indexing.
@@ -99,7 +228,11 @@ class BOOLEAN(FieldType):
     >>> w.add_document(path="/a", done=False)
     >>> w.commit()
     """
-    pass
+    def __init__(self, indexed=False):
+        super(BOOLEAN, self).__init__(analyser=None, indexed=indexed)
+
+    def analyse(self, value):
+        yield Token(bool(value))
 
 
 class TEXT(FieldType):
@@ -114,7 +247,19 @@ class TEXT(FieldType):
         field uses processing.analysis.DefaultAnalyzer.
 
         """
-        super(TEXT, self).__init__(analyser=analyser, indexed=indexed)
+        super(TEXT, self).__init__(analyser=analyser, indexed=indexed, categorical=False)
+
+
+class CATEGORICAL_TEXT(CategoricalFieldType):
+    """
+    Configured field type for categorical text fields.
+
+    """
+    def __init__(self, indexed=False):
+        super(CATEGORICAL_TEXT, self).__init__(indexed=indexed)
+
+    def equals_wildcard(self, value, wildcard_value):
+        return re.match(wildcard_value, value) is not None
 
 
 class Schema(object):
@@ -186,29 +331,14 @@ class Schema(object):
         Load string generated by ``dumps`` into a new Schema object.
 
         """
-        schema = Schema()
-        schema_json = json.loads(schema_str)
-        for name, field in schema_json['fields'].items():
-            analyser = get_cls(field['analyser_cls'])()
-            field_type = get_cls(field['field_type_cls'])(analyser=analyser, indexed=field['indexed'])
-            schema.add(name, field_type)
-
-        return schema
+        return pickle.loads(schema_str)
 
     def dumps(self):
         """
         Dump this Schema to a string that can be used by the ``loads`` method to regenerate the schema.
 
         """
-        fields = {}
-        for name, field_type in self._fields.items():
-            fields[name] = {
-                'analyser_cls': get_full_cls_name(field_type._analyser),
-                'field_type_cls': get_full_cls_name(field_type),
-                'indexed': field_type._indexed
-            }
-
-        return json.dumps({'fields': fields})
+        return pickle.dumps(self)
 
     def items(self):
         """

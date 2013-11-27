@@ -8,30 +8,33 @@ import pytest
 
 from caterpillar.processing import schema
 from caterpillar.processing.index import Index
-from caterpillar.processing.schema import Schema, TEXT, FieldConfigurationError
+from caterpillar.processing.schema import BOOLEAN, FieldType, ID, NUMERIC, Schema, TEXT, FieldConfigurationError
 
 
 # Plumbing tests
 def test_schema():
-    simple_schema = Schema(test=TEXT)
+    simple_schema = Schema(test=TEXT, user=ID)
     names = simple_schema.names()
     items = simple_schema.items()
 
     schema_str = simple_schema.dumps()
     loaded_schema = Schema.loads(schema_str)
     assert len(loaded_schema.items()) == len(simple_schema.items())
+    assert loaded_schema['user'].categorical()
 
-    assert len(simple_schema) == 1
-    assert len(names) == 1
+    assert len(simple_schema) == 2
+    assert len(names) == 2
     assert 'test' in names
-    assert len(items) == 1
-
-    for field in iter(simple_schema):
-        assert isinstance(field, TEXT)
+    assert 'user' in names
+    assert len(items) == 2
 
     assert isinstance(simple_schema['test'], TEXT)
+    assert isinstance(simple_schema['user'], ID)
     with pytest.raises(KeyError):
-        field = simple_schema['no_item']
+        simple_schema['no_item']
+
+    for field in simple_schema:
+        assert isinstance(field, FieldType)
 
     assert 'test' in simple_schema
     assert not 'text' in simple_schema
@@ -51,6 +54,18 @@ def test_schema():
         simple_schema.remove('text')
     simple_schema.remove('test')
     assert 'test' not in simple_schema
+
+    with pytest.raises(ValueError):
+        NUMERIC(num_type=str)
+    with pytest.raises(NotImplementedError):
+        FieldType().equals('a', 'b')
+    with pytest.raises(ValueError):
+        list(NUMERIC().analyse('notanumber'))
+
+    f = NUMERIC(num_type=float)
+    assert f.equals('1', '1.0')
+
+    assert list(BOOLEAN().analyse('1'))[0].value is True
 
 
 # Functional tests

@@ -20,7 +20,13 @@ Term Weighting:
 """
 import regex
 
-from lrparsing import Grammar, Keyword, Prio, Ref, Repeat, Token
+from lrparsing import Grammar, Keyword, Prio, Ref, Repeat, Token, Tokens
+
+from caterpillar.processing import schema
+
+
+class QueryError(Exception):
+    """Invalid query"""
 
 
 class QueryEvaluator(object):
@@ -32,10 +38,10 @@ class QueryEvaluator(object):
     positions_index -- index of term positions.
 
     """
-    QUOTES_RE = regex.compile("['\"]*")
-
     def __init__(self, index):
         self.index = index
+        self.schema = index.get_schema()
+        self.metadata = index.get_metadata()
         self.terms = index.get_frequencies().keys()
 
     def __call__(self, node):
@@ -47,6 +53,11 @@ class QueryEvaluator(object):
         specified by the current node. When the last (root) node is
         evaluated, we have arrived at the final list of frame ids that match
         the entire query.
+
+        ``node`` is a tuple that holds operator and operand components for
+        evaluating a node in the query tree. It is constructred according
+        to the ``_QueryGrammar`` definition and contains extra attributes
+        specified by the ``_QueryNode`` class.
 
         """
         node = _QueryNode(node)
@@ -76,6 +87,75 @@ class QueryEvaluator(object):
         return QueryResult(query_tree.frame_ids, query_tree.matched_terms,
                            query_tree.term_weights)
 
+    def _evaluate_field(self, node):
+        """
+        Evalute metadata field value test.
+
+        """
+        operator = node[2][1]
+        field_name = self._extract_term_value(node[1])
+        field_value = self._extract_term_value(node[3])
+
+        if '*' in field_name or '?' in field_name:
+            raise QueryError("Field name cannot contain wildcards")
+
+        wildcard = False
+        if '?' in field_value:
+            # Insert regex pattern for single character wildcard
+            field_value = field_value.replace('?', r'\w')
+            wildcard = True
+        if '*' in field_value:
+            # Insert regex pattern for multiple character wildcard
+            field_value = field_value.replace('*', r'[\w]*')
+            wildcard = True
+
+        # Get schema field
+        try:
+            field = self.schema[field_name]
+        except KeyError:
+            raise QueryError("Invalid field name '{}'".format(field_name))
+
+        if not field.categorical():
+            raise QueryError("Improper use of field searching for non-categorical field '{}'".format(field_name))
+
+        if not field.indexed():
+            raise QueryError("Non-indexed field '{}' cannot be searched".format(field_name))
+
+        # Determine matching frames
+        #
+        try:
+            frames_by_value = self.metadata[field_name]
+        except KeyError:
+            # We can get here if no frames have actually stored metadata for the schema field.
+            # If this happens then nothing to do here.
+            return
+        try:
+            if operator == '=':
+                # Simple equality operator
+                if wildcard:
+                    # Wildcard equality must compare with all possible field values
+                    wildcard_expr = '^' + field_value + '$'
+                    for value in frames_by_value:
+                        if field.equals_wildcard(value, wildcard_expr):
+                            node.frame_ids.update(frames_by_value[value])
+                else:
+                    # Direct equality is an easy, direct lookup on metadata index
+                    field_value = str(field.value_of(field_value))  # Run value through analyser first
+                    try:
+                        node.frame_ids = set(frames_by_value[field_value])
+                    except KeyError:
+                        pass
+            else:
+                if wildcard:
+                    raise QueryError("Wildcards are only permitted for field searching when using the '=' operator.")
+                # Look for values that match the field comparison expression
+                for value in frames_by_value:
+                    if field.evaluate_op(operator, value, field_value):
+                        # Found a match, add the frames
+                        node.frame_ids.update(set(frames_by_value[value]))
+        except (NotImplementedError, ValueError) as e:
+            raise QueryError(e)
+
     def _evaluate_operand(self, node):
         """
         Evaluate operand (term) node via lookup in the term positions index.
@@ -83,6 +163,10 @@ class QueryEvaluator(object):
         """
         term = self._extract_term_value(node)
         wildcard = False
+        if term == '*':
+            # Single wildcard matches all frames
+            node.frame_ids = set(self.index.get_frame_ids())
+            return
         if '?' in term:
             # Insert regex pattern for single character wildcard
             term = term.replace('?', r'\w')
@@ -114,7 +198,7 @@ class QueryEvaluator(object):
         node.frame_ids = node[1].frame_ids
         node.matched_terms = node[1].matched_terms
         term = self._extract_term_value(node[1])
-        weighting_expr = regex.sub(self.QUOTES_RE, '', str(node[2]))
+        weighting_expr = node[2][1]
         weighting_factor = weighting_expr.split('^')[1]
         # Store weighting
         node.term_weights[term] = float(weighting_factor)
@@ -180,15 +264,17 @@ class _QueryGrammar(Grammar):
     and_op = expr << Keyword('and', case=False) << expr
     not_op = expr << Keyword('not', case=False) << expr
     or_op = expr << Keyword('or', case=False) << expr
-    operand = Repeat(Token(re=r'[^\s\^\(\)]+'), 1)
+    operand = Repeat(Token(re=r'[^\s\^\(\)\=\<>]+'), 1)
     weighting = operand << Token(re=r'\^[0-9]*\.?[0-9]+')
+    field = operand + Tokens('= < > <= >=') + operand
     expr = Prio(
+        brackets,
         not_op,
         and_op,
         or_op,
         weighting,
-        operand,
-        brackets,
+        field,
+        operand
     )
     START = expr    # Where the grammar must start
 
@@ -206,6 +292,3 @@ class _QueryNode(tuple):
 
     def __new__(cls, n):
         return super(_QueryNode, cls).__new__(cls, n)
-
-    def __repr__(self):
-        return _QueryGrammar.repr_parse_tree(self, False)

@@ -27,7 +27,8 @@ def test_sqlite_storage():
 
         storage.add_container("test")
         storage.set_container_item("test", "A", "Z")
-        assert len(storage.get_container_items("test")) == 1
+        assert len(storage.get_container_items("test")) == storage.get_container_len("test") == 1
+        assert storage.get_container_keys("test") == ['A']
         storage.clear(container="test")
         assert storage.get_container_items("test") == {}
 
@@ -46,15 +47,19 @@ def test_sqlite_storage():
         with pytest.raises(ContainerNotFoundError):
             storage.delete_container("fake")
         with pytest.raises(ContainerNotFoundError):
-            storage.delete_container_item("fake", "bad")
+            storage.get_container_len("fake")
         with pytest.raises(ContainerNotFoundError):
-            storage.delete_container_items("fake", ["bad"])
+            storage.get_container_keys("fake")
+        with pytest.raises(ContainerNotFoundError):
+            storage.delete_container_item("fake", "bad")
         with pytest.raises(ContainerNotFoundError):
             storage.get_container_item("fake", "bad")
         with pytest.raises(ContainerNotFoundError):
             storage.set_container_item("fake", "bad", "bad")
         with pytest.raises(ContainerNotFoundError):
             storage.set_container_items("fake", {"bad": "bad"})
+        with pytest.raises(ContainerNotFoundError):
+            storage.delete_container_items("fake", ["bad"])
 
         with pytest.raises(DuplicateContainerError):
             storage.add_container("test")

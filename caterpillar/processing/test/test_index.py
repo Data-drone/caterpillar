@@ -6,11 +6,11 @@ from __future__ import division
 import os
 import pytest
 from caterpillar.data.sqlite import SqliteStorage, SqliteMemoryStorage
-from caterpillar.processing.analysis.analyse import DefaultTestAnalyser, BiGramTestAnalyser
+from caterpillar.processing.analysis.analyse import DefaultTestAnalyser, BiGramTestAnalyser, EverythingAnalyser
 
 from caterpillar.processing.frames import frame_stream
 from caterpillar.processing.index import *
-from caterpillar.processing.schema import TEXT, Schema
+from caterpillar.processing.schema import BOOLEAN, ID, NUMERIC, TEXT, FieldType, Schema
 
 
 STORAGE = [(SqliteStorage), (SqliteMemoryStorage)]
@@ -39,10 +39,12 @@ def test_index_open():
     with open(os.path.abspath('caterpillar/resources/alice_test_data.txt'), 'r') as f:
         data = f.read()
         index = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser()),
-                                    document=TEXT(analyser=DefaultTestAnalyser(), indexed=False)),
+                                    document=TEXT(analyser=DefaultTestAnalyser(), indexed=False),
+                                    flag=FieldType(analyser=EverythingAnalyser(), indexed=True, categorical=True)),
                              storage_cls=SqliteStorage, path=os.getcwd())
-        index.add_document(text=data, document='alice.txt', frame_size=2, fold_case=False)
+        index.add_document(text=data, document='alice.txt', flag=True, frame_size=2, fold_case=False)
         index = Index.open(os.getcwd(), SqliteStorage)
+        index.reindex()
         assert len(index.get_frequencies()) == 504
         assert index.get_term_frequency('Alice') == 23
         assert index.get_document_count() == 1
@@ -59,9 +61,11 @@ def test_index_alice(storage_cls):
     with open(os.path.abspath('caterpillar/resources/alice_test_data.txt'), 'r') as f:
         data = f.read()
         index = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser()),
-                                    document=TEXT(analyser=DefaultTestAnalyser(), indexed=False)),
+                                    document=TEXT(analyser=DefaultTestAnalyser(), indexed=False),
+                                    blank=NUMERIC(indexed=True), ref=ID(indexed=True)),
                              storage_cls=storage_cls, path=os.getcwd())
-        doc_id = index.add_document(text=data, document='alice.txt', frame_size=2, fold_case=False, update_index=True)
+        doc_id = index.add_document(text=data, document='alice.txt', blank=None, ref=123, frame_size=2, fold_case=False,
+                                    update_index=True)
 
         assert len(index.get_term_positions('nice')) == 3
         assert len(index.get_term_positions('key')) == 5
@@ -76,6 +80,7 @@ def test_index_alice(storage_cls):
 
         with pytest.raises(DocumentNotFoundError):
             index.get_document(doc_id)
+
         assert not 'Alice' in index.get_frequencies()
         assert not 'Alice' in index.get_associations_index()
         assert not 'Alice' in index.get_positions_index()

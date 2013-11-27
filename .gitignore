@@ -11,3 +11,4 @@ build
 coverage_report
 *.komodoproject
 *.db
+.komodotools

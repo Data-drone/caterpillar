@@ -153,6 +153,20 @@ class SqliteStorage(Storage):
         self._db.executemany("DELETE FROM {} WHERE key = ?".format(c_id), ((k,) for k in keys))
         self._db.commit()
 
+    def get_container_len(self, c_id):
+        if not self._has_container(c_id):
+            raise ContainerNotFoundError('No container \'{}\''.format(c_id))
+        cursor = self._db.cursor()
+        cursor.execute("SELECT COUNT(*) FROM {}".format(c_id))
+        return cursor.fetchone()[0]
+
+    def get_container_keys(self, c_id):
+        if not self._has_container(c_id):
+            raise ContainerNotFoundError('No container \'{}\''.format(c_id))
+        cursor = self._db.cursor()
+        cursor.execute("SELECT key FROM {}".format(c_id))
+        return [c[0] for c in cursor.fetchall()]
+
     def get_container_item(self, c_id, key):
         if not self._has_container(c_id):
             raise ContainerNotFoundError('No container \'{}\''.format(c_id))

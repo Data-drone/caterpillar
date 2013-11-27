@@ -9,7 +9,6 @@ import os
 import uuid
 
 import nltk
-from caterpillar import get_cls
 from caterpillar.data.storage import DuplicateContainerError, StorageNotFoundError
 from caterpillar.data.sqlite import SqliteMemoryStorage
 from caterpillar.processing.analysis.analyse import PotentialBiGramAnalyser
@@ -54,6 +53,7 @@ class Index(object):
     RESULTS_STORAGE = "results.db"
     ASSOCIATIONS_CONTAINER = "associations"
     FREQUENCIES_CONTAINER = "frequencies"
+    METADATA_CONTAINER = "metadata"
     POSITIONS_CONTAINER = "positions"
 
     def __init__(self, schema, data_storage, results_storage):
@@ -86,7 +86,8 @@ class Index(object):
         results_storage = storage_cls.create(Index.RESULTS_STORAGE, path=path, acid=False, containers=[
             Index.POSITIONS_CONTAINER,
             Index.ASSOCIATIONS_CONTAINER,
-            Index.FREQUENCIES_CONTAINER
+            Index.FREQUENCIES_CONTAINER,
+            Index.METADATA_CONTAINER
         ], **args)
         return Index(schema, data_storage, results_storage)
 
@@ -215,7 +216,7 @@ class Index(object):
         Return the count of frames stored on this index.
 
         """
-        return len(self._data_storage.get_container_items(Index.FRAMES_CONTAINER))
+        return self._data_storage.get_container_len(Index.FRAMES_CONTAINER)
 
     def get_frame(self, frame_id):
         """
@@ -226,6 +227,13 @@ class Index(object):
 
         """
         return json.loads(self._data_storage.get_container_item(Index.FRAMES_CONTAINER, frame_id))
+
+    def get_frame_ids(self):
+        """
+        Return a list of ids for all frames stored on this index.
+
+        """
+        return self._data_storage.get_container_keys(Index.FRAMES_CONTAINER)
 
     def get_document(self, d_id):
         """
@@ -246,6 +254,16 @@ class Index(object):
 
         """
         return len(self._data_storage.get_container_items(Index.DOCUMENTS_CONTAINER))
+
+    def get_metadata(self):
+        """
+        Returns index of metadata field -> value -> [frames].
+
+        """
+        return {
+            k: json.loads(v)
+            for k, v in self._results_storage.get_container_items(Index.METADATA_CONTAINER).items()
+        }
 
     def get_schema(self):
         """
@@ -298,20 +316,35 @@ class Index(object):
         associations = {}  # Inverted term co-occurrence index:: term -> other_term -> count
         frequencies = nltk.probability.FreqDist()  # Inverted term frequency index:: term -> count
         frames = {}  # Frame data:: frame_id -> {key: value}
+        metadata = {}  # Inverted frame metadata:: field_name -> field_value -> [frame1, frame2]
 
-        # First we need to build the shell of all frames. The shell includes all non-indexed fields
+        # Shell frame includes all non-indexed and categorical fields
         shell_frame = {}
-        for field in schema_fields:
-            if not field[1].indexed() and field[0] in fields:
-                shell_frame[field[0]] = fields[field[0]]
+        for field_name, field in schema_fields:
+            if (not field.indexed() or field.categorical()) and field_name in fields:
+                shell_frame[field_name] = fields[field_name]
 
         # Tokenize fields that need it
         logger.info('Starting tokenization')
         frame_count = 0
-        for field in schema_fields:
-            if field[1].indexed() and field[0] in fields:  # Only index field if it's in the schema and is to be indexed
+        for field_name, field in schema_fields:
+
+            if field_name not in fields or not field.indexed():
+                # Skip non-indexed fields or fields with no value supplied for this document
+                continue
+
+            if field.categorical():
+                # Record categorical values
+                for token in field.analyse(fields[field_name]):
+                    try:
+                        metadata[field_name].append(token.value)
+                    except KeyError:
+                        metadata[field_name] = [token.value]
+            else:
+                # Index non-categorical fields
+                #
                 # Break up into paragraphs first
-                paragraphs = ParagraphTokenizer().tokenize(fields[field[0]].decode(encoding))
+                paragraphs = ParagraphTokenizer().tokenize(fields[field_name].decode(encoding))
                 for paragraph in paragraphs:
                     # Next we need the sentences grouped by frame
                     sentences = sentence_tokenizer.tokenize(paragraph.value, realign_boundaries=True)
@@ -323,7 +356,7 @@ class Index(object):
                         frame = {
                             '_id': frame_id,
                             '_text': ". ".join(sentence_list),
-                            '_field': field[0],
+                            '_field': field_name,
                             '_positions': {},
                             '_associations': {},
                             '_sequence_number': frame_count,
@@ -331,7 +364,7 @@ class Index(object):
                         }
                         for sentence in sentence_list:
                             # Tokenize and index
-                            tokens = field[1].analyse(sentence)
+                            tokens = field.analyse(sentence)
 
                             # Record positional information
                             for token in tokens:
@@ -379,9 +412,11 @@ class Index(object):
                 Index.ASSOCIATIONS_CONTAINER, associations.keys()).items()}
             frequencies_index = {k: json.loads(v) if v else 0 for k, v in self._results_storage.get_container_items(
                 Index.FREQUENCIES_CONTAINER, frequencies.keys()).items()}
+            metadata_index = {k: json.loads(v) if v else 0 for k, v in self._results_storage.get_container_items(
+                Index.METADATA_CONTAINER, metadata.keys()).items()}
 
             # Now update the indexes
-            # Positions First
+            # Positions
             for term, indices in positions.items():
                 for frame_id, index in indices.items():
                     try:
@@ -392,7 +427,7 @@ class Index(object):
                 positions_index[key] = json.dumps(positions_index[key])
             self._results_storage.set_container_items(Index.POSITIONS_CONTAINER, positions_index)
 
-            # Associations next
+            # Associations
             for term, value in associations.items():
                 for other_term, count in value.items():
                     assocs_index[term][other_term] = assocs_index[term].get(other_term, 0) + count
@@ -400,12 +435,26 @@ class Index(object):
                 assocs_index[key] = json.dumps(assocs_index[key])
             self._results_storage.set_container_items(Index.ASSOCIATIONS_CONTAINER, assocs_index)
 
-            # Finally frequencies
+            # Frequencies
             for key, value in frequencies.items():
                 frequencies_index[key] = frequencies_index[key] + value
             for key, value in frequencies_index.items():
                 frequencies_index[key] = json.dumps(frequencies_index[key])
             self._results_storage.set_container_items(Index.FREQUENCIES_CONTAINER, frequencies_index)
+
+            # Metadata
+            for name, values in metadata.items():
+                for value in values:
+                    if value is None:
+                        # Skip null values
+                        continue
+                    try:
+                        metadata_index[value].extend(frames.keys())
+                    except KeyError:
+                        metadata_index[value] = frames.keys()
+            for key, value in metadata_index.items():
+                metadata_index[key] = json.dumps(metadata_index[key])
+            self._results_storage.set_container_items(Index.METADATA_CONTAINER, metadata_index)
 
         # Store the frames - really easy
         self._data_storage.set_container_items(Index.FRAMES_CONTAINER, {k: json.dumps(v) for k, v in frames.items()})
@@ -441,7 +490,10 @@ class Index(object):
         positions = {}  # Inverted term positions index:: term -> [(start, end,), (star,end,), ...]
         associations = {}  # Inverted term co-occurrence index:: term -> other_term -> count
         frequencies = nltk.probability.FreqDist()  # Inverted term frequency index:: term -> count
+        metadata = {}  # Inverted frame metadata:: field_name -> field_value -> [frame1, frame2]
         frames = self._data_storage.get_container_items(Index.FRAMES_CONTAINER)  # All frames on the index
+
+        schema = self.get_schema()
 
         for data in frames.values():
             frame = json.loads(data)
@@ -464,6 +516,29 @@ class Index(object):
                         associations[term][other_term] = associations[term].get(other_term, 0) + 1
                     except KeyError:
                         associations[term] = {other_term: 1}
+            # Metadata
+            for field_name in frame:
+
+                if field_name.startswith('_'):
+                    # Skip hidden fields
+                    continue
+
+                schema_field = schema[field_name]
+                if schema_field.categorical() and schema[field_name].indexed():
+                    # Record indexed, categorical fields as metadata
+                    try:
+                        metadata_frames = metadata[field_name]
+                    except KeyError:
+                        metadata[field_name] = {}
+                        metadata_frames = metadata[field_name]
+                    for token in schema_field.analyse(frame[field_name]):
+                        if token.value is None:
+                            # Skip null values
+                            continue
+                        try:
+                            metadata_frames[token.value].append(frame_id)
+                        except KeyError:
+                            metadata_frames[token.value] = [frame_id]
 
         # Now serialise and store the various parts
         # Positions
@@ -482,6 +557,11 @@ class Index(object):
             frequencies_index[key] = json.dumps(frequencies[key])
         self._results_storage.clear_container(Index.FREQUENCIES_CONTAINER)
         self._results_storage.set_container_items(Index.FREQUENCIES_CONTAINER, frequencies_index)
+        # Metadata
+        for key, value in metadata.items():
+            metadata[key] = json.dumps(metadata[key])
+        self._results_storage.clear_container(Index.METADATA_CONTAINER)
+        self._results_storage.set_container_items(Index.METADATA_CONTAINER, metadata)
         logger.info("Re-indexed {} frames.".format(len(frames)))
 
         if fold_case:
@@ -501,11 +581,11 @@ class Index(object):
         id -- the string id of the document to delete.
 
         Optional Arguments:
-        fold_case -- a bool flag indicating whether to update the index or not. If set to ``False`` the index won't
+        update_index -- a bool flag indicating whether to update the index or not. If set to ``False`` the index won't
                      reflect the fact that the document has been deleted until `reindex()` has been run.
 
         """
-        frames = {k: json.loads(v) for k,v in self._data_storage.get_container_items(Index.FRAMES_CONTAINER).items()}
+        frames = {k: json.loads(v) for k, v in self._data_storage.get_container_items(Index.FRAMES_CONTAINER).items()}
         frames_to_delete = []
         for f_id, frame in frames.items():
             if frame['_doc_id'] == d_id:

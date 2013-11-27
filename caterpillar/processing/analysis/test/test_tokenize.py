@@ -56,11 +56,13 @@ def test_word_tokenizer_contractions():
 
 
 def test_word_tokenizer_names():
-    tokens = WordTokenizer().tokenize("But John McGee was sure to kneel before him. The King of Scotland was a rash man.")
+    tokens = WordTokenizer().tokenize(
+        "But John McGee was sure to kneel before him. The King of Scotland was a rash man.")
     words = []
     for t in tokens:
         words.append(t.value)
-    assert words == ['But', 'John McGee', 'was', 'sure', 'to', 'kneel', 'before', 'him', 'The', 'King of Scotland', 'was', 'a', 'rash', 'man']
+    assert words == ['But', 'John McGee', 'was', 'sure', 'to', 'kneel', 'before', 'him',
+                     'The', 'King of Scotland', 'was', 'a', 'rash', 'man']
 
 
 def test_word_tokenizer_bush():
@@ -85,7 +87,8 @@ def test_word_tokenizer_economics():
 
 
 def test_word_tokenizer_email_simple():
-    tokens = WordTokenizer().tokenize("A test sentence with the email adress John_Smith@domain123.org.au embedded in it.")
+    tokens = WordTokenizer().tokenize(
+        "A test sentence with the email adress John_Smith@domain123.org.au embedded in it.")
     words = []
     for t in tokens:
         words.append(t.value)
@@ -110,5 +113,5 @@ def test_word_tokenizer_number():
 
 
 def test_everything_tokenizer():
-    token = EverythingTokenizer().tokenize("Test")
+    token = list(EverythingTokenizer().tokenize("Test"))[0]
     assert token.value == 'Test'

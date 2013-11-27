@@ -23,11 +23,11 @@ class Token(object):
     not the object!
 
     """
-    def __init__(self):
-        self.position = None
-        self.value = None
-        self.stopped = None
-        self.index = None
+    def __init__(self, value=None, position=None, stopped=None, index=None):
+        self.value = value
+        self.position = position
+        self.stopped = stopped
+        self.index = index
 
     def update(self, value, stopped=False, position=None, index=None):
         """
@@ -196,10 +196,9 @@ class WordTokenizer(RegexpTokenizer):
 
 class EverythingTokenizer(Tokenizer):
     """
-    Returns entire input string as a single token.
+    Returns entire input string as a single token generator.
 
     """
     def tokenize(self, value):
         t = Token()
-        return t.update(value, stopped=False, position=0, index=(0, len(value),))
-
+        yield t.update(value, stopped=False, position=0, index=(0, len(str(value)) if value else 0,))

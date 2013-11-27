@@ -64,6 +64,28 @@ class Storage(object):
         return
 
     @abc.abstractmethod
+    def get_container_len(self, c_id):
+        """
+        Retrieve count of items in container with c_id.
+
+        Required Arguments:
+        c_id -- the string container id.
+
+        """
+        return
+
+    @abc.abstractmethod
+    def get_container_keys(self, c_id):
+        """
+        Retrieve a list of all keys from container with c_id.
+
+        Required Arguments:
+        c_id -- the string container id.
+
+        """
+        return
+
+    @abc.abstractmethod
     def get_container_item(self, c_id, key):
         """
         Retrieve a single item with key from container with c_id.

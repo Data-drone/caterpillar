@@ -16,7 +16,7 @@ class SearchHit(object):
         self.frame_terms = set(frame['_positions'].keys())
         self.text = frame['_text']
         # Extract the important data off the frame so it is easily available
-        self.data = {k: v for k,v in frame.items() if k[0] != '_'}  # Don't expose private frame items
+        self.data = {k: v for k, v in frame.items() if k[0] != '_'}  # Don't expose private frame items
         self.data[frame['_field']] = self.text  # Make the text available at it's original field name
         self.data['_id'] = frame_id
         self.data['_doc_id'] = self.doc_id
