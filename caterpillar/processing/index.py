@@ -344,7 +344,14 @@ class Index(object):
                 # Index non-categorical fields
                 #
                 # Break up into paragraphs first
-                paragraphs = ParagraphTokenizer().tokenize(fields[field_name].decode(encoding))
+                try:
+                    if isinstance(fields[field_name], str) or isinstance(fields[field_name], bytes):
+                        paragraphs = ParagraphTokenizer().tokenize(fields[field_name].decode(encoding))
+                    else:
+                        # Must already be unicode
+                        paragraphs = ParagraphTokenizer().tokenize(fields[field_name])
+                except UnicodeError as e:
+                    raise IndexError("Couldn't decode the {} field - {}".format(field_name, e))
                 for paragraph in paragraphs:
                     # Next we need the sentences grouped by frame
                     sentences = sentence_tokenizer.tokenize(paragraph.value, realign_boundaries=True)
