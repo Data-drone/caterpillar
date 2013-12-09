@@ -321,7 +321,7 @@ class Index(object):
         # Shell frame includes all non-indexed and categorical fields
         shell_frame = {}
         for field_name, field in schema_fields:
-            if (not field.indexed() or field.categorical()) and field_name in fields:
+            if (not field.indexed() or field.categorical()) and field.stored() and field_name in fields:
                 shell_frame[field_name] = fields[field_name]
 
         # Tokenize fields that need it
@@ -362,13 +362,14 @@ class Index(object):
                         frame_count += 1
                         frame = {
                             '_id': frame_id,
-                            '_text': ". ".join(sentence_list),
                             '_field': field_name,
                             '_positions': {},
                             '_associations': {},
                             '_sequence_number': frame_count,
                             '_doc_id': document_id,
                         }
+                        if field.stored():
+                            frame['_text'] = ". ".join(sentence_list)
                         for sentence in sentence_list:
                             # Tokenize and index
                             tokens = field.analyse(sentence)
@@ -467,8 +468,12 @@ class Index(object):
         self._data_storage.set_container_items(Index.FRAMES_CONTAINER, {k: json.dumps(v) for k, v in frames.items()})
 
         # Finally add the document to storage.
-        fields.update({'_id': document_id})
-        doc_data = json.dumps(fields).decode(encoding)
+        doc_fields = {'_id': document_id}
+        for field_name, field in schema_fields:
+            if field.stored() and field_name in fields:
+                # Only record stored fields against the document
+                doc_fields[field_name] = fields[field_name]
+        doc_data = json.dumps(doc_fields).decode(encoding)
         self._data_storage.set_container_item(Index.DOCUMENTS_CONTAINER, document_id, doc_data)
 
         if fold_case:

@@ -39,7 +39,7 @@ def test_searching_alice():
         assert searcher.count('golden key') == 6
         assert searcher.count('*ing') == 514
 
-        assert "jury" in searcher.search("jury", limit=1)[0].text
+        assert "jury" in searcher.search("jury", limit=1)[0].data['text']
 
         assert searcher.count("Alice and (thought or little)") == \
             searcher.count("Alice and thought or Alice and little") == 95
@@ -51,19 +51,19 @@ def test_searching_alice():
 
         results = searcher.search("Alice or voice^1.5", limit=voice_hits)
         for hit in results:
-            assert "voice" in hit.text
+            assert "voice" in hit.data['text']
 
         results = searcher.search("Alice or voice^1.5", start=voice_hits)
         for hit in results:
-            assert "voice" not in hit.text
+            assert "voice" not in hit.data['text']
 
         results = searcher.search("King not (court or evidence)")
         assert len(results.term_weights) == 1
         assert len(results) == 25
         assert results.num_matches == 53
         for hit in results:
-            assert "evidence" not in hit.text
-            assert "court" not in hit.text
+            assert "evidence" not in hit.data['text']
+            assert "court" not in hit.data['text']
 
         assert searcher.count('Mock Turtle') == 51
 

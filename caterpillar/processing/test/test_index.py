@@ -225,9 +225,15 @@ def test_latin1(storage_cls):
                                     encoding='latin1')
         assert doc_id
 
+
 @pytest.mark.parametrize("storage_cls", STORAGE)
-def text_unicode(storage_cls):
+def test_encoding(storage_cls):
     index = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser())))
-    doc_id = index.add_document(test=u'This is a unicode string to test our field decoding.', frame_size=2,
+    doc_id = index.add_document(text=u'This is a unicode string to test our field decoding.', frame_size=2,
                                 fold_case=False, update_index=True)
     assert doc_id is not None
+
+    with open(os.path.abspath('caterpillar/resources/mt_warning_utf8.txt'), 'r') as f:
+        data = f.read()
+    with pytest.raises(IndexError):
+        doc_id = index.add_document(text=data, frame_size=2, fold_case=False, update_index=True, encoding='ascii')

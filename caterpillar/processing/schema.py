@@ -35,19 +35,20 @@ class FieldType(object):
     # Convenience hash of operators -> methods
     FIELD_OPS = {'<': 'lt', '<=': 'lte', '>': 'gt', '>=': 'gte'}
 
-    def __init__(self, analyser=EverythingAnalyser(), indexed=False, categorical=False):
+    def __init__(self, analyser=EverythingAnalyser(), indexed=False, categorical=False, stored=True):
         """
         Optional Arguments:
         analyser -- the ``Analyser`` for this field.
         indexed -- a boolean flag indicating if this field should be indexed or not.
         categorical -- a boolean flag indicating if this field is categorical or not. Categorical fields only support
         indexing for the purpose of searching and do not collect full statistics such as positions and associations.
-
+        stored -- a boolean flag indiciating if this field should be stored or not.
 
         """
         self._analyser = analyser
         self._indexed = indexed
         self._categorical = categorical
+        self._stored = stored
 
     def analyse(self, value):
         """
@@ -73,6 +74,13 @@ class FieldType(object):
 
         """
         return self._indexed
+
+    def stored(self):
+        """
+        Is this field stored?
+
+        """
+        return self._stored
 
     def on_remove(self, schema, name):
         """
@@ -151,8 +159,8 @@ class CategoricalFieldType(FieldType):
     Represents a categorical field type. Categorical fields can extend this class for convenience.
 
     """
-    def __init__(self, analyser=EverythingAnalyser(), indexed=False):
-        super(CategoricalFieldType, self).__init__(analyser=analyser, indexed=indexed, categorical=True)
+    def __init__(self, analyser=EverythingAnalyser(), indexed=False, stored=True):
+        super(CategoricalFieldType, self).__init__(analyser=analyser, indexed=indexed, categorical=True, stored=stored)
 
     def value_of(self, raw_value):
         """
@@ -171,8 +179,8 @@ class ID(CategoricalFieldType):
     want to tokenize, such as the path of a file.
 
     """
-    def __init__(self, indexed=False):
-        super(ID, self).__init__(indexed=indexed)
+    def __init__(self, indexed=False, stored=True):
+        super(ID, self).__init__(indexed=indexed, stored=stored)
 
 
 class NUMERIC(CategoricalFieldType):
@@ -182,7 +190,7 @@ class NUMERIC(CategoricalFieldType):
     """
     TYPES = (int, float)
 
-    def __init__(self, indexed=False, num_type=int, default_value=None):
+    def __init__(self, indexed=False, stored=True, num_type=int, default_value=None):
         """
         Optional Arguments:
         num_type -- python number type to use for this field (float or int)
@@ -193,7 +201,7 @@ class NUMERIC(CategoricalFieldType):
             raise ValueError("Invalid num_type '{}'".format(num_type))
         self._num_type = num_type
         self._default_value = default_value
-        super(NUMERIC, self).__init__(analyser=None, indexed=indexed)
+        super(NUMERIC, self).__init__(analyser=None, indexed=indexed, stored=stored)
 
     def analyse(self, value):
         try:
@@ -228,8 +236,8 @@ class BOOLEAN(CategoricalFieldType):
     >>> w.add_document(path="/a", done=False)
     >>> w.commit()
     """
-    def __init__(self, indexed=False):
-        super(BOOLEAN, self).__init__(analyser=None, indexed=indexed)
+    def __init__(self, indexed=False, stored=True):
+        super(BOOLEAN, self).__init__(analyser=None, indexed=indexed, stored=stored)
 
     def analyse(self, value):
         yield Token(bool(value))
@@ -240,14 +248,14 @@ class TEXT(FieldType):
     Configured field type for text fields.
 
     """
-    def __init__(self, analyser=DefaultAnalyser(), indexed=True):
+    def __init__(self, analyser=DefaultAnalyser(), indexed=True, stored=True):
         """
         Optional Arguments:
         analyzer -- The processing.analysis.Analyser to use to index the field contents. If you omit this argument, the
         field uses processing.analysis.DefaultAnalyzer.
 
         """
-        super(TEXT, self).__init__(analyser=analyser, indexed=indexed, categorical=False)
+        super(TEXT, self).__init__(analyser=analyser, indexed=indexed, categorical=False, stored=stored)
 
 
 class CATEGORICAL_TEXT(CategoricalFieldType):
@@ -255,8 +263,8 @@ class CATEGORICAL_TEXT(CategoricalFieldType):
     Configured field type for categorical text fields.
 
     """
-    def __init__(self, indexed=False):
-        super(CATEGORICAL_TEXT, self).__init__(indexed=indexed)
+    def __init__(self, indexed=False, stored=True):
+        super(CATEGORICAL_TEXT, self).__init__(indexed=indexed, stored=stored)
 
     def equals_wildcard(self, value, wildcard_value):
         return re.match(wildcard_value, value) is not None

@@ -7,6 +7,7 @@ import os
 import pytest
 
 from caterpillar.processing import schema
+from caterpillar.processing.analysis.analyse import DefaultTestAnalyser
 from caterpillar.processing.index import Index
 from caterpillar.processing.schema import BOOLEAN, FieldType, ID, NUMERIC, Schema, TEXT, FieldConfigurationError
 
@@ -110,3 +111,22 @@ def test_generate_csv_schema_twitter():
         assert columns[0].type == schema.ColumnDataType.IGNORE
         assert columns[1].name == 'Text'
         assert columns[1].type == schema.ColumnDataType.TEXT
+
+
+def test_index_stored_fields():
+    index = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser(), stored=False),
+                                test=NUMERIC(stored=True),
+                                test2=BOOLEAN(stored=False)))
+    doc_id = index.add_document(text="hello world", test=777, test2=True,
+                                frame_size=2, fold_case=False, update_index=True)
+
+    searcher = index.searcher()
+    hit = searcher.search("*", limit=1)[0]
+    assert 'text' not in hit.data
+    assert 'test2' not in hit.data
+    assert hit.data['test'] == 777
+
+    doc = index.get_document(doc_id)
+    assert 'text' not in doc
+    assert 'test2' not in doc
+    assert doc['test'] == 777
