@@ -31,6 +31,16 @@ class IndexSearcher(object):
         """
         return len(self._do_query(query).frame_ids)
 
+    def filter(self, query):
+        """
+        Return a list of ids for frames that match the specified query.
+
+        Required Arguments:
+        query -- the query string.
+
+        """
+        return self._do_query(query).frame_ids
+
     def search(self, query, start=0, limit=25):
         """
         Return ranked frame data for frames that match the specified query.

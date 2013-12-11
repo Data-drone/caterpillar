@@ -60,7 +60,6 @@ class Index(object):
         self._schema = schema
         self._data_storage = data_storage
         self._results_storage = results_storage
-        self._plugins = dict()
         # Store schema
         self._data_storage.set_container_item(Index.SETTINGS_CONTAINER, Index.SETTINGS_SCHEMA, schema.dumps())
 
@@ -227,6 +226,19 @@ class Index(object):
 
         """
         return json.loads(self._data_storage.get_container_item(Index.FRAMES_CONTAINER, frame_id))
+
+    def get_frames(self, frame_ids=None):
+        """
+        Fetch frames of this index.
+
+        Optional Arguments:
+        frame_ids -- a list of ids to filter frames by.
+
+        """
+        return {
+            k: json.loads(v)
+            for k, v in self._data_storage.get_container_items(Index.FRAMES_CONTAINER, keys=frame_ids).items()
+        }
 
     def get_frame_ids(self):
         """
@@ -815,3 +827,80 @@ def find_bi_gram_words(frames, min_bi_gram_freq=3, min_bi_gram_coverage=0.65):
     logger.info("Identified {} n-grams.".format(len(candidate_bi_gram_list)))
 
     return [b[0] for b in candidate_bi_gram_list]
+
+
+class DerivedIndex(Index):
+    """
+    Subclass of ``Index`` that allows for a derived index to be created by the filtering/composition of any number
+    of existing indices.
+
+    It does not support any methods that involve documents.
+
+    Required Arguments:
+    schema -- a ``schema.Schema`` instance that covers all fields in this index.
+    data_storage -- a ``data.storage.Storage`` instance that will be used to write and read document, frame and config
+    data.
+    results_storage -- a ``data.storage.Storage`` instance that will be used to write and read processing results.
+    frames -- a list of frames to construct the index from.
+
+    """
+    def __init__(self, schema, data_storage, results_storage, frames):
+        self._schema = schema
+        self._data_storage = data_storage
+        self._results_storage = results_storage
+
+        # Store frames and build the index
+        self._data_storage.set_container_items(Index.FRAMES_CONTAINER, {k: json.dumps(v) for k, v in frames.items()})
+        self.reindex()
+
+    @staticmethod
+    def create_from_composite_query(index_queries, path=None, storage_cls=SqliteMemoryStorage, **args):
+        """
+        Create a new ``DerivedIndex`` from an arbitrary number of index queries.
+
+        Required Arguments:
+        index_queries -- A list of 2-tuples in the form of (index, query_string).
+
+        Optional Arguments:
+        path -- path to store index data under. MUST be specified if persistent storage is used.
+        storage_cls -- the class to instantiate for the storage object. Defaults to ``SqliteMemoryStorage``.
+        The create() method will be called on this instance.
+        **args -- any keyword arguments that need to be passed onto the storage instance.
+
+        """
+        fields = {}
+        frames = {}
+        for index, query in index_queries:
+            frame_ids = list(index.searcher().filter(query))
+            frames.update(index.get_frames(frame_ids=frame_ids))
+            fields.update(index.get_schema().items())
+
+        schema = Schema(**fields)
+        data_storage = storage_cls.create(Index.DATA_STORAGE, path=path, acid=True, containers=[
+            Index.DOCUMENTS_CONTAINER,
+            Index.FRAMES_CONTAINER,
+            Index.SETTINGS_CONTAINER
+        ], **args)
+        results_storage = storage_cls.create(Index.RESULTS_STORAGE, path=path, acid=False, containers=[
+            Index.POSITIONS_CONTAINER,
+            Index.ASSOCIATIONS_CONTAINER,
+            Index.FREQUENCIES_CONTAINER,
+            Index.METADATA_CONTAINER
+        ], **args)
+        return DerivedIndex(schema, data_storage, results_storage, frames)
+
+    def add_document(self, frame_size=None, fold_case=None, update_index=None, encoding=None, **fields):
+        DerivedIndex.documents_not_supported_error()
+
+    def delete_document(self, d_id):
+        DerivedIndex.documents_not_supported_error()
+
+    def get_document(self, d_id):
+        DerivedIndex.documents_not_supported_error()
+
+    def get_document_count(self):
+        DerivedIndex.documents_not_supported_error()
+
+    @staticmethod
+    def documents_not_supported_error():
+        raise NotImplementedError("Documents not supported by DerivedIndex")

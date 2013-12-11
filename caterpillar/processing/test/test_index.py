@@ -3,14 +3,16 @@
 # Copyright (C) 2012-2013 Mammoth Labs
 # Author: Kris Rogers <kris@mammothlabs.com.au>, Ryan Stuart <ryan@mammothlabs.com.au)
 from __future__ import division
+import csv
 import os
 import pytest
+
+from caterpillar.analytics.influence import InfluenceAnalyticsPlugin
 from caterpillar.data.sqlite import SqliteStorage, SqliteMemoryStorage
 from caterpillar.processing.analysis.analyse import DefaultTestAnalyser, BiGramTestAnalyser, EverythingAnalyser
-
 from caterpillar.processing.frames import frame_stream
 from caterpillar.processing.index import *
-from caterpillar.processing.schema import BOOLEAN, ID, NUMERIC, TEXT, FieldType, Schema
+from caterpillar.processing.schema import ID, NUMERIC, CATEGORICAL_TEXT, TEXT, FieldType, Schema
 
 
 STORAGE = [(SqliteStorage), (SqliteMemoryStorage)]
@@ -210,7 +212,8 @@ def test_utf8(storage_cls):
         index = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser()),
                                     document=TEXT(analyser=DefaultTestAnalyser(), indexed=False)),
                              storage_cls=storage_cls, path=os.getcwd())
-        doc_id = index.add_document(text=data, document='alice.txt', frame_size=2, fold_case=False, update_index=True)
+        doc_id = index.add_document(text=data, document='mt_warning_utf8.txt', frame_size=2, fold_case=False,
+                                    update_index=True)
         assert doc_id
 
 
@@ -221,7 +224,8 @@ def test_latin1(storage_cls):
         index = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser()),
                                     document=TEXT(analyser=DefaultTestAnalyser(), indexed=False)),
                              storage_cls=storage_cls, path=os.getcwd())
-        doc_id = index.add_document(text=data, document='alice.txt', frame_size=2, fold_case=False, update_index=True,
+        doc_id = index.add_document(text=data, document='mt_warning_latin1.txt', frame_size=2, fold_case=False,
+                                    update_index=True,
                                     encoding='latin1')
         assert doc_id
 
@@ -237,3 +241,94 @@ def test_encoding(storage_cls):
         data = f.read()
     with pytest.raises(IndexError):
         doc_id = index.add_document(text=data, frame_size=2, fold_case=False, update_index=True, encoding='ascii')
+
+
+@pytest.mark.parametrize("storage_cls", STORAGE)
+def test_derived_index_composite(storage_cls):
+
+    os.mkdir('temp1')
+    os.mkdir('temp2')
+    try:
+        with open(os.path.abspath('caterpillar/resources/detractors.csv'), 'rbU') as f:
+            index1 = Index.create(Schema(text=TEXT), storage_cls=storage_cls, path='temp1')
+            csv_reader = csv.reader(f)
+            for row in csv_reader:
+                index1.add_document(update_index=False, text=row[0])
+            index1.reindex()
+            scount1 = index1.searcher().count("service")
+            nscount1 = index1.searcher().count("* not service")
+
+        with open(os.path.abspath('caterpillar/resources/promoters.csv'), 'rbU') as f:
+            index2 = Index.create(Schema(text=TEXT), storage_cls=storage_cls, path='temp2')
+            csv_reader = csv.reader(f)
+            for row in csv_reader:
+                index2.add_document(update_index=False, text=row[0])
+            index2.reindex()
+            scount2 = index2.searcher().count("service")
+            nscount2 = index2.searcher().count("* not service")
+
+        index = DerivedIndex.create_from_composite_query([(index1, "service"), (index2, "service")],
+                                                         storage_cls=storage_cls, path=os.getcwd())
+
+        searcher = index.searcher()
+        assert searcher.count("service") == scount1 + scount2
+        assert searcher.count("*") == (index1.get_frame_count() - nscount1) + (index2.get_frame_count() - nscount2)
+
+        with pytest.raises(NotImplementedError):
+            index.add_document(text='text')
+        with pytest.raises(NotImplementedError):
+            index.delete_document(None)
+        with pytest.raises(NotImplementedError):
+            index.get_document(None)
+        with pytest.raises(NotImplementedError):
+            index.get_document_count()
+
+        index1.destroy()
+        index2.destroy()
+    finally:
+        os.rmdir('temp1')
+        os.rmdir('temp2')
+
+
+@pytest.mark.parametrize("storage_cls", STORAGE)
+def test_derived_index_asymmetric_schema(storage_cls):
+
+    os.mkdir('temp1')
+    os.mkdir('temp2')
+    try:
+        with open(os.path.abspath('caterpillar/resources/mt_warning_utf8.txt'), 'r') as f:
+            data = f.read()
+            index1 = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser()),
+                                         document=TEXT(analyser=DefaultTestAnalyser(), indexed=False)),
+                                  storage_cls=storage_cls, path='temp1')
+            index1.add_document(text=data, document='mt_warning_utf8.txt', frame_size=2, fold_case=False,
+                                update_index=True)
+
+        with open(os.path.abspath('caterpillar/resources/alice_test_data.txt'), 'r') as f:
+            data = f.read()
+            index2 = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser()),
+                                         document=TEXT(analyser=DefaultTestAnalyser(), indexed=False), marker=NUMERIC),
+                                  storage_cls=storage_cls, path='temp2')
+            index2.add_document(text=data, document='alice.txt', marker=777, frame_size=2, fold_case=False,
+                                update_index=True)
+
+        q1 = "mountain or rock or volcanic or volcano"
+        q2 = "Alice or King or Queen"
+        index = DerivedIndex.create_from_composite_query([(index1, q1), (index2, q2)],
+                                                         storage_cls=storage_cls, path=os.getcwd())
+
+        searcher = index.searcher()
+        c1 = index1.searcher().count(q1)
+        c2 = index2.searcher().count(q2)
+        assert searcher.count(q1) == c1
+        assert searcher.count(q2) == c2
+        assert searcher.count("*") == index.get_frame_count() == c1 + c2
+
+        assert searcher.search(q2, limit=1)[0].data['marker'] == 777
+        assert 'marker' not in searcher.search(q1, limit=1)[0].data
+
+        index1.destroy()
+        index2.destroy()
+    finally:
+        os.rmdir('temp1')
+        os.rmdir('temp2')
