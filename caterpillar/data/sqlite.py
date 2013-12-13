@@ -193,7 +193,7 @@ class SqliteStorage(Storage):
         # When a specific set of keys is provided, make sure they all exist in the returned dict
         if keys and len(keys) > len(items):
             for k in keys:
-                k = str(k)
+                k = unicode(k)
                 if k not in items:
                     items[k] = None
         return items

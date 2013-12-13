@@ -137,6 +137,15 @@ def test_index_alice_bigram_words(storage_cls):
 
 
 @pytest.mark.parametrize("storage_cls", STORAGE)
+def test_index_moby_economics(storage_cls):
+    with open(os.path.abspath('caterpillar/resources/economics_test_data.txt'), 'r') as f:
+        data = f.read()
+        index = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser())),
+                             storage_cls=storage_cls, path=os.getcwd())
+        index.add_document(text=data, frame_size=2, fold_case=True, update_index=True)
+
+
+@pytest.mark.parametrize("storage_cls", STORAGE)
 def test_index_moby_case_folding(storage_cls):
     with open(os.path.abspath('caterpillar/resources/moby.txt'), 'r') as f:
         data = f.read()
