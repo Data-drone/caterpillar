@@ -2,11 +2,14 @@
 #
 # Copyright (C) 2012-2013 Mammoth Labs
 # Author: Ryan Stuart <ryan@mammothlabs.com.au>
-from caterpillar.processing import index
+from caterpillar.processing.analysis.analyse import BiGramAnalyser
+from caterpillar.processing.index import Index, find_bi_gram_words
+from caterpillar.processing.schema import Schema, TEXT
 from caterpillar.processing.frames import frame_stream
 
-with open('examples/moby.txt', 'r') as file:
-    frames = frame_stream(file)
-    bi_grams = index.find_bi_gram_words(frames)
-    frames = frame_stream(file)  # Because frame_stream is a generator we can only use it once
-    text_index = index.build_text_index(frames)
+with open('examples/alice.txt', 'r') as f:
+    bi_grams = find_bi_gram_words(frame_stream(f))
+    f.seek(0)
+    data = f.read()
+    index = Index.create(Schema(text=TEXT(analyser=BiGramAnalyser(bi_grams))))
+    index.add_document(text=data, frame_size=2, fold_case=True, update_index=True)
