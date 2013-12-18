@@ -330,6 +330,13 @@ class Index(object):
         """
         self._data_storage.set_container_item(Index.INFO_CONTAINER, 'clean', clean)
 
+    def get_vocab_size(self):
+        """
+        Get total number of unique terms identified for this index.
+
+        """
+        return self._results_storage.get_container_len(Index.POSITIONS_CONTAINER)
+
     def searcher(self, scorer_cls=TfidfScorer):
         """
         Return a searcher for this Index.

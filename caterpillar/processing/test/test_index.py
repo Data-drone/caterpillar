@@ -77,7 +77,7 @@ def test_index_alice(storage_cls):
         assert index.get_term_association('Alice', 'poor') == index.get_term_association('poor', 'Alice') == 3
         assert index.get_term_association('key', 'golden') == index.get_term_association('golden', 'key') == 3
 
-        assert len(index.get_frequencies()) == 504
+        assert index.get_vocab_size() == len(index.get_frequencies()) == 504
         assert index.get_term_frequency('Alice') == 23
 
         index.delete_document(doc_id, update_index=True)

@@ -20,6 +20,7 @@ class SearchHit(object):
         self.data['_doc_id'] = self.doc_id
         if '_text' in frame:
             self.data[frame['_field']] = frame['_text']  # Make the text available at it's original field name
+            self.text_field = frame['_field']
 
 
 class SearchResults(list):
