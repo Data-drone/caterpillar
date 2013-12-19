@@ -17,6 +17,7 @@ from caterpillar.processing.schema import ID, NUMERIC, CATEGORICAL_TEXT, TEXT, F
 
 
 STORAGE = [(SqliteStorage), (SqliteMemoryStorage)]
+FAST_STORAGE = [(SqliteMemoryStorage)]
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -120,7 +121,7 @@ def test_index_moby_small(storage_cls):
         assert len(index.get_frequencies()) == 38
 
 
-@pytest.mark.parametrize("storage_cls", STORAGE)
+@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_index_alice_bigram_words(storage_cls):
     with open(os.path.abspath('caterpillar/resources/alice.txt'), 'r') as f:
         bi_grams = find_bi_gram_words(frame_stream(f))
@@ -137,7 +138,7 @@ def test_index_alice_bigram_words(storage_cls):
         assert index.get_term_frequency('key') == 3
 
 
-@pytest.mark.parametrize("storage_cls", STORAGE)
+@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_index_moby_economics(storage_cls):
     with open(os.path.abspath('caterpillar/resources/economics_test_data.txt'), 'r') as f:
         data = f.read()
@@ -146,7 +147,7 @@ def test_index_moby_economics(storage_cls):
         index.add_document(text=data, frame_size=2, fold_case=True, update_index=True)
 
 
-@pytest.mark.parametrize("storage_cls", STORAGE)
+@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_index_moby_case_folding(storage_cls):
     with open(os.path.abspath('caterpillar/resources/moby.txt'), 'r') as f:
         data = f.read()
@@ -179,7 +180,7 @@ def test_index_moby_case_folding(storage_cls):
         assert len(index.get_frequencies()) == 17913
 
 
-@pytest.mark.parametrize("storage_cls", STORAGE)
+@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_index_alice_case_folding(storage_cls):
     with open(os.path.abspath('caterpillar/resources/alice_test_data.txt'), 'r') as f:
         data = f.read()
@@ -196,7 +197,7 @@ def test_index_alice_case_folding(storage_cls):
                 assert frame_id in positions_index[term]
 
 
-@pytest.mark.parametrize("storage_cls", STORAGE)
+@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_find_bigram_words(storage_cls):
     with open(os.path.abspath('caterpillar/resources/moby.txt'), 'r') as f:
         bi_grams = find_bi_gram_words(frame_stream(f))
@@ -215,7 +216,7 @@ def test_find_bigram_words(storage_cls):
             index.get_term_positions('cruet')
 
 
-@pytest.mark.parametrize("storage_cls", STORAGE)
+@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_utf8(storage_cls):
     with open(os.path.abspath('caterpillar/resources/mt_warning_utf8.txt'), 'r') as f:
         data = f.read()
@@ -227,7 +228,7 @@ def test_utf8(storage_cls):
         assert doc_id
 
 
-@pytest.mark.parametrize("storage_cls", STORAGE)
+@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_latin1(storage_cls):
     with open(os.path.abspath('caterpillar/resources/mt_warning_latin1.txt'), 'r') as f:
         data = f.read()
@@ -240,7 +241,7 @@ def test_latin1(storage_cls):
         assert doc_id
 
 
-@pytest.mark.parametrize("storage_cls", STORAGE)
+@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_encoding(storage_cls):
     index = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser())))
     doc_id = index.add_document(text=u'This is a unicode string to test our field decoding.', frame_size=2,
@@ -253,7 +254,7 @@ def test_encoding(storage_cls):
         doc_id = index.add_document(text=data, frame_size=2, fold_case=False, update_index=True, encoding='ascii')
 
 
-@pytest.mark.parametrize("storage_cls", STORAGE)
+@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_derived_index_composite(storage_cls):
     temp1 = tempfile.mkdtemp()
     temp2 = tempfile.mkdtemp()
@@ -299,7 +300,7 @@ def test_derived_index_composite(storage_cls):
         os.rmdir(temp2)
 
 
-@pytest.mark.parametrize("storage_cls", STORAGE)
+@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_derived_index_asymmetric_schema(storage_cls):
     temp1 = tempfile.mkdtemp()
     temp2 = tempfile.mkdtemp()
@@ -341,10 +342,11 @@ def test_derived_index_asymmetric_schema(storage_cls):
         os.rmdir(temp1)
         os.rmdir(temp2)
 
-@pytest.mark.parametrize("storage_cls", STORAGE)
+
+@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_index_update(storage_cls):
     with open(os.path.abspath('caterpillar/resources/detractors.csv'), 'rbU') as f:
-        index = Index.create(Schema(text=TEXT), storage_cls=storage_cls, path=os.getcwd())
+        index = Index.create(Schema(text=TEXT), storage_cls=storage_cls)
         csv_reader = csv.reader(f)
         for row in csv_reader:
             index.add_document(update_index=False, text=row[0])
@@ -365,3 +367,24 @@ def test_index_update(storage_cls):
 
     assert index.get_term_frequency('service') == 65
     assert index.get_frame_count() == 534
+
+
+@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
+def test_index_state(storage_cls):
+    with open(os.path.abspath('caterpillar/resources/detractors.csv'), 'rbU') as f:
+        index = Index.create(Schema(text=TEXT), storage_cls=storage_cls)
+        start_revision = index.get_revision()
+        csv_reader = csv.reader(f)
+        doc_ids = []
+        for row in csv_reader:
+            doc_ids.append(index.add_document(update_index=False, text=row[0]))
+            assert start_revision != index.get_revision()
+        assert not index.is_clean()
+        index.reindex()
+        assert index.is_clean()
+        revision = index.get_revision()
+        index.delete_document(doc_ids[0], update_index=False)
+        assert revision != index.get_revision()
+        assert not index.is_clean()
+        index.reindex()
+        assert index.is_clean()

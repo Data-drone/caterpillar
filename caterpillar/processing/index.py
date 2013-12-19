@@ -2,10 +2,19 @@
 #
 # Copyright (C) 2012-2013 Mammoth Labs
 # Author: Kris Rogers <kris@mammothlabs.com.au>, Ryan Stuart <ryan@mammothlabs.com.au>
+
+"""
+All interactions with an index are handled by this module. In particular the `Index` class handles the creation and
+modification of an index including the recovery of an existing index. For combining two indexes together for the purpose
+of a statistical analysis (for example) you can use a `DerivedIndex`. This module also provides a utility method called
+`find_bi_gram_words()` for detecting a list of bi-grams from a piece of text.
+
+"""
+
 from __future__ import division
+import random
 import ujson as json
 import logging
-import os
 import uuid
 
 import nltk
@@ -17,13 +26,11 @@ from caterpillar.processing.schema import Schema
 from caterpillar.searching import IndexSearcher
 from caterpillar.searching.scoring import TfidfScorer
 
-
 logger = logging.getLogger(__name__)
 
 
 class DocumentNotFoundError(Exception):
     """No document by that name exists."""
-    pass
 
 
 class IndexNotFoundError(Exception):
@@ -48,6 +55,7 @@ class Index(object):
     FRAMES_CONTAINER = "frames"
     SETTINGS_CONTAINER = "settings"
     SETTINGS_SCHEMA = "schema"
+    INFO_CONTAINER = "info"
 
     # Results storage
     RESULTS_STORAGE = "results.db"
@@ -60,8 +68,12 @@ class Index(object):
         self._schema = schema
         self._data_storage = data_storage
         self._results_storage = results_storage
+
         # Store schema
         self._data_storage.set_container_item(Index.SETTINGS_CONTAINER, Index.SETTINGS_SCHEMA, schema.dumps())
+        # Set state
+        self.set_clean(True)
+        self.update_revision()
 
     @staticmethod
     def create(schema, path=None, storage_cls=SqliteMemoryStorage, **args):
@@ -80,13 +92,14 @@ class Index(object):
         data_storage = storage_cls.create(Index.DATA_STORAGE, path=path, acid=True, containers=[
             Index.DOCUMENTS_CONTAINER,
             Index.FRAMES_CONTAINER,
-            Index.SETTINGS_CONTAINER
+            Index.SETTINGS_CONTAINER,
+            Index.INFO_CONTAINER,
         ], **args)
         results_storage = storage_cls.create(Index.RESULTS_STORAGE, path=path, acid=False, containers=[
             Index.POSITIONS_CONTAINER,
             Index.ASSOCIATIONS_CONTAINER,
             Index.FREQUENCIES_CONTAINER,
-            Index.METADATA_CONTAINER
+            Index.METADATA_CONTAINER,
         ], **args)
         return Index(schema, data_storage, results_storage)
 
@@ -284,6 +297,39 @@ class Index(object):
         """
         return self._schema
 
+    def get_revision(self):
+        """
+        Return the string revision identifier for this index.
+
+        The revision identifier is a version identifier. It gets updated every time the index gets changed.
+
+        """
+        return self._data_storage.get_container_item(Index.INFO_CONTAINER, 'revision')
+
+    def update_revision(self):
+        """
+        Updates the revision identifier for this index to reflect that the index has changed.
+
+        """
+        self._data_storage.set_container_item(Index.INFO_CONTAINER,
+                                              'revision', json.dumps(random.SystemRandom().randint(0, 10**10)))
+
+    def is_clean(self):
+        """
+        Returns whether this index is clean or not.
+
+        A clean index is one that is up-to-date. That is, all frames have been added to the index data structures.
+
+        """
+        return json.loads(self._data_storage.get_container_item(Index.INFO_CONTAINER, 'clean'))
+
+    def set_clean(self, clean=False):
+        """
+        Sets whether this index is clean or not.
+
+        """
+        self._data_storage.set_container_item(Index.INFO_CONTAINER, 'clean', clean)
+
     def searcher(self, scorer_cls=TfidfScorer):
         """
         Return a searcher for this Index.
@@ -420,7 +466,13 @@ class Index(object):
         # Update the index data structures if needed.
         if update_index:
             logger.info('Updating index.')
-            self.update_index(frames=frames.values(), fold_case=fold_case)
+            self.update(frames=frames.values(), fold_case=fold_case)
+        else:
+            # Updating the index will update the revision number for us but even if we don't update the index data
+            # structures we should still update the revision because we have new docs. Also make sure we set the index
+            # to be dirty.
+            self.update_revision()
+            self.set_clean(False)
 
         # Finally add the document to storage.
         doc_fields = {'_id': document_id}
@@ -433,7 +485,7 @@ class Index(object):
 
         return document_id
 
-    def update_index(self, frames=None, fold_case=False):
+    def update(self, frames=None, fold_case=False):
         """
         Add any frames that have yet to be indexed to the index.
 
@@ -597,6 +649,10 @@ class Index(object):
             logger.info('Performing case folding.')
             self.fold_term_case()
 
+        # Finally, update index state
+        self.update_revision()
+        self.set_clean(True)
+
     def delete_document(self, d_id, update_index=True):
         """
         Delete the document with given id.
@@ -622,6 +678,10 @@ class Index(object):
         self._data_storage.delete_container_items(Index.FRAMES_CONTAINER, frames_to_delete)
         if update_index:
             self.reindex(fold_case=False)
+        else:
+            # We have changes!
+            self.update_revision()
+            self.set_clean(False)
         self._data_storage.delete_container_item(Index.DOCUMENTS_CONTAINER, d_id)
 
     def fold_term_case(self, merge_threshold=0.7):
@@ -884,7 +944,8 @@ class DerivedIndex(Index):
         data_storage = storage_cls.create(Index.DATA_STORAGE, path=path, acid=True, containers=[
             Index.DOCUMENTS_CONTAINER,
             Index.FRAMES_CONTAINER,
-            Index.SETTINGS_CONTAINER
+            Index.SETTINGS_CONTAINER,
+            Index.INFO_CONTAINER,
         ], **args)
         results_storage = storage_cls.create(Index.RESULTS_STORAGE, path=path, acid=False, containers=[
             Index.POSITIONS_CONTAINER,
