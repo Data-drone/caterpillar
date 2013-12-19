@@ -323,12 +323,9 @@ class Index(object):
         document_id = uuid.uuid4().hex
         sentence_tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
 
-        # STEP 1 - Build index structures.
-        positions = {}  # Inverted term positions index:: term -> [(start, end,), (star,end,), ...]
-        associations = {}  # Inverted term co-occurrence index:: term -> other_term -> count
-        frequencies = nltk.probability.FreqDist()  # Inverted term frequency index:: term -> count
+        # Build the frames by performing required analysis.
         frames = {}  # Frame data:: frame_id -> {key: value}
-        metadata = {}  # Inverted frame metadata:: field_name -> field_value -> [frame1, frame2]
+        metadata = {}  # Inverted frame metadata:: field_name -> field_value
 
         # Shell frame includes all non-indexed and categorical fields
         shell_frame = {}
@@ -379,6 +376,7 @@ class Index(object):
                             '_associations': {},
                             '_sequence_number': frame_count,
                             '_doc_id': document_id,
+                            '_indexed': False,
                         }
                         if field.stored():
                             frame['_text'] = ". ".join(sentence_list)
@@ -390,15 +388,7 @@ class Index(object):
                             for token in tokens:
                                 # Add to the list of terms we have seen if it isn't already there.
                                 if not token.stopped:
-                                    # Record word positions on index structure and on frame
-                                    try:
-                                        positions[token.value][frame_id].append(token.index)
-                                    except KeyError:
-                                        try:
-                                            positions[token.value][frame_id] = [token.index]
-                                        except KeyError:
-                                            positions[token.value] = {frame_id: [token.index]}
-                                            associations[token.value] = {}
+                                    # Record word positions
                                     try:
                                         frame['_positions'][token.value].append(token.index)
                                     except KeyError:
@@ -406,12 +396,9 @@ class Index(object):
 
                         # Record co-occurrences and frequencies for the terms we have seen in the frame
                         for term in frame['_positions'].keys():
-                            # Record frequency information on index
-                            frequencies.inc(term)
                             for other_term in frame['_positions'].keys():
                                 if term != other_term:
-                                    # Record word associations on text index and frame
-                                    associations[term][other_term] = associations[term].get(other_term, 0) + 1
+                                    # Record word associations
                                     try:
                                         frame['_associations'][term].add(other_term)
                                     except KeyError:
@@ -420,64 +407,20 @@ class Index(object):
                         # Build the final frame
                         frame.update(shell_frame)
                         frames[frame_id] = frame
+
+        # Make sure we store the meta-data on the frame
+        for f_id, frame in frames.items():
+            frame['_metadata'] = metadata
+
         logger.info('Tokenization complete. {} frames created.'.format(len(frames)))
-
-        # STEP 2 - Store the frames we have created and optionally update the index data structures.
-        if update_index:
-            logger.info('Updating index.')
-            # Start by fetching what we need
-            positions_index = {k: json.loads(v) if v else {} for k, v in self._results_storage.get_container_items(
-                Index.POSITIONS_CONTAINER, positions.keys()).items()}
-            assocs_index = {k: json.loads(v) if v else {} for k, v in self._results_storage.get_container_items(
-                Index.ASSOCIATIONS_CONTAINER, associations.keys()).items()}
-            frequencies_index = {k: json.loads(v) if v else 0 for k, v in self._results_storage.get_container_items(
-                Index.FREQUENCIES_CONTAINER, frequencies.keys()).items()}
-            metadata_index = {k: json.loads(v) if v else 0 for k, v in self._results_storage.get_container_items(
-                Index.METADATA_CONTAINER, metadata.keys()).items()}
-
-            # Now update the indexes
-            # Positions
-            for term, indices in positions.items():
-                for frame_id, index in indices.items():
-                    try:
-                        positions_index[term][frame_id] = positions_index[term][frame_id] + index
-                    except KeyError:
-                        positions_index[term][frame_id] = index
-            for key, value in positions_index.items():
-                positions_index[key] = json.dumps(positions_index[key])
-            self._results_storage.set_container_items(Index.POSITIONS_CONTAINER, positions_index)
-
-            # Associations
-            for term, value in associations.items():
-                for other_term, count in value.items():
-                    assocs_index[term][other_term] = assocs_index[term].get(other_term, 0) + count
-            for key, value in assocs_index.items():
-                assocs_index[key] = json.dumps(assocs_index[key])
-            self._results_storage.set_container_items(Index.ASSOCIATIONS_CONTAINER, assocs_index)
-
-            # Frequencies
-            for key, value in frequencies.items():
-                frequencies_index[key] = frequencies_index[key] + value
-            for key, value in frequencies_index.items():
-                frequencies_index[key] = json.dumps(frequencies_index[key])
-            self._results_storage.set_container_items(Index.FREQUENCIES_CONTAINER, frequencies_index)
-
-            # Metadata
-            for name, values in metadata.items():
-                for value in values:
-                    if value is None:
-                        # Skip null values
-                        continue
-                    try:
-                        metadata_index[value].extend(frames.keys())
-                    except KeyError:
-                        metadata_index[value] = frames.keys()
-            for key, value in metadata_index.items():
-                metadata_index[key] = json.dumps(metadata_index[key])
-            self._results_storage.set_container_items(Index.METADATA_CONTAINER, metadata_index)
 
         # Store the frames - really easy
         self._data_storage.set_container_items(Index.FRAMES_CONTAINER, {k: json.dumps(v) for k, v in frames.items()})
+
+        # Update the index data structures if needed.
+        if update_index:
+            logger.info('Updating index.')
+            self.update_index(frames=frames.values(), fold_case=fold_case)
 
         # Finally add the document to storage.
         doc_fields = {'_id': document_id}
@@ -488,26 +431,47 @@ class Index(object):
         doc_data = json.dumps(doc_fields).decode(encoding)
         self._data_storage.set_container_item(Index.DOCUMENTS_CONTAINER, document_id, doc_data)
 
-        if fold_case:
-            logger.info('Performing case folding.')
-            self.fold_term_case()
-
         return document_id
 
-    def reindex(self, fold_case=False):
+    def update_index(self, frames=None, fold_case=False):
         """
-        Re-build in the index based on the tokenization information stored on the frames. These frames were previously
-        generated by adding documents to this index.
+        Add any frames that have yet to be indexed to the index.
+
+        Please note, updating the index DOES NOT re-run tokenization on the frames. Tokenization is only performed once
+        on a document and the output from that tokenization stored against the frame.
+
+        This method is a proxy for `reindex()` called with `update_only` set to True.
+
+
+        Optional Arguments:
+        frames - A list of frames to iterate through checking for un-indexed frames. If None, fetches all frames off the
+        index. Defaults to None.
+        fold_case -- A boolean flag indicating whether to perform case folding after updating.
+
+        """
+        logger.info('Updating the index.')
+        self.reindex(fold_case, True, frames)
+
+    def reindex(self, fold_case=False, update_only=False, frames=None):
+        """
+        Re-build or update the index based on the tokenization information stored on the frames. The frames were
+        previously generated by adding documents to this index.
 
         Please note, re-indexing DOES NOT re-run tokenization on the frames. Tokenization is only performed once on a
         document and the output from that tokenization stored against the frame.
 
         Consider using this method when adding a lot of documents to the index at once. In that case, each call to
-        ``add_document()`` would set update_index to False when calling that method and instead call this method after
-        adding all the documents. This will deliver a significant speed boost to the indexing process in that situation.
+        `add_document()` would set `update_index` to False when calling that method and instead call this method after
+        adding all the documents (probably with `update_only` set to True). This will deliver a significant speed boost
+        to the indexing process in that situation.
 
         Optional Arguments:
         fold_case -- A boolean flag indicating whether to perform case folding after re-indexing.
+        frames - A list of frames to iterate through checking for un-indexed frames. If None, fetches all frames off the
+        index. Defaults to None.
+        update_only -- A boolean flag indicating whether to perform an update only rather then a full re-index. An upate
+        won't remove all existing index structures and overwrite them. Instead, it will only use frames where _indexed
+        is set to False and will add to existing index structures.
 
         """
         logger.info('Re-building the index.')
@@ -515,12 +479,13 @@ class Index(object):
         associations = {}  # Inverted term co-occurrence index:: term -> other_term -> count
         frequencies = nltk.probability.FreqDist()  # Inverted term frequency index:: term -> count
         metadata = {}  # Inverted frame metadata:: field_name -> field_value -> [frame1, frame2]
-        frames = self._data_storage.get_container_items(Index.FRAMES_CONTAINER)  # All frames on the index
+        frames = frames or self.get_frames().values()  # All frames on the index
+        frames_to_save = []  # Frames where the indexed paramater needs to be updated
 
-        schema = self.get_schema()
+        if update_only:
+            frames = filter(lambda f: not f['_indexed'], frames)
 
-        for data in frames.values():
-            frame = json.loads(data)
+        for frame in frames:
             frame_id = frame['_id']
 
             # Positions & frequencies First
@@ -541,51 +506,91 @@ class Index(object):
                     except KeyError:
                         associations[term] = {other_term: 1}
             # Metadata
-            for field_name in frame:
-
-                if field_name.startswith('_'):
-                    # Skip hidden fields
-                    continue
-
-                schema_field = schema[field_name]
-                if schema_field.categorical() and schema[field_name].indexed():
-                    # Record indexed, categorical fields as metadata
-                    try:
-                        metadata_frames = metadata[field_name]
-                    except KeyError:
-                        metadata[field_name] = {}
-                        metadata_frames = metadata[field_name]
-                    for token in schema_field.analyse(frame[field_name]):
-                        if token.value is None:
+            if frame['_metadata']:
+                for field_name, values in frame['_metadata'].items():
+                    for value in values:
+                        if value is None:
                             # Skip null values
                             continue
                         try:
-                            metadata_frames[token.value].append(frame_id)
+                            metadata[field_name][value].append(frame_id)
                         except KeyError:
-                            metadata_frames[token.value] = [frame_id]
+                            try:
+                                metadata[field_name][value] = [frame_id]
+                            except KeyError:
+                                metadata[field_name] = {value: [frame_id]}
+            if not frame['_indexed']:
+                frame['_indexed'] = True
+                frames_to_save.append(frame)
+
+        # Save the frames that we need to
+        if frames_to_save:
+            self._data_storage.set_container_items(Index.FRAMES_CONTAINER,
+                                                   {f['_id']: json.dumps(f) for f in frames_to_save})
 
         # Now serialise and store the various parts
+        if update_only:
+            # Need to merge existing index with un-indexed frames
+            positions_index = {k: json.loads(v) if v else {} for k, v in self._results_storage.get_container_items(
+                Index.POSITIONS_CONTAINER, positions.keys()).items()}
+            assocs_index = {k: json.loads(v) if v else {} for k, v in self._results_storage.get_container_items(
+                Index.ASSOCIATIONS_CONTAINER, associations.keys()).items()}
+            frequencies_index = {k: json.loads(v) if v else 0 for k, v in self._results_storage.get_container_items(
+                Index.FREQUENCIES_CONTAINER, frequencies.keys()).items()}
+            metadata_index = {k: json.loads(v) if v else 0 for k, v in self._results_storage.get_container_items(
+                Index.METADATA_CONTAINER, metadata.keys()).items()}
+
+            # Positions
+            for term, indices in positions.items():
+                for frame_id, index in indices.items():
+                    try:
+                        positions_index[term][frame_id] = positions_index[term][frame_id] + index
+                    except KeyError:
+                        positions_index[term][frame_id] = index
+
+            # Associations
+            for term, value in associations.items():
+                for other_term, count in value.items():
+                    assocs_index[term][other_term] = assocs_index[term].get(other_term, 0) + count
+
+            # Frequencies
+            for key, value in frequencies.items():
+                frequencies_index[key] = frequencies_index[key] + value
+            # Metadata
+            for name, values in metadata.items():
+                for value in values:
+                    try:
+                        metadata_index[value].extend([f['_id'] for f in frames])
+                    except KeyError:
+                        metadata_index[value] = [f['_id'] for f in frames]
+        else:
+            positions_index = positions
+            assocs_index = associations
+            frequencies_index = dict(frequencies)
+            metadata_index = metadata
+            # Clear out the existing indexes
+            self._results_storage.clear_container(Index.POSITIONS_CONTAINER)
+            self._results_storage.clear_container(Index.ASSOCIATIONS_CONTAINER)
+            self._results_storage.clear_container(Index.FREQUENCIES_CONTAINER)
+            self._results_storage.clear_container(Index.METADATA_CONTAINER)
+
+        # Now do the writing
         # Positions
-        for key, value in positions.items():
-            positions[key] = json.dumps(positions[key])
-        self._results_storage.clear_container(Index.POSITIONS_CONTAINER)
-        self._results_storage.set_container_items(Index.POSITIONS_CONTAINER, positions)
+        for key, value in positions_index.items():
+            positions_index[key] = json.dumps(positions_index[key])
+        self._results_storage.set_container_items(Index.POSITIONS_CONTAINER, positions_index)
         # Associations
-        for key, value in associations.items():
-            associations[key] = json.dumps(associations[key])
-        self._results_storage.clear_container(Index.ASSOCIATIONS_CONTAINER)
-        self._results_storage.set_container_items(Index.ASSOCIATIONS_CONTAINER, associations)
+        for key, value in assocs_index.items():
+            assocs_index[key] = json.dumps(assocs_index[key])
+        self._results_storage.set_container_items(Index.ASSOCIATIONS_CONTAINER, assocs_index)
         # Frequencies
-        frequencies_index = {}
-        for key, value in frequencies.items():
-            frequencies_index[key] = json.dumps(frequencies[key])
-        self._results_storage.clear_container(Index.FREQUENCIES_CONTAINER)
+        for key, value in frequencies_index.items():
+            frequencies_index[key] = json.dumps(frequencies_index[key])
         self._results_storage.set_container_items(Index.FREQUENCIES_CONTAINER, frequencies_index)
         # Metadata
-        for key, value in metadata.items():
-            metadata[key] = json.dumps(metadata[key])
-        self._results_storage.clear_container(Index.METADATA_CONTAINER)
-        self._results_storage.set_container_items(Index.METADATA_CONTAINER, metadata)
+        for key, value in metadata_index.items():
+            metadata_index[key] = json.dumps(metadata_index[key])
+        self._results_storage.set_container_items(Index.METADATA_CONTAINER, metadata_index)
         logger.info("Re-indexed {} frames.".format(len(frames)))
 
         if fold_case:

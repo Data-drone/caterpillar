@@ -5,6 +5,7 @@
 from __future__ import division
 import csv
 import os
+import tempfile
 import pytest
 
 from caterpillar.analytics.influence import InfluenceAnalyticsPlugin
@@ -254,12 +255,11 @@ def test_encoding(storage_cls):
 
 @pytest.mark.parametrize("storage_cls", STORAGE)
 def test_derived_index_composite(storage_cls):
-
-    os.mkdir('temp1')
-    os.mkdir('temp2')
+    temp1 = tempfile.mkdtemp()
+    temp2 = tempfile.mkdtemp()
     try:
         with open(os.path.abspath('caterpillar/resources/detractors.csv'), 'rbU') as f:
-            index1 = Index.create(Schema(text=TEXT), storage_cls=storage_cls, path='temp1')
+            index1 = Index.create(Schema(text=TEXT), storage_cls=storage_cls, path=temp1)
             csv_reader = csv.reader(f)
             for row in csv_reader:
                 index1.add_document(update_index=False, text=row[0])
@@ -268,7 +268,7 @@ def test_derived_index_composite(storage_cls):
             nscount1 = index1.searcher().count("* not service")
 
         with open(os.path.abspath('caterpillar/resources/promoters.csv'), 'rbU') as f:
-            index2 = Index.create(Schema(text=TEXT), storage_cls=storage_cls, path='temp2')
+            index2 = Index.create(Schema(text=TEXT), storage_cls=storage_cls, path=temp2)
             csv_reader = csv.reader(f)
             for row in csv_reader:
                 index2.add_document(update_index=False, text=row[0])
@@ -295,21 +295,20 @@ def test_derived_index_composite(storage_cls):
         index1.destroy()
         index2.destroy()
     finally:
-        os.rmdir('temp1')
-        os.rmdir('temp2')
+        os.rmdir(temp1)
+        os.rmdir(temp2)
 
 
 @pytest.mark.parametrize("storage_cls", STORAGE)
 def test_derived_index_asymmetric_schema(storage_cls):
-
-    os.mkdir('temp1')
-    os.mkdir('temp2')
+    temp1 = tempfile.mkdtemp()
+    temp2 = tempfile.mkdtemp()
     try:
         with open(os.path.abspath('caterpillar/resources/mt_warning_utf8.txt'), 'r') as f:
             data = f.read()
             index1 = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser()),
                                          document=TEXT(analyser=DefaultTestAnalyser(), indexed=False)),
-                                  storage_cls=storage_cls, path='temp1')
+                                  storage_cls=storage_cls, path=temp1)
             index1.add_document(text=data, document='mt_warning_utf8.txt', frame_size=2, fold_case=False,
                                 update_index=True)
 
@@ -317,7 +316,7 @@ def test_derived_index_asymmetric_schema(storage_cls):
             data = f.read()
             index2 = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser()),
                                          document=TEXT(analyser=DefaultTestAnalyser(), indexed=False), marker=NUMERIC),
-                                  storage_cls=storage_cls, path='temp2')
+                                  storage_cls=storage_cls, path=temp2)
             index2.add_document(text=data, document='alice.txt', marker=777, frame_size=2, fold_case=False,
                                 update_index=True)
 
@@ -339,5 +338,30 @@ def test_derived_index_asymmetric_schema(storage_cls):
         index1.destroy()
         index2.destroy()
     finally:
-        os.rmdir('temp1')
-        os.rmdir('temp2')
+        os.rmdir(temp1)
+        os.rmdir(temp2)
+
+@pytest.mark.parametrize("storage_cls", STORAGE)
+def test_index_update(storage_cls):
+    with open(os.path.abspath('caterpillar/resources/detractors.csv'), 'rbU') as f:
+        index = Index.create(Schema(text=TEXT), storage_cls=storage_cls, path=os.getcwd())
+        csv_reader = csv.reader(f)
+        for row in csv_reader:
+            index.add_document(update_index=False, text=row[0])
+        index.reindex(update_only=True, fold_case=False)
+
+    assert index.get_term_frequency('service') == 14
+
+    with open(os.path.abspath('caterpillar/resources/promoters.csv'), 'rbU') as f:
+        csv_reader = csv.reader(f)
+        for row in csv_reader:
+            index.add_document(update_index=False, text=row[0])
+        index.reindex(update_only=True, fold_case=False)
+
+    assert index.get_term_frequency('service') == 65
+    assert index.get_frame_count() == 534
+
+    index.reindex(fold_case=False, update_only=False)
+
+    assert index.get_term_frequency('service') == 65
+    assert index.get_frame_count() == 534
