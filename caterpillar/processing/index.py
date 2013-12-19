@@ -379,7 +379,7 @@ class Index(object):
                             '_indexed': False,
                         }
                         if field.stored():
-                            frame['_text'] = ". ".join(sentence_list)
+                            frame['_text'] = " ".join(sentence_list)
                         for sentence in sentence_list:
                             # Tokenize and index
                             tokens = field.analyse(sentence)
