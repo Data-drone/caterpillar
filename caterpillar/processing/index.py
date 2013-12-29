@@ -740,22 +740,47 @@ class Index(object):
     def _merge_terms(self, old_term, new_term, associations, positions, frequencies, frames):
         old_positions = positions[old_term]
         new_positions = positions[new_term]
+
+        # Clear global associations for old term
+        if old_term in associations:
+            for term in associations[old_term]:
+                del associations[term][old_term]
+            del associations[old_term]
+
         # Update term positions globally and positions and associations in frames
         for frame_id, frame_positions in old_positions.items():
+
+            # Remove traces of old term from frame data
+            frames[frame_id]['_associations'].clear()
+            del frames[frame_id]['_positions'][old_term]
+
             # Update global positions
             try:
                 new_positions[frame_id].extend(frame_positions)
             except KeyError:
                 # New term had not been recorded in this frame
                 new_positions[frame_id] = frame_positions
+
+            # Update global associations
+            for term in frames[frame_id]['_positions']:
+                if new_term not in frames[frame_id]['_positions'] and old_term != term and term != new_term:
+                    # Only count frames that do not contain the new spelling as those frames have already
+                    # been counted.
+                    try:
+                        associations[new_term][term] += 1
+                        associations[term][new_term] += 1
+                    except KeyError:
+                        associations[new_term][term] = 1
+                        associations[term][new_term] = 1
+
             # Update frame positions
             try:
                 frames[frame_id]['_positions'][new_term].extend(frame_positions)
             except KeyError:
                 # New term had not been recorded in this frame
                 frames[frame_id]['_positions'][new_term] = frame_positions
+
             # Update frame associations
-            frames[frame_id]['_associations'].clear()
             for term in frames[frame_id]['_positions']:
                 for other_term in frames[frame_id]['_positions']:
                     if other_term == term:
@@ -767,29 +792,10 @@ class Index(object):
             # Kludge! JSON doesn't support sets....
             for term, asscs in frames[frame_id]['_associations'].items():
                 frames[frame_id]['_associations'][term] = set(asscs)
-            del frames[frame_id]['_positions'][old_term]
 
         # Update positions index
         positions[new_term] = new_positions
         del positions[old_term]
-
-        # Update term associations
-        if old_term in associations:
-            for other_term, freq in associations[old_term].items():
-                # Update new term
-                try:
-                    associations[new_term][other_term] += freq
-                except KeyError:
-                    # New term had no recorded associations with other term
-                    associations[new_term][other_term] = freq
-                # Update other term
-                try:
-                    associations[other_term][new_term] += associations[other_term][old_term]
-                except KeyError:
-                    # Other term had no recorded associations with new term
-                    associations[other_term][new_term] = associations[other_term][old_term]
-                del associations[other_term][old_term]
-            del associations[old_term]
 
         # Update term frequency
         frequencies[new_term] = frequencies[new_term] + frequencies[old_term]

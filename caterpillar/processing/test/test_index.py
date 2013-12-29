@@ -139,15 +139,6 @@ def test_index_alice_bigram_words(storage_cls):
 
 
 @pytest.mark.parametrize("storage_cls", FAST_STORAGE)
-def test_index_moby_economics(storage_cls):
-    with open(os.path.abspath('caterpillar/resources/economics_test_data.txt'), 'r') as f:
-        data = f.read()
-        index = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser())),
-                             storage_cls=storage_cls, path=os.getcwd())
-        index.add_document(text=data, frame_size=2, fold_case=True, update_index=True)
-
-
-@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_index_moby_case_folding(storage_cls):
     with open(os.path.abspath('caterpillar/resources/moby.txt'), 'r') as f:
         data = f.read()
@@ -160,7 +151,7 @@ def test_index_moby_case_folding(storage_cls):
         with pytest.raises(KeyError):
             assert not index.get_term_frequency('flask')
         assert index.get_term_frequency('Flask') == 92
-        assert index.get_term_association('Flask', 'person') == index.get_term_association('person', 'Flask') == 3
+        assert index.get_term_association('Flask', 'person') == index.get_term_association('person', 'Flask') == 2
 
         with pytest.raises(KeyError):
             index.get_term_positions('Well')
@@ -174,7 +165,7 @@ def test_index_moby_case_folding(storage_cls):
         with pytest.raises(KeyError):
             assert not index.get_term_frequency('Whale')
         assert index.get_term_frequency('whale') == 811
-        assert index.get_term_association('whale', 'American') == index.get_term_association('American', 'whale') == 15
+        assert index.get_term_association('whale', 'American') == index.get_term_association('American', 'whale') == 14
 
         assert index.get_term_frequency('T. HERBERT') == 1
         assert len(index.get_frequencies()) == 17913
@@ -195,6 +186,27 @@ def test_index_alice_case_folding(storage_cls):
         for frame_id, frame in frames.items():
             for term in frame['_positions']:
                 assert frame_id in positions_index[term]
+
+        # Check that associations never exceed frequency of either term
+        associations = index.get_associations_index()
+        frequencies = index.get_frequencies()
+        for term, term_associations in associations.items():
+            for other_term, assoc in term_associations.items():
+                assert assoc <= frequencies[term] and assoc <= frequencies[other_term]
+
+        # Check that global associations index matches frame associations
+        for term, term_positions in positions_index.items():
+            term_associations = {}
+            for frame_id in term_positions:
+                frame = frames[frame_id]
+                for other_term in frame['_associations'][term]:
+                    try:
+                        term_associations[other_term] += 1
+                    except KeyError:
+                        term_associations[other_term] = 1
+            for other_term in term_associations:
+                assert term_associations[other_term] == associations[term][other_term]\
+                    == associations[other_term][term]
 
 
 @pytest.mark.parametrize("storage_cls", FAST_STORAGE)
