@@ -129,7 +129,7 @@ class BiGramFilter(Filter):
                 yield t
                 continue
             elif prev_token:
-                bi_gram = "{} {}".format(prev_token.value, t.value)
+                bi_gram = u"{} {}".format(prev_token.value, t.value)
                 if bi_gram in self._bi_grams:
                     yield t.update(bi_gram, position=prev_token.position, index=(prev_token.index[0], t.index[1]))
                     prev_token = None

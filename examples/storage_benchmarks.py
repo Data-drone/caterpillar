@@ -22,7 +22,7 @@ index = Index.create(Schema(text=TEXT(analyser=DefaultAnalyser()),
                             document=TEXT(analyser=DefaultAnalyser(), indexed=False)),
                      storage_cls=SqliteMemoryStorage)
 index.add_document(text=data, document='moby.txt', frame_size=2, fold_case=True, update_index=True)
-index.run_plugin(InfluenceAnalyticsPlugin, influence_contribution_threshold=3.841, cumulative_influence_smoothing=False)
+index.run_plugin(InfluenceAnalyticsPlugin, influence_factor_smoothing=False)
 topical_classification = InfluenceAnalyticsPlugin(index).get_topical_classification(influence_threshold=3.841)
 ram_latency = time.time() - ram_start
 
@@ -32,7 +32,7 @@ index = Index.create(Schema(text=TEXT(analyser=DefaultAnalyser()),
                             document=TEXT(analyser=DefaultAnalyser(), indexed=False)),
                      storage_cls=SqliteStorage, path=os.getcwd())
 index.add_document(text=data, document='moby.txt', frame_size=2, fold_case=True, update_index=True)
-index.run_plugin(InfluenceAnalyticsPlugin, influence_contribution_threshold=3.841, cumulative_influence_smoothing=False)
+index.run_plugin(InfluenceAnalyticsPlugin, influence_factor_smoothing=False)
 topical_classification = InfluenceAnalyticsPlugin(index).get_topical_classification(influence_threshold=3.841)
 sql_latency = time.time() - sql_start
 index.destroy()

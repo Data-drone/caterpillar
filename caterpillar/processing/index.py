@@ -841,7 +841,9 @@ class Index(object):
             # Store items
             self._results_storage.set_container_items(container_id, value)
 
-    def get_plugin_data(self, plugin, container):
+        return plugin
+
+    def get_plugin_data(self, plugin, container, keys=None):
         """
         Returns a container identified by container for the plugin instance.
 
@@ -849,8 +851,12 @@ class Index(object):
         plugin -- an instance of ``plugin.AnalyticsPlugin``.
         container -- The str name of the container.
 
+        Optional Arguments:
+        keys -- the list of keys to fetch. Defaults to None meaning all items are fetched.
+
         """
-        return self._results_storage.get_container_items(Index._plugin_container_name(plugin.get_name(), container))
+        return self._results_storage.get_container_items(Index._plugin_container_name(plugin.get_name(), container),
+                                                         keys)
 
     @staticmethod
     def _plugin_container_name(plugin, container):

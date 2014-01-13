@@ -22,6 +22,7 @@ import regex
 
 from lrparsing import Grammar, Keyword, Prio, Ref, Repeat, Token, Tokens
 
+from caterpillar.analytics.influence import InfluenceTopicsPlugin
 from caterpillar.processing import schema
 
 
@@ -229,12 +230,28 @@ class QueryEvaluator(object):
         node.frame_ids = node[1].frame_ids.union(node[3].frame_ids)
         node.matched_terms = node[1].matched_terms.union(node[3].matched_terms)
 
+    def _evaluate_topic(self, node):
+        """
+        Evaluate topic query.
+
+        """
+        topic_name = ' '.join([n[1][1] for n in node[3:]])
+        topics_plugin = InfluenceTopicsPlugin(self.index)
+        node.frame_ids = topics_plugin.get_topic_frames(topic_name)
+        topic_details = topics_plugin.get_topic_details(topic_name)
+        node.term_weights = {}
+        for term_value in topic_details['primary_terms']:
+            # Primary terms receive a 1.5x ranking multiplier
+            node.term_weights[term_value] = 1.5
+        for term_value in topic_details['secondary_terms']:
+            node.term_weights[term_value] = 1
+
     def _extract_term_value(self, node):
         """
         Extract term value from an operand node; handles arbitrary number of term components (compounds).
 
         """
-        return ' '.join([n[1] for n in node[1:]])
+        return ' '.join([n[1][1] for n in node[1:]])
 
 
 class QueryResult(object):
@@ -264,9 +281,11 @@ class _QueryGrammar(Grammar):
     and_op = expr << Keyword('and', case=False) << expr
     not_op = expr << Keyword('not', case=False) << expr
     or_op = expr << Keyword('or', case=False) << expr
-    operand = Repeat(Token(re=r'[^\s\^\(\)\=\<>]+'), 1)
+    term = Token(re=r'[^\s^()=<>:]+')
+    operand = Repeat(term, 1)
     weighting = operand << Token(re=r'\^[0-9]*\.?[0-9]+')
     field = operand + Tokens('= < > <= >=') + operand
+    topic = Keyword('topic', case=False) + Token(':') + Repeat(term, 1)
     expr = Prio(
         brackets,
         not_op,
@@ -274,6 +293,7 @@ class _QueryGrammar(Grammar):
         or_op,
         weighting,
         field,
+        topic,
         operand
     )
     START = expr    # Where the grammar must start

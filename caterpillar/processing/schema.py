@@ -13,7 +13,7 @@ import sys
 
 import regex
 
-from caterpillar.processing.analysis.analyse import EverythingAnalyser, DefaultAnalyser
+from caterpillar.processing.analysis.analyse import BiGramAnalyser, EverythingAnalyser, DefaultAnalyser
 from caterpillar.processing.analysis.tokenize import Token
 
 
@@ -440,6 +440,7 @@ class ColumnSpec(object):
 
         """
         self.name = name
+        self.field_name = name.replace(' ', '')
         self.type = type
 
 
@@ -461,6 +462,54 @@ class CsvSchema(object):
         self.has_header = has_header
         self.dialect = dialect
         self.sample_rows = sample_rows
+
+    def as_index_schema(self, bi_grams=None):
+        """
+        Return a representation of this ``CsvSchema`` in the form of a ``Schema`` instance that can be
+        used for generating a text index.
+
+        Optional Arguments:
+        bi_grams -- A list of bi-grams to use for TEXT columns.
+
+        """
+        schema = Schema()
+        for col in self.columns:
+
+            if col.type == ColumnDataType.IGNORE:
+                continue
+
+            elif col.type == ColumnDataType.FLOAT:
+                schema.add(col.field_name, NUMERIC(num_type=float))
+
+            elif col.type == ColumnDataType.INTEGER:
+                schema.add(col.field_name, NUMERIC(num_type=int))
+
+            elif col.type == ColumnDataType.STRING:
+                schema.add(col.field_name, CATEGORICAL_TEXT)
+
+            elif col.type == ColumnDataType.TEXT:
+                if bi_grams is not None:
+                    schema.add(col.field_name, TEXT(analyser=BiGramAnalyser(bi_grams)))
+                else:
+                    schema.add(col.field_name, TEXT)
+
+        return schema
+
+    def map_row(self, row):
+        """
+        Convert a row into dict form to make it easier to index.
+
+        Required Arguments:
+        row -- A list of values for a row.
+
+        """
+        row_data = {}
+        i = 0
+        for col in self.columns:
+            if col.type != ColumnDataType.IGNORE:
+                row_data[col.field_name] = row[i]
+            i += 1
+        return row_data
 
 
 AVG_WORDS_TEXT = 5  # Minimum number of average words per row to consider a column as text
@@ -518,10 +567,11 @@ def generate_csv_schema(csv_file, delimiter=',', encoding='utf8'):
     # Define columns and generate schema
     columns = []
     for index, stats in column_stats.items():
+        name = None
         if headers and index < len(headers):
             name = unicode(headers[index], encoding, errors='ignore')
-        else:
-            name = index + 1
+        if name is None or len(name) == 0:
+            name = str(index + 1)
         if stats['total_words'] / NUM_PEEK_ROWS_CSV >= AVG_WORDS_TEXT:
             # Enough words for a text column
             columns.append(ColumnSpec(name, ColumnDataType.TEXT))

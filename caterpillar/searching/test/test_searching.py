@@ -7,7 +7,7 @@ import os
 
 import pytest
 
-from caterpillar.analytics.influence import InfluenceAnalyticsPlugin
+from caterpillar.analytics.influence import InfluenceAnalyticsPlugin, InfluenceTopicsPlugin
 from caterpillar.processing.analysis.analyse import BiGramTestAnalyser
 from caterpillar.processing.index import Index, find_bi_gram_words
 from caterpillar.processing import schema
@@ -25,11 +25,15 @@ def test_searching_alice():
         index = Index.create(schema.Schema(
             text=schema.TEXT(analyser=BiGramTestAnalyser(bi_grams))))
         index.add_document(text=data, frame_size=2, fold_case=True)
-        index.run_plugin(InfluenceAnalyticsPlugin,
-                         influence_contribution_threshold=0,
-                         cumulative_influence_smoothing=False)
+        index.run_plugin(InfluenceAnalyticsPlugin, influence_factor_smoothing=False)
+        topics_plugin = index.run_plugin(InfluenceTopicsPlugin)
+        topics = topics_plugin.get_topical_classification().topics
 
         searcher = index.searcher()
+
+        for topic in topics:
+            if topic.name == 'Queen':
+                assert searcher.count(topic.get_query()) == 70
 
         assert searcher.count("King") == searcher.count("K?ng") == 60
 
@@ -79,9 +83,7 @@ def test_searching_alice_simple():
         index = Index.create(schema.Schema(
             text=schema.TEXT(analyser=BiGramTestAnalyser(bi_grams))))
         index.add_document(text=data, frame_size=2, fold_case=True)
-        index.run_plugin(InfluenceAnalyticsPlugin,
-                         influence_contribution_threshold=0,
-                         cumulative_influence_smoothing=False)
+        index.run_plugin(InfluenceAnalyticsPlugin, influence_factor_smoothing=False)
 
         searcher = index.searcher(scorer_cls=SimpleScorer)
 
@@ -98,9 +100,7 @@ def test_searching_mt_warning():
         index = Index.create(schema.Schema(
             text=schema.TEXT(analyser=BiGramTestAnalyser(bi_grams))))
         index.add_document(text=data, frame_size=2, fold_case=True)
-        index.run_plugin(InfluenceAnalyticsPlugin,
-                         influence_contribution_threshold=0,
-                         cumulative_influence_smoothing=False)
+        index.run_plugin(InfluenceAnalyticsPlugin, influence_factor_smoothing=False)
 
         searcher = index.searcher()
 
@@ -120,9 +120,7 @@ def test_searching_twitter():
         for row in csv_reader:
             index.add_document(text=row[1], sentiment=row[0])
         index.reindex()
-        index.run_plugin(InfluenceAnalyticsPlugin,
-                         influence_contribution_threshold=0,
-                         cumulative_influence_smoothing=False)
+        index.run_plugin(InfluenceAnalyticsPlugin, influence_factor_smoothing=False)
 
         searcher = index.searcher()
 
@@ -147,9 +145,7 @@ def test_searching_nps():
                                disliked=row[4], would_like=row[5], nps=row[6], fake2=None)
 
         index.reindex()
-        index.run_plugin(InfluenceAnalyticsPlugin,
-                         influence_contribution_threshold=0,
-                         cumulative_influence_smoothing=False)
+        index.run_plugin(InfluenceAnalyticsPlugin, influence_factor_smoothing=False)
 
         searcher = index.searcher()
 

@@ -21,4 +21,4 @@ with open('examples/big.csv', 'r') as file:
     text_index.reindex()
     # Run the influence plugin
     text_index.run_plugin(InfluenceAnalyticsPlugin)
-    total_influence = InfluenceAnalyticsPlugin(text_index).get_cumulative_influence_table()
+    influence_factors = InfluenceAnalyticsPlugin(text_index).get_influence_factors_table()

@@ -13,8 +13,5 @@ with open(os.path.abspath('caterpillar/resources/alice.txt'), 'r') as f:
     index = Index.create(Schema(text=TEXT(analyser=DefaultAnalyser())))
     data = f.read()
     index.add_document(fold_case=True, text=data)
-    index.run_plugin(InfluenceAnalyticsPlugin,
-                     influence_contribution_threshold=3.841,
-                     cumulative_influence_smoothing=True)
+    index.run_plugin(InfluenceAnalyticsPlugin, influence_factor_smoothing=True)
     topical_classification = InfluenceAnalyticsPlugin(index).get_topical_classification()
-

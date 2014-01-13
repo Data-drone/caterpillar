@@ -8,7 +8,8 @@ import pytest
 
 from caterpillar.processing import schema
 from caterpillar.processing.analysis.analyse import DefaultTestAnalyser
-from caterpillar.processing.index import Index
+from caterpillar.processing.index import Index, find_bi_gram_words
+from caterpillar.processing.frames import frame_stream_csv
 from caterpillar.processing.schema import BOOLEAN, FieldType, ID, NUMERIC, Schema, TEXT, FieldConfigurationError
 
 
@@ -69,6 +70,20 @@ def test_schema():
     assert list(BOOLEAN().analyse('1'))[0].value is True
 
 
+def test_csv_schema():
+    columns = [
+        schema.ColumnSpec('text', schema.ColumnDataType.TEXT),
+        schema.ColumnSpec('float', schema.ColumnDataType.FLOAT),
+        schema.ColumnSpec('integer', schema.ColumnDataType.INTEGER),
+        schema.ColumnSpec('string', schema.ColumnDataType.STRING)
+    ]
+    csv_schema = schema.CsvSchema(columns, True, csv.excel)
+
+    index_schema = csv_schema.as_index_schema()
+
+    assert len(index_schema) == len(columns)
+
+
 # Functional tests
 def test_csv_has_header_sentiment():
     """Test function for recognising headers for small CSV file."""
@@ -111,6 +126,17 @@ def test_generate_csv_schema_twitter():
         assert columns[0].type == schema.ColumnDataType.IGNORE
         assert columns[1].name == 'Text'
         assert columns[1].type == schema.ColumnDataType.TEXT
+
+        bi_grams = find_bi_gram_words(frame_stream_csv(f, csv_schema))
+        index_schema = csv_schema.as_index_schema(bi_grams)
+        assert len(index_schema) == 1
+        assert isinstance(index_schema['Text'], TEXT)
+
+        f.seek(0)
+        reader = csv.reader(f)
+        next(reader)
+        for row in reader:
+            assert len(csv_schema.map_row(row)) == 1
 
 
 def test_index_stored_fields():

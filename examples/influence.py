@@ -12,7 +12,7 @@ with open('examples/alice.txt', 'r') as f:
     text_index = Index.create(Schema(text=TEXT))
     text_index.add_document(fold_case=True, text=data)
     text_index.run_plugin(InfluenceAnalyticsPlugin)
-    total_influence_table = InfluenceAnalyticsPlugin(text_index).get_cumulative_influence_table()
+    influence_factors_table = InfluenceAnalyticsPlugin(text_index).get_influence_factors_table()
     term_influence_table = InfluenceAnalyticsPlugin(text_index).get_term_influence_table()
-    print total_influence_table['eat']
+    print influence_factors_table['eat']
     print text_index.get_frequencies()['eat']
