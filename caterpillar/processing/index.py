@@ -74,6 +74,7 @@ class Index(object):
         # Set state
         self.set_clean(True)
         self.update_revision()
+        data_storage.set_container_item(Index.INFO_CONTAINER, 'derived', json.dumps(False))
 
     @staticmethod
     def create(schema, path=None, storage_cls=SqliteMemoryStorage, **args):
@@ -337,12 +338,30 @@ class Index(object):
         """
         return self._results_storage.get_container_len(Index.POSITIONS_CONTAINER)
 
+    def is_derived(self):
+        """
+        Return whether this index is derived.
+
+        """
+        return json.loads(self._data_storage.get_container_item(Index.INFO_CONTAINER, 'derived'))
+
     def searcher(self, scorer_cls=TfidfScorer):
         """
         Return a searcher for this Index.
 
         """
         return IndexSearcher(self, scorer_cls)
+
+    def __sizeof__(self):
+        """
+        Get the size of this index in bytes.
+
+        This is a compromise. It isn't possible to get the size of an SQLite in memory index. So, instead, we assume
+        each frame is 10KB big. This was arrived at by looking at the size of the DB created after adding a large
+        document and dividing by the number of frames and rounding to the nearest 10KB.
+
+        """
+        return self.get_frame_count() * 10 * 1024
 
     def add_document(self, frame_size=2, fold_case=False, update_index=True, encoding='utf-8', **fields):
         """
@@ -954,11 +973,13 @@ class DerivedIndex(Index):
         # Store frames and build the index
         self._data_storage.set_container_items(Index.FRAMES_CONTAINER, {k: json.dumps(v) for k, v in frames.items()})
         self.reindex()
+        data_storage.set_container_item(Index.INFO_CONTAINER, 'derived', json.dumps(True))
 
     @staticmethod
     def create_from_composite_query(index_queries, path=None, storage_cls=SqliteMemoryStorage, **args):
         """
-        Create a new ``DerivedIndex`` from an arbitrary number of index queries.
+        Create a new ``DerivedIndex`` from an arbitrary number of index queries. Stores the fact that this index is a
+        derived index in `Index.INFO_CONTAINER`.
 
         Required Arguments:
         index_queries -- A list of 2-tuples in the form of (index, query_string).
@@ -990,12 +1011,13 @@ class DerivedIndex(Index):
             Index.FREQUENCIES_CONTAINER,
             Index.METADATA_CONTAINER
         ], **args)
+
         return DerivedIndex(schema, data_storage, results_storage, frames)
 
     def add_document(self, frame_size=None, fold_case=None, update_index=None, encoding=None, **fields):
         DerivedIndex.documents_not_supported_error()
 
-    def delete_document(self, d_id):
+    def delete_document(self, d_id, update_index=True):
         DerivedIndex.documents_not_supported_error()
 
     def get_document(self, d_id):

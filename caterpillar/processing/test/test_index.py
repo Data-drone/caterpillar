@@ -53,6 +53,7 @@ def test_index_open():
         assert index.get_term_frequency('Alice') == 23
         assert index.get_document_count() == 1
         assert isinstance(index.get_schema()['text'], TEXT)
+        assert index.is_derived() == False
         index.destroy()
 
     with pytest.raises(IndexNotFoundError):
@@ -79,6 +80,7 @@ def test_index_alice(storage_cls):
 
         assert index.get_vocab_size() == len(index.get_frequencies()) == 504
         assert index.get_term_frequency('Alice') == 23
+        assert index.__sizeof__() == index.get_frame_count() * 10 * 1024
 
         index.delete_document(doc_id, update_index=True)
 
@@ -295,6 +297,7 @@ def test_derived_index_composite(storage_cls):
         searcher = index.searcher()
         assert searcher.count("service") == scount1 + scount2
         assert searcher.count("*") == (index1.get_frame_count() - nscount1) + (index2.get_frame_count() - nscount2)
+        assert index.is_derived() == True
 
         with pytest.raises(NotImplementedError):
             index.add_document(text='text')
