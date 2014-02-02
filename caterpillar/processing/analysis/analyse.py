@@ -4,7 +4,8 @@
 # Author: Ryan Stuart <ryan@mammothlabs.com.au>
 import logging
 from caterpillar.processing.analysis import stopwords
-from caterpillar.processing.analysis.filter import StopFilter, PositionalLowercaseWordFilter, BiGramFilter, PotentialBiGramFilter
+from caterpillar.processing.analysis.filter import StopFilter, PositionalLowercaseWordFilter, BiGramFilter, \
+    PotentialBiGramFilter
 from caterpillar.processing.analysis.tokenize import WordTokenizer, EverythingTokenizer
 
 

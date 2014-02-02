@@ -20,4 +20,5 @@ def parse_stopwords(stopwords_file_path):
 
 # Stopword lists
 ENGLISH = parse_stopwords(os.path.join(os.path.dirname(__file__), '../../', 'resources', 'stopwords-english.txt'))
-ENGLISH_TEST = parse_stopwords(os.path.join(os.path.dirname(__file__), '../../', 'resources', 'stopwords-english-test.txt'))
+ENGLISH_TEST = parse_stopwords(os.path.join(os.path.dirname(__file__), '../../', 'resources',
+                                            'stopwords-english-test.txt'))

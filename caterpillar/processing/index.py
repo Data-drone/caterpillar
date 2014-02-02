@@ -461,6 +461,23 @@ class Index(object):
                         frame.update(shell_frame)
                         frames[frame_id] = frame
 
+        # If someone wants to store something besides text we need to handle it if we want to be a storage engine.
+        # This only applies if we had at least 1 indexed field otherwise the frame can't be retrieved.
+        # If there was at least 1 indexed field then there must be metadata!
+        if not frames and metadata:
+            frame_id = "{}-{}".format(document_id, frame_count)
+            frame = {
+                '_id': frame_id,
+                '_field': None,  # There is no text field
+                '_positions': {},
+                '_associations': {},
+                '_sequence_number': frame_count,
+                '_doc_id': document_id,
+                '_indexed': False,
+            }
+            frame.update(shell_frame)
+            frames[frame_id] = frame
+
         # Make sure we store the meta-data on the frame
         for f_id, frame in frames.items():
             frame['_metadata'] = metadata
@@ -596,7 +613,7 @@ class Index(object):
                 Index.ASSOCIATIONS_CONTAINER, associations.keys()).items()}
             frequencies_index = {k: json.loads(v) if v else 0 for k, v in self._results_storage.get_container_items(
                 Index.FREQUENCIES_CONTAINER, frequencies.keys()).items()}
-            metadata_index = {k: json.loads(v) if v else 0 for k, v in self._results_storage.get_container_items(
+            metadata_index = {k: json.loads(v) if v else {} for k, v in self._results_storage.get_container_items(
                 Index.METADATA_CONTAINER, metadata.keys()).items()}
 
             # Positions
@@ -615,13 +632,14 @@ class Index(object):
             # Frequencies
             for key, value in frequencies.items():
                 frequencies_index[key] = frequencies_index[key] + value
+
             # Metadata
             for name, values in metadata.items():
-                for value in values:
+                for value, f_ids in values.items():
                     try:
-                        metadata_index[value].extend([f['_id'] for f in frames])
+                        metadata_index[name][value].extend(f_ids)
                     except KeyError:
-                        metadata_index[value] = [f['_id'] for f in frames]
+                        metadata_index[name][value] = f_ids
         else:
             positions_index = positions
             assocs_index = associations

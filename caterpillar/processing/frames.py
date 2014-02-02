@@ -190,7 +190,10 @@ def frame_stream_csv(csv_file, csv_schema, frame_size=2, tokenizer=nltk.data.loa
         for cell in row:
             if index >= num_cols:
                 # Row goes beyond column spec range; don't process any more cells in this row.
-                logger.warning('Row {} has cell outside of column spec range at index {}. Skipping remainder of row.'.format(row_seq, index))
+                logger.warning(
+                    'Row {} has cell outside of column spec range at index {}. Skipping remainder of row.'.format(
+                        row_seq, index)
+                )
                 break
             if column_spec[index].type != ColumnDataType.IGNORE and cell:
                 if column_spec[index].type == ColumnDataType.TEXT:

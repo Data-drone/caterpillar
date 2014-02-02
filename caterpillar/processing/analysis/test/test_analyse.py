@@ -29,6 +29,7 @@ def test_bigram_analyser():
     assert len(analyser.get_filters()) == 3
     assert isinstance(analyser.get_tokenizer(), Tokenizer)
 
+
 def test_everything_analyser():
     analyser = EverythingAnalyser()
 

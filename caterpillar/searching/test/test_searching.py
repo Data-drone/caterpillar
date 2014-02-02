@@ -22,8 +22,7 @@ def test_searching_alice():
         bi_grams = find_bi_gram_words(frame_stream(f))
         f.seek(0)
         data = f.read()
-        index = Index.create(schema.Schema(
-            text=schema.TEXT(analyser=BiGramTestAnalyser(bi_grams))))
+        index = Index.create(schema.Schema(text=schema.TEXT(analyser=BiGramTestAnalyser(bi_grams))))
         index.add_document(text=data, frame_size=2, fold_case=True)
         index.run_plugin(InfluenceAnalyticsPlugin, influence_factor_smoothing=False)
         topics_plugin = index.run_plugin(InfluenceTopicsPlugin)
@@ -164,15 +163,15 @@ def test_searching_nps():
             + searcher.count('region=Christchurch and nps >= 8') \
             + num_null_nps_christchurch
         assert searcher.count('region=Christchurch and nps>7 and (reliable or quick)') \
-            == searcher.count('region=Christchurch and nps>7') \
-            - searcher.count('region=Christchurch and nps>7 not (reliable or quick)')
+            == searcher.count('region = Christchurch and nps>7') \
+            - searcher.count('region=Christchurch and nps > 7 not (reliable or quick)')
 
         assert searcher.count('nps>0') == searcher.count('nps<=7') + searcher.count('nps>7')
 
-        assert searcher.count('region=Christ*') == num_christchurch == 1395
+        assert searcher.count('region=Christ*') == num_christchurch == 1399
 
         with pytest.raises(QueryError):
-            searcher.count('nps>=1?')
+            searcher.count('nps >= 1?')
         with pytest.raises(QueryError):
             searcher.count('nps=?')
         with pytest.raises(QueryError):
@@ -199,3 +198,33 @@ def test_searching_nps():
         assert searcher.count('fake=1') == 0
         assert searcher.count('fake2=something') == 0
         assert searcher.count('region=nonexistentregion') == 0
+
+
+def test_searching_nps_no_text_update():
+    """Test retrieving by ID with no text."""
+    with open('caterpillar/resources/big.csv', 'rbU') as f:
+        index = Index.create(schema.Schema(respondant=schema.ID(indexed=True),
+                                           region=schema.CATEGORICAL_TEXT(indexed=True), nps=schema.NUMERIC))
+        csv_reader = csv.reader(f)
+        csv_reader.next()  # Skip header
+        for row in csv_reader:
+            index.add_document(update_index=False, respondant=row[0], region=row[1], nps=row[6])
+        index.reindex(update_only=True)
+        searcher = index.searcher()
+
+        assert searcher.count('respondant = 1') == 1
+        assert searcher.count('region = Chr*') == 878  # Previous test gets 1399 for this because of text frame splits.
+
+
+def test_no_data_by_circumstance():
+    """Test that when we add data with no indexed fields we can't retrieve it."""
+    with open('caterpillar/resources/test_small.csv', 'rbU') as f:
+        index = Index.create(schema.Schema(respondant=schema.ID, nps=schema.NUMERIC))
+        csv_reader = csv.reader(f)
+        csv_reader.next()  # Skip header
+        for row in csv_reader:
+            index.add_document(update_index=False, respondant=row[0], region=row[1], nps=row[6])
+        index.reindex(update_only=True)
+        searcher = index.searcher()
+
+        assert searcher.count('*') == 0
