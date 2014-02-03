@@ -530,16 +530,9 @@ def generate_csv_schema(csv_file, delimiter=',', encoding='utf8'):
     Returns a 2-tuple containing the generated schema and the sample rows used to generate the schema.
 
     """
-    # Try and guess a dialect by parsing a sample
     snipit = csv_file.read(4096)
     csv_file.seek(0)
-    sniffer = csv.Sniffer()
-    dialect = None
-    try:
-        dialect = sniffer.sniff(snipit, delimiter)
-    except Exception:
-        # Fall back to excel csv dialect
-        dialect = csv.excel
+    dialect = csv.excel
 
     # Now actually read the file
     reader = csv.reader(csv_file, dialect)
