@@ -47,9 +47,18 @@ class DefaultAnalyser(Analyser):
 
     This analyzer uses a ``WordTokenizer`` in combination with a ``StopFilter`` and a ``PositionalLowercaseWordFilter``.
 
+    Optional Arguments:
+    stopword_list -- A list of stop words to override the default English one.
+
     """
     _tokenizer = WordTokenizer(detect_compound_names=True)
-    _filters = [StopFilter(stopwords.ENGLISH, minsize=stopwords.MIN_WORD_SIZE), PositionalLowercaseWordFilter(0)]
+
+    def __init__(self, stopword_list=None):
+        super(DefaultAnalyser, self).__init__()
+        if stopword_list is None:
+            stopword_list = stopwords.ENGLISH
+
+        self._filters = [StopFilter(stopword_list, minsize=stopwords.MIN_WORD_SIZE), PositionalLowercaseWordFilter(0)]
 
     def get_tokenizer(self):
         return self._tokenizer
@@ -89,11 +98,16 @@ class BiGramAnalyser(Analyser):
     Required Arguments
     bi_grams -- a list of string n-grams to match. Passed directly to ``BiGramFilter``.
 
+    Optional Arguments:
+    stopword_list -- A list of stop words to override the default English one.
+
     """
     _tokenizer = WordTokenizer(detect_compound_names=True)
 
-    def __init__(self, bi_grams):
-        self._filters = [StopFilter(stopwords.ENGLISH, minsize=stopwords.MIN_WORD_SIZE),
+    def __init__(self, bi_grams, stopword_list=None):
+        if stopword_list is None:
+            stopword_list = stopwords.ENGLISH
+        self._filters = [StopFilter(stopword_list, minsize=stopwords.MIN_WORD_SIZE),
                          PositionalLowercaseWordFilter(0), BiGramFilter(bi_grams)]
 
     def get_tokenizer(self):

@@ -3,7 +3,7 @@ import os
 MIN_WORD_SIZE = 3  # length of the smallest possible word
 
 
-def parse_stopwords(stopwords_file_path):
+def parse_stopwords(stopwords_file):
     """
     Parse stopwords from a plain text file.
 
@@ -11,14 +11,17 @@ def parse_stopwords(stopwords_file_path):
 
     """
     stopwords = []
-    with open(stopwords_file_path) as stopwords_file:
-        for line in stopwords_file:
-            stopwords.append(line.strip())
+    for line in stopwords_file:
+        stopwords.append(line.strip())
 
     return stopwords
 
 
 # Stopword lists
-ENGLISH = parse_stopwords(os.path.join(os.path.dirname(__file__), '../../', 'resources', 'stopwords-english.txt'))
-ENGLISH_TEST = parse_stopwords(os.path.join(os.path.dirname(__file__), '../../', 'resources',
-                                            'stopwords-english-test.txt'))
+ENGLISH = None
+with open(os.path.join(os.path.dirname(__file__), '../../', 'resources', 'stopwords-english.txt')) as stopwords_file:
+    ENGLISH = parse_stopwords(stopwords_file)
+ENGLISH_TEST = None
+with open(os.path.join(os.path.dirname(__file__), '../../', 'resources',
+                       'stopwords-english-test.txt')) as stopwords_file:
+    ENGLISH_TEST = parse_stopwords(stopwords_file)

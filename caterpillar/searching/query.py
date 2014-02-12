@@ -20,7 +20,7 @@ Term Weighting:
 """
 import regex
 
-from lrparsing import Grammar, Keyword, Prio, Ref, Repeat, Token, Tokens
+from lrparsing import Grammar, Keyword, ParseError, Prio, Ref, Repeat, Token, Tokens
 
 from caterpillar.analytics.influence import InfluenceTopicsPlugin
 from caterpillar.processing import schema
@@ -84,7 +84,10 @@ class QueryEvaluator(object):
         query -- Query string
 
         """
-        query_tree = _QueryGrammar.parse(query, tree_factory=self)
+        try:
+            query_tree = _QueryGrammar.parse(query, tree_factory=self)
+        except ParseError, e:
+            raise QueryError("Invalid query syntax.")
         return QueryResult(query_tree.frame_ids, query_tree.matched_terms,
                            query_tree.term_weights)
 
@@ -236,8 +239,12 @@ class QueryEvaluator(object):
 
         """
         topic_name = ' '.join([n[1][1] for n in node[3:]])
+        topic_name = topic_name.replace('"', '')  # Remove quotes
         topics_plugin = InfluenceTopicsPlugin(self.index)
-        node.frame_ids = topics_plugin.get_topic_frames(topic_name)
+        try:
+            node.frame_ids = topics_plugin.get_topic_frames(topic_name)
+        except KeyError, e:
+            raise QueryError(e)
         topic_details = topics_plugin.get_topic_details(topic_name)
         node.term_weights = {}
         for term_value in topic_details['primary_terms']:
@@ -251,7 +258,9 @@ class QueryEvaluator(object):
         Extract term value from an operand node; handles arbitrary number of term components (compounds).
 
         """
-        return ' '.join([n[1][1] for n in node[1:]])
+        term_value = ' '.join([n[1][1] for n in node[1:]])
+        term_value = term_value.replace('"', '')  # Remove quotes
+        return term_value
 
 
 class QueryResult(object):
@@ -278,9 +287,9 @@ class _QueryGrammar(Grammar):
     # Grammar rules.
     expr = Ref("expr")  # Forward reference
     brackets = Token('(') + expr + Token(')')
-    and_op = expr << Keyword('and', case=False) << expr
-    not_op = expr << Keyword('not', case=False) << expr
-    or_op = expr << Keyword('or', case=False) << expr
+    and_op = expr << Token(re=r'(?i)(?<!=")and(?!")') << expr
+    not_op = expr << Token(re=r'(?i)(?<!=")not(?!")') << expr
+    or_op = expr << Token(re=r'(?i)(?<!=")or(?!")') << expr
     term = Token(re=r'[^\s^()=<>:]+')
     operand = Repeat(term, 1)
     weighting = operand << Token(re=r'\^[0-9]*\.?[0-9]+')

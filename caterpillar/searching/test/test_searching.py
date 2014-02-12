@@ -8,7 +8,7 @@ import os
 import pytest
 
 from caterpillar.analytics.influence import InfluenceAnalyticsPlugin, InfluenceTopicsPlugin
-from caterpillar.processing.analysis.analyse import BiGramTestAnalyser
+from caterpillar.processing.analysis.analyse import BiGramTestAnalyser, DefaultAnalyser
 from caterpillar.processing.index import Index, find_bi_gram_words
 from caterpillar.processing import schema
 from caterpillar.processing.frames import frame_stream
@@ -71,6 +71,10 @@ def test_searching_alice():
         assert searcher.count('Mock Turtle') == 51
 
         assert searcher.count('*t? R*b??') == searcher.count('White Rabbit')
+
+        with pytest.raises(QueryError):
+            # Topic 'and' does not exist
+            searcher.count('topic:"and"')
 
 
 def test_searching_alice_simple():
@@ -228,3 +232,24 @@ def test_no_data_by_circumstance():
         searcher = index.searcher()
 
         assert searcher.count('*') == 0
+
+
+def test_searching_reserved_words():
+    with open(os.path.abspath('caterpillar/resources/alice.txt'), 'rbU') as f:
+        data = f.read()
+        index = Index.create(schema.Schema(text=schema.TEXT(analyser=DefaultAnalyser(stopword_list=[]))))
+        index.add_document(text=data, frame_size=2, fold_case=True)
+        index.run_plugin(InfluenceAnalyticsPlugin, influence_factor_smoothing=False)
+        index.run_plugin(InfluenceTopicsPlugin)
+
+        searcher = index.searcher()
+
+        # Unescaped reserved word
+        with pytest.raises(QueryError):
+            searcher.count('topic:and')
+        with pytest.raises(QueryError):
+            searcher.count('and')
+
+        assert searcher.count('"and"') == len(index.get_term_positions('and')) == 474
+        assert searcher.count('"or"') == 0
+        assert searcher.count('"not"') == 117

@@ -463,13 +463,14 @@ class CsvSchema(object):
         self.dialect = dialect
         self.sample_rows = sample_rows
 
-    def as_index_schema(self, bi_grams=None):
+    def as_index_schema(self, bi_grams=None, stopword_list=None):
         """
         Return a representation of this ``CsvSchema`` in the form of a ``Schema`` instance that can be
         used for generating a text index.
 
         Optional Arguments:
         bi_grams -- A list of bi-grams to use for TEXT columns.
+        stopword_list -- A list of stop words to use instead of default English list.
 
         """
         schema = Schema()
@@ -489,9 +490,9 @@ class CsvSchema(object):
 
             elif col.type == ColumnDataType.TEXT:
                 if bi_grams is not None:
-                    schema.add(col.field_name, TEXT(analyser=BiGramAnalyser(bi_grams)))
+                    schema.add(col.field_name, TEXT(analyser=BiGramAnalyser(bi_grams, stopword_list=stopword_list)))
                 else:
-                    schema.add(col.field_name, TEXT)
+                    schema.add(col.field_name, TEXT(analyser=DefaultAnalyser(stopword_list=stopword_list)))
 
         return schema
 
