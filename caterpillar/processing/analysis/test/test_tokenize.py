@@ -112,6 +112,18 @@ def test_word_tokenizer_number():
     assert words[6] == '100,000,000.123'
 
 
+def test_word_tokenizer_url():
+    wt = WordTokenizer()
+    url1 = "https://www.facebook.com"
+    assert url1 in [t.value for t in wt.tokenize("A sample url {} .".format(url1))]
+    url2 = "http://twitter.com/@test"
+    assert url2 in [t.value for t in wt.tokenize("A sample url {} .".format(url2))]
+    url3 = "https://www.google.com.au/?gfe_rd=cr&ei=TWL8UuK1KKuN8Qf48oHgBg"
+    assert url3 in [t.value for t in wt.tokenize("A sample url {} .".format(url3))]
+    url4 = "www.test.io/?q=123"
+    assert url4 in [t.value for t in wt.tokenize("A sample url {} .".format(url4))]
+
+
 def test_everything_tokenizer():
     token = list(EverythingTokenizer().tokenize("Test"))[0]
     assert token.value == 'Test'

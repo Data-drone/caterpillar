@@ -186,8 +186,13 @@ class WordTokenizer(RegexpTokenizer):
     # Basic word pattern, strips all punctuation besides special leading characters
     WORD = u"([#@]?\w+)"
 
+    # URL pattern (Based on http://stackoverflow.com/questions/833469/regular-expression-for-url)
+    URL = u"((((mailto:|ftp|http(s?)){1}:(?:\/\/)?)" \
+          + "(?:[-;:&=\+\$,\w]+@)?[A-Za-z0-9.-]+|(?:www.|[-;:&=\+\$,\w]+@)[A-Za-z0-9.-]+)" \
+          + "((?:\/[\+~%\/.\w-_]*)?\??(?:[-\+=&;%@.\w_]*)#?(?:[\w]*))?)"
+
     def __init__(self, detect_compound_names=True):
-        pattern = self.EMAIL + '|' + self.NUM + '|' + self.CONTRACTION + '|' + self.WORD
+        pattern = self.URL + '|' + self.EMAIL + '|' + self.NUM + '|' + self.CONTRACTION + '|' + self.WORD
         if detect_compound_names:
             pattern = self.NAME_COMPOUND + '|' + pattern
 
