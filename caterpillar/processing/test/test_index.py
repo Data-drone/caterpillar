@@ -152,7 +152,7 @@ def test_index_moby_case_folding(storage_cls):
             index.get_term_positions('flask')
         with pytest.raises(KeyError):
             assert not index.get_term_frequency('flask')
-        assert index.get_term_frequency('Flask') == 92
+        assert index.get_term_frequency('Flask') == 91
         assert index.get_term_association('Flask', 'person') == index.get_term_association('person', 'Flask') == 2
 
         with pytest.raises(KeyError):
@@ -166,7 +166,7 @@ def test_index_moby_case_folding(storage_cls):
             index.get_term_positions('Whale')
         with pytest.raises(KeyError):
             assert not index.get_term_frequency('Whale')
-        assert index.get_term_frequency('whale') == 811
+        assert index.get_term_frequency('whale') == 803
         assert index.get_term_association('whale', 'American') == index.get_term_association('American', 'whale') == 14
 
         assert index.get_term_frequency('T. HERBERT') == 1
@@ -175,7 +175,7 @@ def test_index_moby_case_folding(storage_cls):
 
 @pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_index_alice_case_folding(storage_cls):
-    with open(os.path.abspath('caterpillar/resources/alice_test_data.txt'), 'r') as f:
+    with open(os.path.abspath('caterpillar/resources/alice.txt'), 'r') as f:
         data = f.read()
         index = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser()),
                              document=TEXT(analyser=DefaultTestAnalyser(), indexed=False)),
@@ -201,6 +201,9 @@ def test_index_alice_case_folding(storage_cls):
             term_associations = {}
             for frame_id in term_positions:
                 frame = frames[frame_id]
+                if len(frame['_associations']) == 0:
+                    # Skip frame with no associations
+                    continue
                 for other_term in frame['_associations'][term]:
                     try:
                         term_associations[other_term] += 1
@@ -209,6 +212,11 @@ def test_index_alice_case_folding(storage_cls):
             for other_term in term_associations:
                 assert term_associations[other_term] == associations[term][other_term]\
                     == associations[other_term][term]
+
+        # Check frequencies against positions
+        frequencies = index.get_frequencies()
+        for term, freq in frequencies.items():
+            assert freq == len(positions_index[term])
 
 
 @pytest.mark.parametrize("storage_cls", FAST_STORAGE)

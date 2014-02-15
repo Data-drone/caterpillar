@@ -842,7 +842,7 @@ class Index(object):
         del positions[old_term]
 
         # Update term frequency
-        frequencies[new_term] = frequencies[new_term] + frequencies[old_term]
+        frequencies[new_term] = len(new_positions)
         del frequencies[old_term]
 
     def run_plugin(self, cls, **args):
