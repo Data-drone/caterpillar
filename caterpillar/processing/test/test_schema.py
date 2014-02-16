@@ -4,10 +4,12 @@
 # Author: Kris Rogers <kris@mammothlabs.com.au>
 import csv
 import os
+
 import pytest
 
 from caterpillar.processing import schema
-from caterpillar.processing.analysis.analyse import DefaultTestAnalyser
+from caterpillar.processing.analysis import stopwords
+from caterpillar.processing.analysis.analyse import DefaultAnalyser
 from caterpillar.processing.index import Index, find_bi_gram_words
 from caterpillar.processing.frames import frame_stream_csv
 from caterpillar.processing.schema import BOOLEAN, FieldType, ID, NUMERIC, Schema, TEXT, FieldConfigurationError
@@ -140,7 +142,8 @@ def test_generate_csv_schema_twitter():
 
 
 def test_index_stored_fields():
-    index = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser(), stored=False),
+    analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+    index = Index.create(Schema(text=TEXT(analyser=analyser, stored=False),
                                 test=NUMERIC(stored=True),
                                 test2=BOOLEAN(stored=False)))
     doc_id = index.add_document(text="hello world", test=777, test2=True,

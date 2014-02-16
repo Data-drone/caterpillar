@@ -6,14 +6,15 @@ from __future__ import division
 import csv
 import os
 import tempfile
+
 import pytest
 
-from caterpillar.analytics.influence import InfluenceAnalyticsPlugin
-from caterpillar.data.sqlite import SqliteStorage, SqliteMemoryStorage
-from caterpillar.processing.analysis.analyse import DefaultTestAnalyser, BiGramTestAnalyser, EverythingAnalyser
+from caterpillar.data.sqlite import SqliteStorage
+from caterpillar.processing.analysis import stopwords
+from caterpillar.processing.analysis.analyse import EverythingAnalyser, DefaultAnalyser, BiGramAnalyser
 from caterpillar.processing.frames import frame_stream
 from caterpillar.processing.index import *
-from caterpillar.processing.schema import ID, NUMERIC, CATEGORICAL_TEXT, TEXT, FieldType, Schema
+from caterpillar.processing.schema import ID, NUMERIC, TEXT, FieldType, Schema
 
 
 STORAGE = [(SqliteStorage), (SqliteMemoryStorage)]
@@ -32,8 +33,8 @@ def delete_databases():
 def test_index_destroy(storage_cls):
     with open(os.path.abspath('caterpillar/resources/alice_test_data.txt'), 'r') as f:
         data = f.read()
-        index = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser()),
-                                    document=TEXT(analyser=DefaultTestAnalyser(), indexed=False)),
+        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        index = Index.create(Schema(text=TEXT(analyser=analyser), document=TEXT(analyser=analyser, indexed=False)),
                              storage_cls=storage_cls, path=os.getcwd())
         index.add_document(text=data, document='alice.txt', frame_size=2, fold_case=False)
         index.destroy()
@@ -42,8 +43,9 @@ def test_index_destroy(storage_cls):
 def test_index_open():
     with open(os.path.abspath('caterpillar/resources/alice_test_data.txt'), 'r') as f:
         data = f.read()
-        index = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser()),
-                                    document=TEXT(analyser=DefaultTestAnalyser(), indexed=False),
+        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        index = Index.create(Schema(text=TEXT(analyser=analyser),
+                                    document=TEXT(analyser=analyser, indexed=False),
                                     flag=FieldType(analyser=EverythingAnalyser(), indexed=True, categorical=True)),
                              storage_cls=SqliteStorage, path=os.getcwd())
         index.add_document(text=data, document='alice.txt', flag=True, frame_size=2, fold_case=False)
@@ -65,8 +67,9 @@ def test_index_open():
 def test_index_alice(storage_cls):
     with open(os.path.abspath('caterpillar/resources/alice_test_data.txt'), 'r') as f:
         data = f.read()
-        index = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser()),
-                                    document=TEXT(analyser=DefaultTestAnalyser(), indexed=False),
+        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        index = Index.create(Schema(text=TEXT(analyser=analyser),
+                                    document=TEXT(analyser=analyser, indexed=False),
                                     blank=NUMERIC(indexed=True), ref=ID(indexed=True)),
                              storage_cls=storage_cls, path=os.getcwd())
         doc_id = index.add_document(text=data, document='alice.txt', blank=None, ref=123, frame_size=2, fold_case=False,
@@ -96,8 +99,9 @@ def test_index_alice(storage_cls):
 def test_index_frames_docs_alice(storage_cls):
     with open(os.path.abspath('caterpillar/resources/alice_test_data.txt'), 'r') as f:
         data = f.read()
-        index = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser()),
-                                    document=TEXT(analyser=DefaultTestAnalyser(), indexed=False)),
+        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        index = Index.create(Schema(text=TEXT(analyser=analyser),
+                                    document=TEXT(analyser=analyser, indexed=False)),
                              storage_cls=storage_cls, path=os.getcwd())
         index.add_document(text=data, document='alice.txt', frame_size=2, fold_case=False, update_index=True)
 
@@ -114,7 +118,8 @@ def test_index_frames_docs_alice(storage_cls):
 def test_index_moby_small(storage_cls):
     with open(os.path.abspath('caterpillar/resources/moby_small.txt'), 'r') as f:
         data = f.read()
-        index = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser())),
+        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        index = Index.create(Schema(text=TEXT(analyser=analyser)),
                              storage_cls=storage_cls, path=os.getcwd())
         index.add_document(text=data, frame_size=2, fold_case=False)
 
@@ -129,7 +134,8 @@ def test_index_alice_bigram_words(storage_cls):
         bi_grams = find_bi_gram_words(frame_stream(f))
         f.seek(0)
         data = f.read()
-        index = Index.create(Schema(text=TEXT(analyser=BiGramTestAnalyser(bi_grams))),
+        analyser = BiGramAnalyser(bi_grams, stopword_list=stopwords.ENGLISH_TEST)
+        index = Index.create(Schema(text=TEXT(analyser=analyser)),
                              storage_cls=storage_cls, path=os.getcwd())
         index.add_document(text=data, frame_size=2, fold_case=False)
 
@@ -144,7 +150,8 @@ def test_index_alice_bigram_words(storage_cls):
 def test_index_moby_case_folding(storage_cls):
     with open(os.path.abspath('caterpillar/resources/moby.txt'), 'r') as f:
         data = f.read()
-        index = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser())),
+        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        index = Index.create(Schema(text=TEXT(analyser=analyser)),
                              storage_cls=storage_cls, path=os.getcwd())
         index.add_document(text=data, frame_size=2, fold_case=True, update_index=True)
 
@@ -177,8 +184,9 @@ def test_index_moby_case_folding(storage_cls):
 def test_index_alice_case_folding(storage_cls):
     with open(os.path.abspath('caterpillar/resources/alice.txt'), 'r') as f:
         data = f.read()
-        index = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser()),
-                             document=TEXT(analyser=DefaultTestAnalyser(), indexed=False)),
+        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        index = Index.create(Schema(text=TEXT(analyser=analyser),
+                             document=TEXT(analyser=analyser, indexed=False)),
                              storage_cls=storage_cls, path=os.getcwd())
         index.add_document(text=data, document='alice.txt', frame_size=2, fold_case=False, update_index=False)
         index.reindex(fold_case=True)
@@ -225,7 +233,8 @@ def test_find_bigram_words(storage_cls):
         bi_grams = find_bi_gram_words(frame_stream(f))
         f.seek(0)
         data = f.read()
-        index = Index.create(Schema(text=TEXT(analyser=BiGramTestAnalyser(bi_grams))),
+        analyser = BiGramAnalyser(bi_grams, stopword_list=stopwords.ENGLISH_TEST)
+        index = Index.create(Schema(text=TEXT(analyser=analyser)),
                              storage_cls=storage_cls, path=os.getcwd())
         index.add_document(text=data, frame_size=2, fold_case=True, update_index=True)
 
@@ -242,8 +251,9 @@ def test_find_bigram_words(storage_cls):
 def test_utf8(storage_cls):
     with open(os.path.abspath('caterpillar/resources/mt_warning_utf8.txt'), 'r') as f:
         data = f.read()
-        index = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser()),
-                                    document=TEXT(analyser=DefaultTestAnalyser(), indexed=False)),
+        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        index = Index.create(Schema(text=TEXT(analyser=analyser),
+                                    document=TEXT(analyser=analyser, indexed=False)),
                              storage_cls=storage_cls, path=os.getcwd())
         doc_id = index.add_document(text=data, document='mt_warning_utf8.txt', frame_size=2, fold_case=False,
                                     update_index=True)
@@ -254,8 +264,9 @@ def test_utf8(storage_cls):
 def test_latin1(storage_cls):
     with open(os.path.abspath('caterpillar/resources/mt_warning_latin1.txt'), 'r') as f:
         data = f.read()
-        index = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser()),
-                                    document=TEXT(analyser=DefaultTestAnalyser(), indexed=False)),
+        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        index = Index.create(Schema(text=TEXT(analyser=analyser),
+                                    document=TEXT(analyser=analyser, indexed=False)),
                              storage_cls=storage_cls, path=os.getcwd())
         doc_id = index.add_document(text=data, document='mt_warning_latin1.txt', frame_size=2, fold_case=False,
                                     update_index=True,
@@ -265,7 +276,8 @@ def test_latin1(storage_cls):
 
 @pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_encoding(storage_cls):
-    index = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser())))
+    analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+    index = Index.create(Schema(text=TEXT(analyser=analyser)))
     doc_id = index.add_document(text=u'This is a unicode string to test our field decoding.', frame_size=2,
                                 fold_case=False, update_index=True)
     assert doc_id is not None
@@ -280,9 +292,10 @@ def test_encoding(storage_cls):
 def test_derived_index_composite(storage_cls):
     temp1 = tempfile.mkdtemp()
     temp2 = tempfile.mkdtemp()
+    analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
     try:
         with open(os.path.abspath('caterpillar/resources/detractors.csv'), 'rbU') as f:
-            index1 = Index.create(Schema(text=TEXT), storage_cls=storage_cls, path=temp1)
+            index1 = Index.create(Schema(text=TEXT(analyser=analyser)), storage_cls=storage_cls, path=temp1)
             csv_reader = csv.reader(f)
             for row in csv_reader:
                 index1.add_document(update_index=False, text=row[0])
@@ -291,7 +304,7 @@ def test_derived_index_composite(storage_cls):
             nscount1 = index1.searcher().count("* not service")
 
         with open(os.path.abspath('caterpillar/resources/promoters.csv'), 'rbU') as f:
-            index2 = Index.create(Schema(text=TEXT), storage_cls=storage_cls, path=temp2)
+            index2 = Index.create(Schema(text=TEXT(analyser=analyser)), storage_cls=storage_cls, path=temp2)
             csv_reader = csv.reader(f)
             for row in csv_reader:
                 index2.add_document(update_index=False, text=row[0])
@@ -327,19 +340,20 @@ def test_derived_index_composite(storage_cls):
 def test_derived_index_asymmetric_schema(storage_cls):
     temp1 = tempfile.mkdtemp()
     temp2 = tempfile.mkdtemp()
+    analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
     try:
         with open(os.path.abspath('caterpillar/resources/mt_warning_utf8.txt'), 'r') as f:
             data = f.read()
-            index1 = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser()),
-                                         document=TEXT(analyser=DefaultTestAnalyser(), indexed=False)),
+            index1 = Index.create(Schema(text=TEXT(analyser=analyser),
+                                         document=TEXT(analyser=analyser, indexed=False)),
                                   storage_cls=storage_cls, path=temp1)
             index1.add_document(text=data, document='mt_warning_utf8.txt', frame_size=2, fold_case=False,
                                 update_index=True)
 
         with open(os.path.abspath('caterpillar/resources/alice_test_data.txt'), 'r') as f:
             data = f.read()
-            index2 = Index.create(Schema(text=TEXT(analyser=DefaultTestAnalyser()),
-                                         document=TEXT(analyser=DefaultTestAnalyser(), indexed=False), marker=NUMERIC),
+            index2 = Index.create(Schema(text=TEXT(analyser=analyser),
+                                         document=TEXT(analyser=analyser, indexed=False), marker=NUMERIC),
                                   storage_cls=storage_cls, path=temp2)
             index2.add_document(text=data, document='alice.txt', marker=777, frame_size=2, fold_case=False,
                                 update_index=True)

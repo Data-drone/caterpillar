@@ -8,7 +8,8 @@ import os
 import pytest
 
 from caterpillar.analytics.influence import InfluenceAnalyticsPlugin, InfluenceTopicsPlugin
-from caterpillar.processing.analysis.analyse import BiGramTestAnalyser, DefaultAnalyser
+from caterpillar.processing.analysis import stopwords
+from caterpillar.processing.analysis.analyse import DefaultAnalyser, BiGramAnalyser
 from caterpillar.processing.index import Index, find_bi_gram_words
 from caterpillar.processing import schema
 from caterpillar.processing.frames import frame_stream
@@ -22,7 +23,8 @@ def test_searching_alice():
         bi_grams = find_bi_gram_words(frame_stream(f))
         f.seek(0)
         data = f.read()
-        index = Index.create(schema.Schema(text=schema.TEXT(analyser=BiGramTestAnalyser(bi_grams))))
+        analyser = BiGramAnalyser(bi_grams, stopword_list=stopwords.ENGLISH_TEST)
+        index = Index.create(schema.Schema(text=schema.TEXT(analyser=analyser)))
         index.add_document(text=data, frame_size=2, fold_case=True)
         index.run_plugin(InfluenceAnalyticsPlugin, influence_factor_smoothing=False)
         topics_plugin = index.run_plugin(InfluenceTopicsPlugin)
@@ -83,8 +85,8 @@ def test_searching_alice_simple():
         bi_grams = find_bi_gram_words(frame_stream(f))
         f.seek(0)
         data = f.read()
-        index = Index.create(schema.Schema(
-            text=schema.TEXT(analyser=BiGramTestAnalyser(bi_grams))))
+        analyser = BiGramAnalyser(bi_grams, stopword_list=stopwords.ENGLISH_TEST)
+        index = Index.create(schema.Schema(text=schema.TEXT(analyser=analyser)))
         index.add_document(text=data, frame_size=2, fold_case=True)
         index.run_plugin(InfluenceAnalyticsPlugin, influence_factor_smoothing=False)
 
@@ -100,8 +102,8 @@ def test_searching_mt_warning():
         bi_grams = find_bi_gram_words(frame_stream(f))
         f.seek(0)
         data = f.read()
-        index = Index.create(schema.Schema(
-            text=schema.TEXT(analyser=BiGramTestAnalyser(bi_grams))))
+        analyser = BiGramAnalyser(bi_grams, stopword_list=stopwords.ENGLISH_TEST)
+        index = Index.create(schema.Schema(text=schema.TEXT(analyser=analyser)))
         index.add_document(text=data, frame_size=2, fold_case=True)
         index.run_plugin(InfluenceAnalyticsPlugin, influence_factor_smoothing=False)
 
@@ -117,7 +119,9 @@ def test_searching_mt_warning():
 def test_searching_twitter():
     """Test searching twitter data."""
     with open('caterpillar/resources/twitter_sentiment.csv', 'rbU') as f:
-        index = Index.create(schema.Schema(text=schema.TEXT, sentiment=schema.CATEGORICAL_TEXT(indexed=True)))
+        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        index = Index.create(schema.Schema(text=schema.TEXT(analyser=analyser),
+                                           sentiment=schema.CATEGORICAL_TEXT(indexed=True)))
         csv_reader = csv.reader(f)
         csv_reader.next()  # Skip header
         for row in csv_reader:
@@ -136,10 +140,15 @@ def test_searching_twitter():
 def test_searching_nps():
     """Test searching nps-backed data."""
     with open('caterpillar/resources/big.csv', 'rbU') as f:
-        index = Index.create(schema.Schema(respondant=schema.NUMERIC, region=schema.CATEGORICAL_TEXT(indexed=True),
-                                           store=schema.CATEGORICAL_TEXT(indexed=True), liked=schema.TEXT,
-                                           disliked=schema.TEXT, would_like=schema.TEXT,
-                                           nps=schema.NUMERIC(indexed=True), fake=schema.NUMERIC(indexed=True),
+        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        index = Index.create(schema.Schema(respondant=schema.NUMERIC,
+                                           region=schema.CATEGORICAL_TEXT(indexed=True),
+                                           store=schema.CATEGORICAL_TEXT(indexed=True),
+                                           liked=schema.TEXT(analyser=analyser),
+                                           disliked=schema.TEXT(analyser=analyser),
+                                           would_like=schema.TEXT(analyser=analyser),
+                                           nps=schema.NUMERIC(indexed=True),
+                                           fake=schema.NUMERIC(indexed=True),
                                            fake2=schema.CATEGORICAL_TEXT(indexed=True)))
         csv_reader = csv.reader(f)
         csv_reader.next()  # Skip header

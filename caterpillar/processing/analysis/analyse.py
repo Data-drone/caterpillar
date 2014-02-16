@@ -48,7 +48,7 @@ class DefaultAnalyser(Analyser):
     This analyzer uses a ``WordTokenizer`` in combination with a ``StopFilter`` and a ``PositionalLowercaseWordFilter``.
 
     Optional Arguments:
-    stopword_list -- A list of stop words to override the default English one.
+    stopword_list -- A list of stop words to override the default ``stopwords.ENGLISH`` one.
 
     """
     _tokenizer = WordTokenizer(detect_compound_names=True)
@@ -59,26 +59,6 @@ class DefaultAnalyser(Analyser):
             stopword_list = stopwords.ENGLISH
 
         self._filters = [StopFilter(stopword_list, minsize=stopwords.MIN_WORD_SIZE), PositionalLowercaseWordFilter(0)]
-
-    def get_tokenizer(self):
-        return self._tokenizer
-
-    def get_filters(self):
-        return self._filters
-
-
-class DefaultTestAnalyser(Analyser):
-    """
-    The default caterpillar test ``Analyser`` which mostly splits on whitespace and punctuation except for a few special
-    cases and removes a small subset of stopwords.
-
-    This analyser uses a ``WordTokenizer`` in combination with a ``StopFilter`` and a ``PositionalLowercaseWordFilter``.
-    It uses a stopword list that never changes to reduce the amount of testing updates required when updating the
-    stoplist.
-
-    """
-    _tokenizer = WordTokenizer(detect_compound_names=True)
-    _filters = [StopFilter(stopwords.ENGLISH_TEST, minsize=stopwords.MIN_WORD_SIZE), PositionalLowercaseWordFilter(0)]
 
     def get_tokenizer(self):
         return self._tokenizer
@@ -108,24 +88,6 @@ class BiGramAnalyser(Analyser):
         if stopword_list is None:
             stopword_list = stopwords.ENGLISH
         self._filters = [StopFilter(stopword_list, minsize=stopwords.MIN_WORD_SIZE),
-                         PositionalLowercaseWordFilter(0), BiGramFilter(bi_grams)]
-
-    def get_tokenizer(self):
-        return self._tokenizer
-
-    def get_filters(self):
-        return self._filters
-
-
-class BiGramTestAnalyser(Analyser):
-    """
-    Same as ``BiGramAnalyser`` but uses a fixed stoplist that never changes.
-
-    """
-    _tokenizer = WordTokenizer(detect_compound_names=True)
-
-    def __init__(self, bi_grams):
-        self._filters = [StopFilter(stopwords.ENGLISH_TEST, minsize=stopwords.MIN_WORD_SIZE),
                          PositionalLowercaseWordFilter(0), BiGramFilter(bi_grams)]
 
     def get_tokenizer(self):
