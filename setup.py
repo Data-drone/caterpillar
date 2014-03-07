@@ -33,6 +33,7 @@ setup(
         'caterpillar.data',
         'caterpillar.processing',
         'caterpillar.processing.analysis',
+        'caterpillar.resources',
         'caterpillar.searching',
     ],
     url='http://www.mammothlabs.com.au',
