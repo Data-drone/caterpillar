@@ -10,14 +10,14 @@ from caterpillar.processing.index import DerivedIndex, Index
 from caterpillar.processing.schema import Schema, TEXT
 
 
-with open(os.path.abspath('caterpillar/resources/detractors.csv'), 'rbU') as f:
+with open(os.path.abspath('caterpillar/test_resources/detractors.csv'), 'rbU') as f:
     index1 = Index.create(Schema(text=TEXT))
     csv_reader = csv.reader(f)
     for row in csv_reader:
         index1.add_document(update_index=False, text=row[0])
     index1.reindex()
 
-with open(os.path.abspath('caterpillar/resources/promoters.csv'), 'rbU') as f:
+with open(os.path.abspath('caterpillar/test_resources/promoters.csv'), 'rbU') as f:
     index2 = Index.create(Schema(text=TEXT))
     csv_reader = csv.reader(f)
     for row in csv_reader:
