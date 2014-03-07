@@ -31,10 +31,11 @@ def test_searching_alice():
         topics = topics_plugin.get_topical_classification().topics
 
         searcher = index.searcher()
-
+        match = False
         for topic in topics:
             if topic.name == 'Queen':
-                assert searcher.count(topic.get_query()) == 70
+                match = searcher.count(topic.get_query()) == 70
+        assert match
 
         assert searcher.count("King") == searcher.count("K?ng") == 60
 
