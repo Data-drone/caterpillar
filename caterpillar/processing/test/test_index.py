@@ -31,7 +31,7 @@ def delete_databases():
 
 @pytest.mark.parametrize("storage_cls", STORAGE)
 def test_index_destroy(storage_cls):
-    with open(os.path.abspath('caterpillar/resources/alice_test_data.txt'), 'r') as f:
+    with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
         data = f.read()
         analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
         index = Index.create(Schema(text=TEXT(analyser=analyser), document=TEXT(analyser=analyser, indexed=False)),
@@ -41,7 +41,7 @@ def test_index_destroy(storage_cls):
 
 
 def test_index_open():
-    with open(os.path.abspath('caterpillar/resources/alice_test_data.txt'), 'r') as f:
+    with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
         data = f.read()
         analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
         index = Index.create(Schema(text=TEXT(analyser=analyser),
@@ -65,7 +65,7 @@ def test_index_open():
 # Functional tests
 @pytest.mark.parametrize("storage_cls", STORAGE)
 def test_index_alice(storage_cls):
-    with open(os.path.abspath('caterpillar/resources/alice_test_data.txt'), 'r') as f:
+    with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
         data = f.read()
         analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
         index = Index.create(Schema(text=TEXT(analyser=analyser),
@@ -97,7 +97,7 @@ def test_index_alice(storage_cls):
 
 @pytest.mark.parametrize("storage_cls", STORAGE)
 def test_index_frames_docs_alice(storage_cls):
-    with open(os.path.abspath('caterpillar/resources/alice_test_data.txt'), 'r') as f:
+    with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
         data = f.read()
         analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
         index = Index.create(Schema(text=TEXT(analyser=analyser),
@@ -116,7 +116,7 @@ def test_index_frames_docs_alice(storage_cls):
 
 @pytest.mark.parametrize("storage_cls", STORAGE)
 def test_index_moby_small(storage_cls):
-    with open(os.path.abspath('caterpillar/resources/moby_small.txt'), 'r') as f:
+    with open(os.path.abspath('caterpillar/test_resources/moby_small.txt'), 'r') as f:
         data = f.read()
         analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
         index = Index.create(Schema(text=TEXT(analyser=analyser)),
@@ -130,7 +130,7 @@ def test_index_moby_small(storage_cls):
 
 @pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_index_alice_bigram_words(storage_cls):
-    with open(os.path.abspath('caterpillar/resources/alice.txt'), 'r') as f:
+    with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'r') as f:
         bi_grams = find_bi_gram_words(frame_stream(f))
         f.seek(0)
         data = f.read()
@@ -148,7 +148,7 @@ def test_index_alice_bigram_words(storage_cls):
 
 @pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_index_moby_case_folding(storage_cls):
-    with open(os.path.abspath('caterpillar/resources/moby.txt'), 'r') as f:
+    with open(os.path.abspath('caterpillar/test_resources/moby.txt'), 'r') as f:
         data = f.read()
         analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
         index = Index.create(Schema(text=TEXT(analyser=analyser)),
@@ -182,7 +182,7 @@ def test_index_moby_case_folding(storage_cls):
 
 @pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_index_alice_case_folding(storage_cls):
-    with open(os.path.abspath('caterpillar/resources/alice.txt'), 'r') as f:
+    with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'r') as f:
         data = f.read()
         analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
         index = Index.create(Schema(text=TEXT(analyser=analyser),
@@ -229,7 +229,7 @@ def test_index_alice_case_folding(storage_cls):
 
 @pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_find_bigram_words(storage_cls):
-    with open(os.path.abspath('caterpillar/resources/moby.txt'), 'r') as f:
+    with open(os.path.abspath('caterpillar/test_resources/moby.txt'), 'r') as f:
         bi_grams = find_bi_gram_words(frame_stream(f))
         f.seek(0)
         data = f.read()
@@ -249,7 +249,7 @@ def test_find_bigram_words(storage_cls):
 
 @pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_utf8(storage_cls):
-    with open(os.path.abspath('caterpillar/resources/mt_warning_utf8.txt'), 'r') as f:
+    with open(os.path.abspath('caterpillar/test_resources/mt_warning_utf8.txt'), 'r') as f:
         data = f.read()
         analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
         index = Index.create(Schema(text=TEXT(analyser=analyser),
@@ -262,7 +262,7 @@ def test_utf8(storage_cls):
 
 @pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_latin1(storage_cls):
-    with open(os.path.abspath('caterpillar/resources/mt_warning_latin1.txt'), 'r') as f:
+    with open(os.path.abspath('caterpillar/test_resources/mt_warning_latin1.txt'), 'r') as f:
         data = f.read()
         analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
         index = Index.create(Schema(text=TEXT(analyser=analyser),
@@ -282,7 +282,7 @@ def test_encoding(storage_cls):
                                 fold_case=False, update_index=True)
     assert doc_id is not None
 
-    with open(os.path.abspath('caterpillar/resources/mt_warning_utf8.txt'), 'r') as f:
+    with open(os.path.abspath('caterpillar/test_resources/mt_warning_utf8.txt'), 'r') as f:
         data = f.read()
     with pytest.raises(IndexError):
         doc_id = index.add_document(text=data, frame_size=2, fold_case=False, update_index=True, encoding='ascii')
@@ -294,7 +294,7 @@ def test_derived_index_composite(storage_cls):
     temp2 = tempfile.mkdtemp()
     analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
     try:
-        with open(os.path.abspath('caterpillar/resources/detractors.csv'), 'rbU') as f:
+        with open(os.path.abspath('caterpillar/test_resources/detractors.csv'), 'rbU') as f:
             index1 = Index.create(Schema(text=TEXT(analyser=analyser)), storage_cls=storage_cls, path=temp1)
             csv_reader = csv.reader(f)
             for row in csv_reader:
@@ -303,7 +303,7 @@ def test_derived_index_composite(storage_cls):
             scount1 = index1.searcher().count("service")
             nscount1 = index1.searcher().count("* not service")
 
-        with open(os.path.abspath('caterpillar/resources/promoters.csv'), 'rbU') as f:
+        with open(os.path.abspath('caterpillar/test_resources/promoters.csv'), 'rbU') as f:
             index2 = Index.create(Schema(text=TEXT(analyser=analyser)), storage_cls=storage_cls, path=temp2)
             csv_reader = csv.reader(f)
             for row in csv_reader:
@@ -342,7 +342,7 @@ def test_derived_index_asymmetric_schema(storage_cls):
     temp2 = tempfile.mkdtemp()
     analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
     try:
-        with open(os.path.abspath('caterpillar/resources/mt_warning_utf8.txt'), 'r') as f:
+        with open(os.path.abspath('caterpillar/test_resources/mt_warning_utf8.txt'), 'r') as f:
             data = f.read()
             index1 = Index.create(Schema(text=TEXT(analyser=analyser),
                                          document=TEXT(analyser=analyser, indexed=False)),
@@ -350,7 +350,7 @@ def test_derived_index_asymmetric_schema(storage_cls):
             index1.add_document(text=data, document='mt_warning_utf8.txt', frame_size=2, fold_case=False,
                                 update_index=True)
 
-        with open(os.path.abspath('caterpillar/resources/alice_test_data.txt'), 'r') as f:
+        with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
             data = f.read()
             index2 = Index.create(Schema(text=TEXT(analyser=analyser),
                                          document=TEXT(analyser=analyser, indexed=False), marker=NUMERIC),
@@ -382,7 +382,7 @@ def test_derived_index_asymmetric_schema(storage_cls):
 
 @pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_index_update(storage_cls):
-    with open(os.path.abspath('caterpillar/resources/detractors.csv'), 'rbU') as f:
+    with open(os.path.abspath('caterpillar/test_resources/detractors.csv'), 'rbU') as f:
         index = Index.create(Schema(text=TEXT), storage_cls=storage_cls)
         csv_reader = csv.reader(f)
         for row in csv_reader:
@@ -391,7 +391,7 @@ def test_index_update(storage_cls):
 
     assert index.get_term_frequency('service') == 14
 
-    with open(os.path.abspath('caterpillar/resources/promoters.csv'), 'rbU') as f:
+    with open(os.path.abspath('caterpillar/test_resources/promoters.csv'), 'rbU') as f:
         csv_reader = csv.reader(f)
         for row in csv_reader:
             index.add_document(update_index=False, text=row[0])
@@ -408,7 +408,7 @@ def test_index_update(storage_cls):
 
 @pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_index_state(storage_cls):
-    with open(os.path.abspath('caterpillar/resources/detractors.csv'), 'rbU') as f:
+    with open(os.path.abspath('caterpillar/test_resources/detractors.csv'), 'rbU') as f:
         index = Index.create(Schema(text=TEXT), storage_cls=storage_cls)
         start_revision = index.get_revision()
         csv_reader = csv.reader(f)

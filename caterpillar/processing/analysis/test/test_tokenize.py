@@ -22,7 +22,7 @@ def test_regex_tokenizer_invalid_pattern():
 
 #### Actually test the tokenizers ####
 def test_paragraph_tokenizer_alice():
-    with open(os.path.abspath('caterpillar/resources/alice_test_data.txt'), 'r') as f:
+    with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
         data = f.read()
         count = 0
         for p in ParagraphTokenizer().tokenize(data):
@@ -31,7 +31,7 @@ def test_paragraph_tokenizer_alice():
 
 
 def test_paragraph_tokenizer_economics():
-    with open(os.path.abspath('caterpillar/resources/economics_test_data.txt'), 'r') as f:
+    with open(os.path.abspath('caterpillar/test_resources/economics_test_data.txt'), 'r') as f:
         data = f.read()
         count = 0
         for p in ParagraphTokenizer().tokenize(data):
@@ -66,7 +66,7 @@ def test_word_tokenizer_names():
 
 
 def test_word_tokenizer_bush():
-    with open(os.path.abspath('caterpillar/resources/bush_test_data.txt'), 'r') as f:
+    with open(os.path.abspath('caterpillar/test_resources/bush_test_data.txt'), 'r') as f:
         data = f.read()
         tokens = WordTokenizer().tokenize(data)
         words = []
@@ -77,7 +77,7 @@ def test_word_tokenizer_bush():
 
 
 def test_word_tokenizer_economics():
-    with open(os.path.abspath('caterpillar/resources/economics_test_data.txt'), 'r') as f:
+    with open(os.path.abspath('caterpillar/test_resources/economics_test_data.txt'), 'r') as f:
         data = f.read()
         tokens = WordTokenizer().tokenize(data.decode('utf-8'))
         words = []
