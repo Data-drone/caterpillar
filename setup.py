@@ -32,6 +32,8 @@ setup(
         'caterpillar.analytics',
         'caterpillar.data',
         'caterpillar.processing',
+        'caterpillar.processing.analysis',
+        'caterpillar.searching',
     ],
     url='http://www.mammothlabs.com.au',
     license='Commercial',
