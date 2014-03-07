@@ -36,6 +36,9 @@ setup(
         'caterpillar.resources',
         'caterpillar.searching',
     ],
+    package_data={
+        'caterpillar': ['resources/*.txt'],
+    },
     url='http://www.mammothlabs.com.au',
     license='Commercial',
     install_requires=requires,
