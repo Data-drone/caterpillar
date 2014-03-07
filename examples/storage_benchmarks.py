@@ -13,7 +13,7 @@ from caterpillar.processing.index import Index
 from caterpillar.processing.schema import Schema, CATEGORICAL_TEXT, NUMERIC, TEXT
 
 
-with open(os.path.abspath('caterpillar/resources/moby.txt'), 'r') as f:
+with open(os.path.abspath('caterpillar/test_resources/moby.txt'), 'r') as f:
     data = f.read()
 
 # Memory Storage
@@ -43,7 +43,7 @@ print 'Ram time: {}s\nSQL time: {}s'.format(ram_latency, sql_latency)
 import cProfile, StringIO, pstats
 pr = cProfile.Profile()
 pr.enable()
-with open(os.path.abspath('caterpillar/resources/nps_medium.csv'), 'rbU') as f:
+with open(os.path.abspath('caterpillar/test_resources/nps_medium.csv'), 'rbU') as f:
     index = Index.create(Schema(respondant=NUMERIC, region=CATEGORICAL_TEXT(indexed=True),
                                 store=CATEGORICAL_TEXT(indexed=True),
                                 liked=TEXT, disliked=TEXT, would_like=TEXT, nps=NUMERIC(indexed=True)),

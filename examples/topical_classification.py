@@ -9,7 +9,7 @@ from caterpillar.processing.index import Index
 from caterpillar.processing.schema import Schema, TEXT
 
 
-with open(os.path.abspath('caterpillar/resources/alice.txt'), 'r') as f:
+with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'r') as f:
     index = Index.create(Schema(text=TEXT(analyser=DefaultAnalyser())))
     data = f.read()
     index.add_document(fold_case=True, text=data)

@@ -9,7 +9,7 @@ from caterpillar.analytics.influence import InfluenceAnalyticsPlugin
 from caterpillar.processing.index import DerivedIndex, Index
 from caterpillar.processing.schema import Schema, CATEGORICAL_TEXT, NUMERIC, TEXT
 
-with open(os.path.abspath('caterpillar/resources/nps_medium.csv'), 'rbU') as f:
+with open(os.path.abspath('caterpillar/test_resources/nps_medium.csv'), 'rbU') as f:
     index = Index.create(Schema(respondant=NUMERIC, region=CATEGORICAL_TEXT(indexed=True),
                                 store=CATEGORICAL_TEXT(indexed=True),
                                 liked=TEXT, disliked=TEXT, would_like=TEXT, nps=NUMERIC(indexed=True)))
