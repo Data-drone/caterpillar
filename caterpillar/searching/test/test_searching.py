@@ -19,7 +19,7 @@ from caterpillar.searching.scoring import SimpleScorer
 
 def test_searching_alice():
     """Test basic searching functions for Alice."""
-    with open(os.path.abspath('caterpillar/resources/alice.txt'), 'rbU') as f:
+    with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'rbU') as f:
         bi_grams = find_bi_gram_words(frame_stream(f))
         f.seek(0)
         data = f.read()
@@ -81,7 +81,7 @@ def test_searching_alice():
 
 def test_searching_alice_simple():
     """Test searching for Alice with the simple scorer."""
-    with open(os.path.abspath('caterpillar/resources/alice.txt'), 'rbU') as f:
+    with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'rbU') as f:
         bi_grams = find_bi_gram_words(frame_stream(f))
         f.seek(0)
         data = f.read()
@@ -98,7 +98,7 @@ def test_searching_alice_simple():
 
 def test_searching_mt_warning():
     """Test searching for mt warning data."""
-    with open(os.path.abspath('caterpillar/resources/mt_warning_utf8.txt'), 'rbU') as f:
+    with open(os.path.abspath('caterpillar/test_resources/mt_warning_utf8.txt'), 'rbU') as f:
         bi_grams = find_bi_gram_words(frame_stream(f))
         f.seek(0)
         data = f.read()
@@ -118,7 +118,7 @@ def test_searching_mt_warning():
 
 def test_searching_twitter():
     """Test searching twitter data."""
-    with open('caterpillar/resources/twitter_sentiment.csv', 'rbU') as f:
+    with open('caterpillar/test_resources/twitter_sentiment.csv', 'rbU') as f:
         analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
         index = Index.create(schema.Schema(text=schema.TEXT(analyser=analyser),
                                            sentiment=schema.CATEGORICAL_TEXT(indexed=True)))
@@ -139,7 +139,7 @@ def test_searching_twitter():
 
 def test_searching_nps():
     """Test searching nps-backed data."""
-    with open('caterpillar/resources/big.csv', 'rbU') as f:
+    with open('caterpillar/test_resources/big.csv', 'rbU') as f:
         analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
         index = Index.create(schema.Schema(respondant=schema.NUMERIC,
                                            region=schema.CATEGORICAL_TEXT(indexed=True),
@@ -215,7 +215,7 @@ def test_searching_nps():
 
 def test_searching_nps_no_text_update():
     """Test retrieving by ID with no text."""
-    with open('caterpillar/resources/big.csv', 'rbU') as f:
+    with open('caterpillar/test_resources/big.csv', 'rbU') as f:
         index = Index.create(schema.Schema(respondant=schema.ID(indexed=True),
                                            region=schema.CATEGORICAL_TEXT(indexed=True), nps=schema.NUMERIC))
         csv_reader = csv.reader(f)
@@ -231,7 +231,7 @@ def test_searching_nps_no_text_update():
 
 def test_no_data_by_circumstance():
     """Test that when we add data with no indexed fields we can't retrieve it."""
-    with open('caterpillar/resources/test_small.csv', 'rbU') as f:
+    with open('caterpillar/test_resources/test_small.csv', 'rbU') as f:
         index = Index.create(schema.Schema(respondant=schema.ID, nps=schema.NUMERIC))
         csv_reader = csv.reader(f)
         csv_reader.next()  # Skip header
@@ -244,7 +244,7 @@ def test_no_data_by_circumstance():
 
 
 def test_searching_reserved_words():
-    with open(os.path.abspath('caterpillar/resources/alice.txt'), 'rbU') as f:
+    with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'rbU') as f:
         data = f.read()
         index = Index.create(schema.Schema(text=schema.TEXT(analyser=DefaultAnalyser(stopword_list=[]))))
         index.add_document(text=data, frame_size=2, fold_case=True)

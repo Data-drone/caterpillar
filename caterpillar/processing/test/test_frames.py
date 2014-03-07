@@ -21,7 +21,7 @@ def test_frame():
 #### Functional tests ####
 def test_frame_stream_alice():
     """Test frame extraction on Chapter 1 of Alice in Wonderland."""
-    with open(os.path.abspath('caterpillar/resources/alice_test_data.txt'), 'r') as f:
+    with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
         frames = frame_stream(f, meta_data={'document': 'alice_test_data.txt'})
         index = 0
         for f in frames:
@@ -33,7 +33,7 @@ def test_frame_stream_alice():
 
 def test_frame_stream_economics():
     """Test frame extraction on a Wikipedia page about Economics."""
-    with open(os.path.abspath('caterpillar/resources/economics_test_data.txt'), 'r') as f:
+    with open(os.path.abspath('caterpillar/test_resources/economics_test_data.txt'), 'r') as f:
         frames = frame_stream(f, meta_data={'document': 'economics_test_data.txt'})
         index = 0
         for f in frames:
@@ -53,7 +53,7 @@ def test_frame_stream_csv_regular():
                ColumnSpec('would_like', ColumnDataType.TEXT),
                ColumnSpec('nps', ColumnDataType.INTEGER)]
     csv_schema = CsvSchema(columns, True, csv.excel)
-    with open(os.path.abspath('caterpillar/resources/test_small.csv'), 'rbU') as f:
+    with open(os.path.abspath('caterpillar/test_resources/test_small.csv'), 'rbU') as f:
         frames = frame_stream_csv(f, csv_schema, meta_data={'document': 'test_small.csv'})
         index = 0
         for f in frames:
@@ -76,7 +76,7 @@ def test_frame_stream_csv_with_cr():
                ColumnSpec('would_like', ColumnDataType.TEXT),
                ColumnSpec('nps', ColumnDataType.INTEGER)]
     csv_schema = CsvSchema(columns, True, csv.excel)
-    with open(os.path.abspath('caterpillar/resources/test_with_CR.csv'), 'rbU') as f:
+    with open(os.path.abspath('caterpillar/test_resources/test_with_CR.csv'), 'rbU') as f:
         frames = frame_stream_csv(f, csv_schema, meta_data={'document': 'test_small.csv'})
         index = 0
         for f in frames:
@@ -99,7 +99,7 @@ def test_frame_stream_csv_cell_as_frame():
                ColumnSpec('would_like', ColumnDataType.TEXT),
                ColumnSpec('nps', ColumnDataType.INTEGER)]
     csv_schema = CsvSchema(columns, True, csv.excel)
-    with open(os.path.abspath('caterpillar/resources/test_small.csv'), 'rbU') as f:
+    with open(os.path.abspath('caterpillar/test_resources/test_small.csv'), 'rbU') as f:
         frames = frame_stream_csv(f, csv_schema, meta_data={'document': 'test_small.csv'}, frame_size=0)
         index = 0
         for f in frames:
@@ -117,7 +117,7 @@ def test_frame_stream_csv_bad_row():
     columns = [ColumnSpec('Sentiment', ColumnDataType.IGNORE),
                ColumnSpec('Text', ColumnDataType.TEXT)]
     csv_schema = CsvSchema(columns, True, csv.excel)
-    with open(os.path.abspath('caterpillar/resources/twitter_sentiment.csv'), 'rbU') as f:
+    with open(os.path.abspath('caterpillar/test_resources/twitter_sentiment.csv'), 'rbU') as f:
         frames = list(frame_stream_csv(f, csv_schema, meta_data={'document': 'twitter_sentiment.csv'}, frame_size=0))
 
         assert len(frames) == 401
