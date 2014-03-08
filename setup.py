@@ -26,7 +26,7 @@ requires = [
 
 setup(
     name='caterpillar',
-    version='1.0-alpha',
+    version='1.0.0alpha',
     packages=[
         'caterpillar',
         'caterpillar.analytics',
