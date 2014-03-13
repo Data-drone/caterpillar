@@ -14,3 +14,4 @@ coverage_report
 *.db
 .komodotools
 junit-*
+pep8*
