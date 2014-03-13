@@ -1,7 +1,7 @@
 def abstract_method_tester(abc):
     """Utility function to test abstract classes"""
 
-    def init(self): # bad comment
+    def init(self):
         pass
 
     def tester(self, abc_method_name):
