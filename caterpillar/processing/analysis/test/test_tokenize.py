@@ -122,6 +122,8 @@ def test_word_tokenizer_url():
     assert url3 in [t.value for t in wt.tokenize("A sample url {} .".format(url3))]
     url4 = "www.test.io/?q=123"
     assert url4 in [t.value for t in wt.tokenize("A sample url {} .".format(url4))]
+    not_url = "www house cleaning"
+    assert len(list(wt.tokenize(not_url))) == 3
 
 
 def test_everything_tokenizer():
