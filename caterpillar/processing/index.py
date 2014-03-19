@@ -810,12 +810,21 @@ class Index(object):
                 if new_term not in frames[frame_id]['_positions'] and old_term != term and term != new_term:
                     # Only count frames that do not contain the new spelling as those frames have already
                     # been counted.
+                    # We need to change these separately because there is a very slim chance that new_term isn't
+                    # in the associations index yet while term will always be present.
+                    # Term first
                     try:
-                        associations[new_term][term] += 1
                         associations[term][new_term] += 1
                     except KeyError:
-                        associations[new_term][term] = 1
                         associations[term][new_term] = 1
+                    # Now ne_term
+                    try:
+                        associations[new_term][term] += 1
+                    except KeyError:
+                        try:
+                            associations[new_term][term] = 1
+                        except KeyError:
+                            associations[new_term] = {term: 1}
 
             # Update frame positions
             try:
