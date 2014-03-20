@@ -531,14 +531,15 @@ def generate_csv_schema(csv_file, delimiter=',', encoding='utf8'):
     Returns a 2-tuple containing the generated schema and the sample rows used to generate the schema.
 
     """
-    snipit = csv_file.read(4096)
-    csv_file.seek(0)
     dialect = csv.excel
 
+    # Check for headers
+    has_header = csv_has_header(csv_file, dialect)
+
     # Now actually read the file
+    csv_file.seek(0)
     reader = csv.reader(csv_file, dialect)
     headers = []
-    has_header = csv_has_header(snipit, dialect)
     if has_header:
         headers = reader.next()
 
@@ -579,20 +580,23 @@ def generate_csv_schema(csv_file, delimiter=',', encoding='utf8'):
 MAX_HEADER_SIZE_PERCENTAGE = 0.33  # Maximum size for header row as a percentage of the average row size
 
 
-def csv_has_header(sample, dialect):
+def csv_has_header(csv_file, dialect, num_check_rows=50):
     """
     Custom heuristic for recognising header in CSV files. Intended to be used as an alternative
     for the ``csv.Sniffer.has_header`` method which doesn't work well for mostly-text CSV files.
 
     The heuristic we use simply checks the total size of the header row compared to the average row size for
-    the following rows. If a large discrepancy is found, we assume that the first row contains headers.
+    the following sample rows. If a large discrepancy is found, we assume that the first row contains headers.
 
     Required Arguments:
-    sample -- A sample of data from the CSV.
+    csv_file -- The csv data file to analyse.
     dialect -- CSV dialect to use.
 
+    Optional Arguments:
+    num_check_rows -- The number of rows to analyse (defaults to 50).
+
     """
-    reader = csv.reader(StringIO(sample), dialect)
+    reader = csv.reader(csv_file, dialect)
     header = reader.next()  # assume first row is header
     header_size = sum([len(col) for col in header])
 
@@ -600,7 +604,7 @@ def csv_has_header(sample, dialect):
     total_row_size = 0
     checked = 0
     for row in reader:
-        if checked == 50:
+        if checked == num_check_rows:
             break
         total_row_size += sum([len(col) for col in row])
         checked += 1
