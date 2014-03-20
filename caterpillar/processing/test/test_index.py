@@ -226,6 +226,26 @@ def test_index_alice_case_folding(storage_cls):
         for term, freq in frequencies.items():
             assert freq == len(positions_index[term])
 
+@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
+def test_index_case_fold_no_new_term(storage_cls):
+    """
+    Test a dataset that has only uppercase occurrences of a term where it mostly appears at the start of the 1 word
+    sentence. This results in those occurrences being converted to lower case (because they are at the start of a
+    sentence) then we attempt to merge with the 1 upper case occurrence. Previously we wrongly assumed in the merge code
+    that all terms would have an existing entry in the associations matrix but this isn't this case with this tricky
+    dataset.
+
+    """
+    with open(os.path.abspath('caterpillar/test_resources/case_fold_no_assoc.csv'), 'rbU') as f:
+        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        index = Index.create(Schema(text=TEXT(analyser=analyser)), storage_cls=storage_cls)
+        csv_reader = csv.reader(f)
+        for row in csv_reader:
+            index.add_document(update_index=False, text=row[0])
+        index.reindex(fold_case=True)
+
+        assert index.get_term_frequency('stirling') == 6
+        assert 'Stirling' not in index.get_frequencies()
 
 @pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_find_bigram_words(storage_cls):
