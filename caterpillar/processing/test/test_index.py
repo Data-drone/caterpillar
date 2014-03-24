@@ -226,6 +226,7 @@ def test_index_alice_case_folding(storage_cls):
         for term, freq in frequencies.items():
             assert freq == len(positions_index[term])
 
+
 @pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_index_case_fold_no_new_term(storage_cls):
     """
@@ -246,6 +247,7 @@ def test_index_case_fold_no_new_term(storage_cls):
 
         assert index.get_term_frequency('stirling') == 6
         assert 'Stirling' not in index.get_frequencies()
+
 
 @pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_find_bigram_words(storage_cls):
