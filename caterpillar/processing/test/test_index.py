@@ -62,6 +62,25 @@ def test_index_open():
         Index.open("fake", SqliteStorage)
 
 
+@pytest.mark.parametrize("storage_cls", STORAGE)
+def test_index_settings(storage_cls):
+    index = Index.create(Schema(text=TEXT()), storage_cls=storage_cls, path=os.getcwd())
+    index.set_setting('test', True)
+    assert index.get_setting('test')
+
+    index.set_setting('is_testing_fun', False)
+    assert not index.get_setting('is_testing_fun')
+
+    settings = index.get_settings(['test', 'is_testing_fun'])
+    assert len(settings) == 2
+    assert 'test' in settings
+
+    with pytest.raises(SettingNotFoundError):
+        index.get_setting('dummy')
+
+    index.destroy()
+
+
 # Functional tests
 @pytest.mark.parametrize("storage_cls", STORAGE)
 def test_index_alice(storage_cls):

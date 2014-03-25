@@ -18,6 +18,7 @@ import logging
 import uuid
 
 import nltk
+
 from caterpillar.data.storage import DuplicateContainerError, StorageNotFoundError
 from caterpillar.data.sqlite import SqliteMemoryStorage
 from caterpillar.processing.analysis.analyse import PotentialBiGramAnalyser
@@ -26,11 +27,16 @@ from caterpillar.processing.schema import Schema
 from caterpillar.searching import IndexSearcher
 from caterpillar.searching.scoring import TfidfScorer
 
+
 logger = logging.getLogger(__name__)
 
 
 class DocumentNotFoundError(Exception):
     """No document by that name exists."""
+
+
+class SettingNotFoundError(Exception):
+    """No setting by that name exists."""
 
 
 class IndexNotFoundError(Exception):
@@ -362,6 +368,48 @@ class Index(object):
 
         """
         return self.get_frame_count() * 10 * 1024
+
+    def get_setting(self, name):
+        """
+        Get a setting identified by name.
+
+        Required Arguments:
+        name -- str name identifying the setting.
+
+        """
+        try:
+            return json.loads(self._data_storage.get_container_item(Index.SETTINGS_CONTAINER, name))
+        except KeyError:
+            raise SettingNotFoundError("No setting '{}'".format(name))
+
+    def set_setting(self, name, value):
+        """
+        Set the value of setting identified by name.
+
+        Required Arguments:
+        name -- str name identifying the setting.
+        value -- obj value to store. Will be converted to json by this method.
+
+        """
+        self._data_storage.set_container_item(Index.SETTINGS_CONTAINER, name, json.dumps(value))
+
+    def get_settings(self, names):
+        """
+        Return a dict of all settings listed in names. Return format is::
+            {
+                name: value,
+                name: value,
+                ...
+            }
+
+        Required Arguments:
+        names - a list of str names of settings to fetch.
+
+        """
+        return {
+            k: json.loads(v)
+            for k, v in self._data_storage.get_container_items(Index.SETTINGS_CONTAINER, keys=names).items()
+        }
 
     def add_document(self, frame_size=2, fold_case=False, update_index=True, encoding='utf-8', **fields):
         """
