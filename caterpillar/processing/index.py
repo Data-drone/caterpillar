@@ -786,9 +786,11 @@ class Index(object):
 
         """
         count = 0
-        frequencies_index = {k: json.loads(v) if v else 0
-                             for k, v in self._results_storage.get_container_items(Index.FREQUENCIES_CONTAINER).items()}
-        # Because getting the associations index is so expensive we just do it once and pass it round.
+        # Pre-fetch indexes and past them around to save I/O
+        frequencies_index = {
+            k: json.loads(v) if v else 0
+            for k, v in self._results_storage.get_container_items(Index.FREQUENCIES_CONTAINER).items()
+        }
         associations_index = {
             k: json.loads(v) if v else {}
             for k, v in self._results_storage.get_container_items(Index.ASSOCIATIONS_CONTAINER).items()
@@ -806,12 +808,12 @@ class Index(object):
                 freq_name = frequencies_index[w.title()]
                 if freq / freq_name < merge_threshold:
                     # Merge into name
-                    logger.debug('Merging {} & {}'.format(w, w.title()))
+                    logger.debug('Merging {} into {}'.format(w, w.title()))
                     self._merge_terms(w, w.title(), associations_index, positions_index, frequencies_index, frames)
                     count += 1
                 elif freq_name / freq < merge_threshold:
                     # Merge into word
-                    logger.debug('Merging {} & {}'.format(w.title(), w))
+                    logger.debug('Merging {} into {}'.format(w.title(), w))
                     self._merge_terms(w.title(), w, associations_index, positions_index, frequencies_index, frames)
                     count += 1
 
@@ -829,9 +831,59 @@ class Index(object):
                                                {f_id: json.dumps(d) for f_id, d in frames.items()})
         logger.info("Merged {} terms during case folding.".format(count))
 
+    def merge_terms(self, merges):
+        """
+        Merge the terms in `merges`.
+
+        Required Arguments:
+        merges - a list of str tuples of the format `(old_term, new_term,)`. If new_term is '' then old_term is removed.
+
+        """
+        count = 0
+        # Pre-fetch indexes and past them around to save I/O
+        frequencies_index = {
+            k: json.loads(v) if v else 0
+            for k, v in self._results_storage.get_container_items(Index.FREQUENCIES_CONTAINER).items()
+        }
+        associations_index = {
+            k: json.loads(v) if v else {}
+            for k, v in self._results_storage.get_container_items(Index.ASSOCIATIONS_CONTAINER).items()
+        }
+        positions_index = {
+            k: json.loads(v) if v else {}
+            for k, v in self._results_storage.get_container_items(Index.POSITIONS_CONTAINER).items()
+        }
+        frames = {
+            k: json.loads(v)
+            for k, v in self._data_storage.get_container_items(Index.FRAMES_CONTAINER).items()
+        }
+        for old_term, new_term in merges:
+            logger.debug('Merging {} into {}'.format(old_term, new_term))
+            self._merge_terms(old_term, new_term, associations_index, positions_index, frequencies_index, frames)
+            count += 1
+
+        # Update indexes
+        self._results_storage.clear(Index.ASSOCIATIONS_CONTAINER)
+        self._results_storage.set_container_items(Index.ASSOCIATIONS_CONTAINER,
+                                                  {k: json.dumps(v) for k, v in associations_index.items()})
+        self._results_storage.clear(Index.POSITIONS_CONTAINER)
+        self._results_storage.set_container_items(Index.POSITIONS_CONTAINER,
+                                                  {k: json.dumps(v) for k, v in positions_index.items()})
+        self._results_storage.clear(Index.FREQUENCIES_CONTAINER)
+        self._results_storage.set_container_items(Index.FREQUENCIES_CONTAINER,
+                                                  {k: json.dumps(v) for k, v in frequencies_index.items()})
+        self._data_storage.set_container_items(Index.FRAMES_CONTAINER,
+                                               {f_id: json.dumps(d) for f_id, d in frames.items()})
+        logger.info("Merged {} terms during manual merge.".format(count))
+
     def _merge_terms(self, old_term, new_term, associations, positions, frequencies, frames):
+        """
+        Merge old_term into new_term. If new_term is a falsey value, old_term is deleted. Updates all the passed index
+        structures to reflect the change.
+
+        """
         old_positions = positions[old_term]
-        new_positions = positions[new_term]
+        new_positions = positions[new_term] if new_term in positions else {}
 
         # Clear global associations for old term
         if old_term in associations:
@@ -847,39 +899,44 @@ class Index(object):
             del frames[frame_id]['_positions'][old_term]
 
             # Update global positions
-            try:
-                new_positions[frame_id].extend(frame_positions)
-            except KeyError:
-                # New term had not been recorded in this frame
-                new_positions[frame_id] = frame_positions
+            if new_term:
+                try:
+                    new_positions[frame_id].extend(frame_positions)
+                except KeyError:
+                    # New term had not been recorded in this frame
+                    new_positions[frame_id] = frame_positions
 
-            # Update global associations
-            for term in frames[frame_id]['_positions']:
-                if new_term not in frames[frame_id]['_positions'] and old_term != term and term != new_term:
-                    # Only count frames that do not contain the new spelling as those frames have already
-                    # been counted.
-                    # We need to change these separately because there is a very slim chance that new_term isn't
-                    # in the associations index yet while term will always be present.
-                    # Term first
-                    try:
-                        associations[term][new_term] += 1
-                    except KeyError:
-                        associations[term][new_term] = 1
-                    # Now ne_term
-                    try:
-                        associations[new_term][term] += 1
-                    except KeyError:
+                # Update global associations
+                for term in frames[frame_id]['_positions']:
+                    if new_term not in frames[frame_id]['_positions'] and old_term != term and term != new_term:
+                        # Only count frames that do not contain the new spelling as those frames have already
+                        # been counted.
+                        # We need to change these separately because there is a very slim chance that new_term isn't
+                        # in the associations index yet while term will always be present.
+                        # Term first
                         try:
-                            associations[new_term][term] = 1
+                            associations[term][new_term] += 1
                         except KeyError:
-                            associations[new_term] = {term: 1}
+                            associations[term][new_term] = 1
+                        # Now ne_term
+                        try:
+                            associations[new_term][term] += 1
+                        except KeyError:
+                            try:
+                                associations[new_term][term] = 1
+                            except KeyError:
+                                associations[new_term] = {term: 1}
 
-            # Update frame positions
-            try:
-                frames[frame_id]['_positions'][new_term].extend(frame_positions)
-            except KeyError:
-                # New term had not been recorded in this frame
-                frames[frame_id]['_positions'][new_term] = frame_positions
+                # Update frame positions
+                try:
+                    frames[frame_id]['_positions'][new_term].extend(frame_positions)
+                except KeyError:
+                    # New term had not been recorded in this frame
+                    frames[frame_id]['_positions'][new_term] = frame_positions
+
+                # Update positions  and frequency index
+                positions[new_term] = new_positions
+                frequencies[new_term] = len(new_positions)
 
             # Update frame associations
             for term in frames[frame_id]['_positions']:
@@ -894,12 +951,8 @@ class Index(object):
             for term, asscs in frames[frame_id]['_associations'].items():
                 frames[frame_id]['_associations'][term] = set(asscs)
 
-        # Update positions index
-        positions[new_term] = new_positions
+        # Finally, purge.
         del positions[old_term]
-
-        # Update term frequency
-        frequencies[new_term] = len(new_positions)
         del frequencies[old_term]
 
     def run_plugin(self, cls, **args):
