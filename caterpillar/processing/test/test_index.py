@@ -200,6 +200,44 @@ def test_index_moby_case_folding(storage_cls):
 
 
 @pytest.mark.parametrize("storage_cls", FAST_STORAGE)
+def test_index_merge_terms(storage_cls):
+    """Test merging terms together."""
+    with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'r') as f:
+        data = f.read()
+        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        index = Index.create(Schema(text=TEXT(analyser=analyser)), storage_cls=storage_cls, path=os.getcwd())
+        index.add_document(text=data, frame_size=2, fold_case=False, update_index=True)
+
+        assert index.get_term_frequency('alice') == 86
+        assert index.get_term_association('alice', 'creatures') == 1
+        assert len(index.get_term_positions('alice')) == 86
+
+        assert index.get_term_frequency('party') == 9
+        assert index.get_term_association('party', 'creatures') == 1
+        assert index.get_term_association('party', 'assembled') == 1
+        assert len(index.get_term_positions('party')) == 9
+
+        index.merge_terms([
+            ('Alice', '',),  # delete
+            ('alice', 'tplink',),  # rename
+            ('Eaglet', 'party',),  # merge
+        ])
+
+        assert not 'Alice' in index.get_frequencies()
+        assert not 'Alice' in index.get_associations_index()
+        assert not 'Alice' in index.get_positions_index()
+
+        assert index.get_term_frequency('tplink') == 86
+        assert index.get_term_association('tplink', 'creatures') == 1
+        assert len(index.get_term_positions('tplink')) == 86
+
+        assert index.get_term_frequency('party') == 11
+        assert index.get_term_association('party', 'creatures') == 1
+        assert index.get_term_association('party', 'assembled') == 1
+        assert len(index.get_term_positions('party')) == 11
+
+
+@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_index_alice_case_folding(storage_cls):
     with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'r') as f:
         data = f.read()
