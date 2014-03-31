@@ -232,7 +232,7 @@ def test_index_merge_terms(storage_cls):
         assert len(index.get_term_positions('tplink')) == 86
 
         assert index.get_term_frequency('party') == 11
-        assert index.get_term_association('party', 'creatures') == 1  # party was already present in frames pre-merge
+        assert index.get_term_association('party', 'creatures') == 1
         assert index.get_term_association('party', 'assembled') == 1
         assert len(index.get_term_positions('party')) == 11
 

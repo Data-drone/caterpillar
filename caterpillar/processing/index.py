@@ -786,7 +786,7 @@ class Index(object):
 
         """
         count = 0
-        # Pre-fetch indexes and past them around to save I/O
+        # Pre-fetch indexes and pass them around to save I/O
         frequencies_index = {
             k: json.loads(v) if v else 0
             for k, v in self._results_storage.get_container_items(Index.FREQUENCIES_CONTAINER).items()
@@ -840,7 +840,7 @@ class Index(object):
 
         """
         count = 0
-        # Pre-fetch indexes and past them around to save I/O
+        # Pre-fetch indexes and pass them around to save I/O
         frequencies_index = {
             k: json.loads(v) if v else 0
             for k, v in self._results_storage.get_container_items(Index.FREQUENCIES_CONTAINER).items()
