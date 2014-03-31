@@ -918,7 +918,7 @@ class Index(object):
                             associations[term][new_term] += 1
                         except KeyError:
                             associations[term][new_term] = 1
-                        # Now ne_term
+                        # Now new_term
                         try:
                             associations[new_term][term] += 1
                         except KeyError:
