@@ -7,7 +7,7 @@ from caterpillar.processing.analysis.analyse import Analyser, DefaultAnalyser, B
 from caterpillar.processing.analysis.tokenize import Tokenizer
 
 
-#### Some basic error condition and plumbing tests ####
+# Some basic error condition and plumbing tests #
 def test_base_analyse_class():
     analyser = Analyser()
 

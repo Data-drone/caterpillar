@@ -109,9 +109,9 @@ def test_index_alice(storage_cls):
         with pytest.raises(DocumentNotFoundError):
             index.get_document(doc_id)
 
-        assert not 'Alice' in index.get_frequencies()
-        assert not 'Alice' in index.get_associations_index()
-        assert not 'Alice' in index.get_positions_index()
+        assert 'Alice' not in index.get_frequencies()
+        assert 'Alice' not in index.get_associations_index()
+        assert 'Alice' not in index.get_positions_index()
 
 
 @pytest.mark.parametrize("storage_cls", STORAGE)
@@ -223,9 +223,9 @@ def test_index_merge_terms(storage_cls):
             ('Eaglet', 'party',),  # merge
         ])
 
-        assert not 'Alice' in index.get_frequencies()
-        assert not 'Alice' in index.get_associations_index()
-        assert not 'Alice' in index.get_positions_index()
+        assert 'Alice' not in index.get_frequencies()
+        assert 'Alice' not in index.get_associations_index()
+        assert 'Alice' not in index.get_positions_index()
 
         assert index.get_term_frequency('tplink') == 86
         assert index.get_term_association('tplink', 'creatures') == 1

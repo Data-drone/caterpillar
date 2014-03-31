@@ -41,7 +41,7 @@ def test_schema():
         assert isinstance(field, FieldType)
 
     assert 'test' in simple_schema
-    assert not 'text' in simple_schema
+    assert 'text' not in simple_schema
 
     with pytest.raises(FieldConfigurationError):
         simple_schema.add("_test", TEXT)
