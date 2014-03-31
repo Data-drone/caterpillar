@@ -11,7 +11,7 @@ TEST_STRING = 'This is my test-string. Isn\'t it great?'
 TOKENIZER = WordTokenizer()
 
 
-#### Some basic error condition and plumbing tests ####
+# Some basic error condition and plumbing tests #
 def test_filter_base_class():
     f = Filter()
 
@@ -19,7 +19,7 @@ def test_filter_base_class():
         f.filter([Token()])
 
 
-#### Functional tests ####
+# Functional tests #
 def test_stop_filter():
     f = StopFilter(['is', 'it'], 2)
     tokens = TOKENIZER.tokenize(TEST_STRING)

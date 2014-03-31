@@ -7,7 +7,7 @@ from caterpillar.processing.frames import *
 from caterpillar.processing.schema import *
 
 
-#### Error and plumbing tests ####
+# Error and plumbing tests #
 def test_frame():
     frame = Frame()
     frame.update("id", 0, ['A sentence.'])
@@ -18,7 +18,7 @@ def test_frame():
     assert frame_copy.sentences == frame.sentences
 
 
-#### Functional tests ####
+# Functional tests #
 def test_frame_stream_alice():
     """Test frame extraction on Chapter 1 of Alice in Wonderland."""
     with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:

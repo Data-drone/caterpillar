@@ -7,7 +7,7 @@ import pytest
 from caterpillar.processing.analysis.tokenize import *
 
 
-#### Some basic error condition and plumbing tests ####
+# Some basic error condition and plumbing tests #
 def test_tokenizer_base_class():
     tokenizer = Tokenizer()
 
@@ -20,7 +20,7 @@ def test_regex_tokenizer_invalid_pattern():
         RegexpTokenizer('*&&jkbbj&&')  # An invalid regex
 
 
-#### Actually test the tokenizers ####
+# Actually test the tokenizers #
 def test_paragraph_tokenizer_alice():
     with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
         data = f.read()
