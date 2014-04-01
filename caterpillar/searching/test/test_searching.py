@@ -25,7 +25,8 @@ def test_searching_alice():
         data = f.read()
         analyser = BiGramAnalyser(bi_grams, stopword_list=stopwords.ENGLISH_TEST)
         index = Index.create(schema.Schema(text=schema.TEXT(analyser=analyser)))
-        index.add_document(text=data, frame_size=2, fold_case=True)
+        index.add_document(text=data, frame_size=2)
+        index.fold_term_case()
         index.run_plugin(InfluenceAnalyticsPlugin, influence_factor_smoothing=False)
         topics_plugin = index.run_plugin(InfluenceTopicsPlugin)
         topics = topics_plugin.get_topical_classification().topics
@@ -88,7 +89,7 @@ def test_searching_alice_simple():
         data = f.read()
         analyser = BiGramAnalyser(bi_grams, stopword_list=stopwords.ENGLISH_TEST)
         index = Index.create(schema.Schema(text=schema.TEXT(analyser=analyser)))
-        index.add_document(text=data, frame_size=2, fold_case=True)
+        index.add_document(text=data, frame_size=2)
         index.run_plugin(InfluenceAnalyticsPlugin, influence_factor_smoothing=False)
 
         searcher = index.searcher(scorer_cls=SimpleScorer)
@@ -105,7 +106,7 @@ def test_searching_mt_warning():
         data = f.read()
         analyser = BiGramAnalyser(bi_grams, stopword_list=stopwords.ENGLISH_TEST)
         index = Index.create(schema.Schema(text=schema.TEXT(analyser=analyser)))
-        index.add_document(text=data, frame_size=2, fold_case=True)
+        index.add_document(text=data, frame_size=2)
         index.run_plugin(InfluenceAnalyticsPlugin, influence_factor_smoothing=False)
 
         searcher = index.searcher()
@@ -248,7 +249,8 @@ def test_searching_reserved_words():
     with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'rbU') as f:
         data = f.read()
         index = Index.create(schema.Schema(text=schema.TEXT(analyser=DefaultAnalyser(stopword_list=[]))))
-        index.add_document(text=data, frame_size=2, fold_case=True)
+        index.add_document(text=data, frame_size=2)
+        index.fold_term_case()
         index.run_plugin(InfluenceAnalyticsPlugin, influence_factor_smoothing=False)
         index.run_plugin(InfluenceTopicsPlugin)
 
