@@ -198,6 +198,17 @@ class SqliteStorage(Storage):
                     items[k] = None
         return items
 
+    def yield_container_items(self, c_id):
+        if not self._has_container(c_id):
+            raise ContainerNotFoundError('No container \'{}\''.format(c_id))
+        cursor = self._db.cursor()
+        cursor.execute("SELECT * FROM {}".format(c_id))
+        while True:
+            item = cursor.fetchone()
+            if item is None:
+                break
+            yield item
+
     def set_container_item(self, c_id, key, value):
         if not self._has_container(c_id):
             raise ContainerNotFoundError('No container \'{}\''.format(c_id))
