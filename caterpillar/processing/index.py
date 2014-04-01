@@ -43,6 +43,10 @@ class IndexNotFoundError(Exception):
     """No index exists at specified location."""
 
 
+class TermNotFoundError(Exception):
+    """Term doesn't exist in index."""
+
+
 class Index(object):
     """
     An index of all the text within a data set; holds statistical information to be used in retrieval and analytics.
@@ -862,8 +866,11 @@ class Index(object):
         }
         for old_term, new_term in merges:
             logger.debug('Merging {} into {}'.format(old_term, new_term))
-            self._merge_terms(old_term, new_term, associations_index, positions_index, frequencies_index, frames)
-            count += 1
+            try:
+                self._merge_terms(old_term, new_term, associations_index, positions_index, frequencies_index, frames)
+                count += 1
+            except TermNotFoundError:
+                logger.exception('One of the terms doesn\'t exist in the index!')
 
         # Update indexes
         self._results_storage.clear(Index.ASSOCIATIONS_CONTAINER)
@@ -885,8 +892,11 @@ class Index(object):
         structures to reflect the change.
 
         """
-        old_positions = positions[old_term]
-        new_positions = positions[new_term] if new_term in positions else {}
+        try:
+            old_positions = positions[old_term]
+            new_positions = positions[new_term] if new_term in positions else {}
+        except KeyError:
+            raise TermNotFoundError("Term '{}' does not exists.".format(old_term))
 
         # Clear global associations for old term
         if old_term in associations:

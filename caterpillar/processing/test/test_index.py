@@ -222,6 +222,7 @@ def test_index_merge_terms(storage_cls):
             ('Alice', '',),  # delete
             ('alice', 'tplink',),  # rename
             ('Eaglet', 'party',),  # merge
+            ('idonotexist', '',),  # non-existent term
         ])
 
         assert 'Alice' not in index.get_frequencies()
