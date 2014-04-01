@@ -36,7 +36,7 @@ def test_index_destroy(storage_cls):
         analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
         index = Index.create(Schema(text=TEXT(analyser=analyser), document=TEXT(analyser=analyser, indexed=False)),
                              storage_cls=storage_cls, path=os.getcwd())
-        index.add_document(text=data, document='alice.txt', frame_size=2, fold_case=False)
+        index.add_document(text=data, document='alice.txt', frame_size=2, )
         index.destroy()
 
 
@@ -48,7 +48,7 @@ def test_index_open():
                                     document=TEXT(analyser=analyser, indexed=False),
                                     flag=FieldType(analyser=EverythingAnalyser(), indexed=True, categorical=True)),
                              storage_cls=SqliteStorage, path=os.getcwd())
-        index.add_document(text=data, document='alice.txt', flag=True, frame_size=2, fold_case=False)
+        index.add_document(text=data, document='alice.txt', flag=True, frame_size=2, )
         index = Index.open(os.getcwd(), SqliteStorage)
         index.reindex()
         assert len(index.get_frequencies()) == 504
@@ -91,8 +91,8 @@ def test_index_alice(storage_cls):
                                     document=TEXT(analyser=analyser, indexed=False),
                                     blank=NUMERIC(indexed=True), ref=ID(indexed=True)),
                              storage_cls=storage_cls, path=os.getcwd())
-        doc_id = index.add_document(text=data, document='alice.txt', blank=None, ref=123, frame_size=2, fold_case=False,
-                                    update_index=True)
+        doc_id = index.add_document(text=data, document='alice.txt', blank=None,
+                                    ref=123, frame_size=2, update_index=True)
 
         assert len(index.get_term_positions('nice')) == 3
         assert len(index.get_term_positions('key')) == 5
@@ -122,7 +122,7 @@ def test_index_frames_docs_alice(storage_cls):
         index = Index.create(Schema(text=TEXT(analyser=analyser),
                                     document=TEXT(analyser=analyser, indexed=False)),
                              storage_cls=storage_cls, path=os.getcwd())
-        index.add_document(text=data, document='alice.txt', frame_size=2, fold_case=False, update_index=True)
+        index.add_document(text=data, document='alice.txt', frame_size=2, update_index=True)
 
         assert index.get_frame_count() == 49
 
@@ -140,7 +140,7 @@ def test_index_moby_small(storage_cls):
         analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
         index = Index.create(Schema(text=TEXT(analyser=analyser)),
                              storage_cls=storage_cls, path=os.getcwd())
-        index.add_document(text=data, frame_size=2, fold_case=False)
+        index.add_document(text=data, frame_size=2, )
 
         assert len(index.get_term_positions('Mr. Chace')) == 1
         assert len(index.get_term_positions('CONVERSATIONS')) == 1
@@ -156,7 +156,7 @@ def test_index_alice_bigram_words(storage_cls):
         analyser = BiGramAnalyser(bi_grams, stopword_list=stopwords.ENGLISH_TEST)
         index = Index.create(Schema(text=TEXT(analyser=analyser)),
                              storage_cls=storage_cls, path=os.getcwd())
-        index.add_document(text=data, frame_size=2, fold_case=False)
+        index.add_document(text=data, frame_size=2, )
 
         assert len(bi_grams) == 5
         assert 'golden key' in bi_grams
@@ -172,7 +172,8 @@ def test_index_moby_case_folding(storage_cls):
         analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
         index = Index.create(Schema(text=TEXT(analyser=analyser)),
                              storage_cls=storage_cls, path=os.getcwd())
-        index.add_document(text=data, frame_size=2, fold_case=True, update_index=True)
+        index.add_document(text=data, frame_size=2, update_index=True)
+        index.fold_term_case()
 
         with pytest.raises(KeyError):
             index.get_term_positions('flask')
@@ -206,7 +207,7 @@ def test_index_merge_terms(storage_cls):
         data = f.read()
         analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
         index = Index.create(Schema(text=TEXT(analyser=analyser)), storage_cls=storage_cls, path=os.getcwd())
-        index.add_document(text=data, frame_size=2, fold_case=False, update_index=True)
+        index.add_document(text=data, frame_size=2, update_index=True)
 
         assert index.get_term_frequency('alice') == 86
         assert index.get_term_association('alice', 'creatures') == 1
@@ -217,7 +218,7 @@ def test_index_merge_terms(storage_cls):
         assert index.get_term_association('party', 'assembled') == 1
         assert len(index.get_term_positions('party')) == 9
 
-        index.merge_terms([
+        index.reindex(merges=[
             ('Alice', '',),  # delete
             ('alice', 'tplink',),  # rename
             ('Eaglet', 'party',),  # merge
@@ -245,7 +246,7 @@ def test_index_alice_case_folding(storage_cls):
         index = Index.create(Schema(text=TEXT(analyser=analyser),
                              document=TEXT(analyser=analyser, indexed=False)),
                              storage_cls=storage_cls, path=os.getcwd())
-        index.add_document(text=data, document='alice.txt', frame_size=2, fold_case=False, update_index=False)
+        index.add_document(text=data, document='alice.txt', frame_size=2, update_index=False)
         index.reindex(fold_case=True)
 
         positions_index = index.get_positions_index()
@@ -315,7 +316,7 @@ def test_find_bigram_words(storage_cls):
         analyser = BiGramAnalyser(bi_grams, stopword_list=stopwords.ENGLISH_TEST)
         index = Index.create(Schema(text=TEXT(analyser=analyser)),
                              storage_cls=storage_cls, path=os.getcwd())
-        index.add_document(text=data, frame_size=2, fold_case=True, update_index=True)
+        index.add_document(text=data, frame_size=2, update_index=True)
 
         assert len(bi_grams) == 3
         assert 'vinegar cruet' in bi_grams
@@ -334,8 +335,7 @@ def test_utf8(storage_cls):
         index = Index.create(Schema(text=TEXT(analyser=analyser),
                                     document=TEXT(analyser=analyser, indexed=False)),
                              storage_cls=storage_cls, path=os.getcwd())
-        doc_id = index.add_document(text=data, document='mt_warning_utf8.txt', frame_size=2, fold_case=False,
-                                    update_index=True)
+        doc_id = index.add_document(text=data, document='mt_warning_utf8.txt', frame_size=2, update_index=True)
         assert doc_id
 
 
@@ -347,9 +347,8 @@ def test_latin1(storage_cls):
         index = Index.create(Schema(text=TEXT(analyser=analyser),
                                     document=TEXT(analyser=analyser, indexed=False)),
                              storage_cls=storage_cls, path=os.getcwd())
-        doc_id = index.add_document(text=data, document='mt_warning_latin1.txt', frame_size=2, fold_case=False,
-                                    update_index=True,
-                                    encoding='latin1')
+        doc_id = index.add_document(text=data, document='mt_warning_latin1.txt',
+                                    frame_size=2, update_index=True, encoding='latin1')
         assert doc_id
 
 
@@ -358,13 +357,13 @@ def test_encoding(storage_cls):
     analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
     index = Index.create(Schema(text=TEXT(analyser=analyser)))
     doc_id = index.add_document(text=u'This is a unicode string to test our field decoding.', frame_size=2,
-                                fold_case=False, update_index=True)
+                                update_index=True)
     assert doc_id is not None
 
     with open(os.path.abspath('caterpillar/test_resources/mt_warning_utf8.txt'), 'r') as f:
         data = f.read()
     with pytest.raises(IndexError):
-        doc_id = index.add_document(text=data, frame_size=2, fold_case=False, update_index=True, encoding='ascii')
+        doc_id = index.add_document(text=data, frame_size=2, update_index=True, encoding='ascii')
 
 
 @pytest.mark.parametrize("storage_cls", FAST_STORAGE)
@@ -426,16 +425,14 @@ def test_derived_index_asymmetric_schema(storage_cls):
             index1 = Index.create(Schema(text=TEXT(analyser=analyser),
                                          document=TEXT(analyser=analyser, indexed=False)),
                                   storage_cls=storage_cls, path=temp1)
-            index1.add_document(text=data, document='mt_warning_utf8.txt', frame_size=2, fold_case=False,
-                                update_index=True)
+            index1.add_document(text=data, document='mt_warning_utf8.txt', frame_size=2, update_index=True)
 
         with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
             data = f.read()
             index2 = Index.create(Schema(text=TEXT(analyser=analyser),
                                          document=TEXT(analyser=analyser, indexed=False), marker=NUMERIC),
                                   storage_cls=storage_cls, path=temp2)
-            index2.add_document(text=data, document='alice.txt', marker=777, frame_size=2, fold_case=False,
-                                update_index=True)
+            index2.add_document(text=data, document='alice.txt', marker=777, frame_size=2, update_index=True)
 
         q1 = "mountain or rock or volcanic or volcano"
         q2 = "Alice or King or Queen"
@@ -466,7 +463,7 @@ def test_index_update(storage_cls):
         csv_reader = csv.reader(f)
         for row in csv_reader:
             index.add_document(update_index=False, text=row[0])
-        index.reindex(update_only=True, fold_case=False)
+        index.reindex(update_only=True, )
 
     assert index.get_term_frequency('service') == 14
 
