@@ -131,6 +131,7 @@ def test_index_frames_docs_alice(storage_cls):
 
         doc_id = frame_id.split('-')[0]
         assert doc_id == index.get_document(doc_id)['_id']
+        assert doc_id == next(index.get_documents())[0]
 
 
 @pytest.mark.parametrize("storage_cls", STORAGE)
@@ -459,11 +460,13 @@ def test_derived_index_asymmetric_schema(storage_cls):
 
 @pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_index_update(storage_cls):
+    docs_added = 0
     with open(os.path.abspath('caterpillar/test_resources/detractors.csv'), 'rbU') as f:
         index = Index.create(Schema(text=TEXT), storage_cls=storage_cls)
         csv_reader = csv.reader(f)
         for row in csv_reader:
             index.add_document(update_index=False, text=row[0])
+            docs_added += 1
         index.reindex(update_only=True, )
 
     assert index.get_term_frequency('service') == 14
@@ -472,6 +475,7 @@ def test_index_update(storage_cls):
         csv_reader = csv.reader(f)
         for row in csv_reader:
             index.add_document(update_index=False, text=row[0])
+            docs_added += 1
         index.reindex(update_only=True, fold_case=False)
 
     assert index.get_term_frequency('service') == 65
@@ -481,6 +485,8 @@ def test_index_update(storage_cls):
 
     assert index.get_term_frequency('service') == 65
     assert index.get_frame_count() == 534
+
+    assert len(list(index.get_documents())) == docs_added
 
 
 @pytest.mark.parametrize("storage_cls", FAST_STORAGE)

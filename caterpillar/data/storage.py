@@ -115,6 +115,18 @@ class Storage(object):
         return
 
     @abc.abstractmethod
+    def yield_container_items(self, c_id):
+        """
+        Retrieve all the items stored in a container identified by c_id as a generator function. This allows efficient
+        retrieval of very large containers.
+
+        Required Arguments:
+        c_id -- the string container id. This will be forced to a string by calling ``str`` on it.
+
+        """
+        return
+
+    @abc.abstractmethod
     def set_container_item(self, c_id, key, value):
         """
         Add a single key value pair to this container.
