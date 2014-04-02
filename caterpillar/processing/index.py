@@ -291,6 +291,14 @@ class Index(object):
         """
         return len(self._data_storage.get_container_items(Index.DOCUMENTS_CONTAINER))
 
+    def get_documents(self):
+        """
+        Generator that yields all documents from this index as (key, value) tuples.
+
+        """
+        for k, v in self._data_storage.yield_container_items(Index.DOCUMENTS_CONTAINER):
+            yield (k, json.loads(v))
+
     def get_metadata(self):
         """
         Returns index of metadata field -> value -> [frames].

@@ -42,6 +42,8 @@ def test_sqlite_storage():
         with pytest.raises(ContainerNotFoundError):
             storage.get_container_items("test")
         with pytest.raises(ContainerNotFoundError):
+            list(storage.yield_container_items("test"))
+        with pytest.raises(ContainerNotFoundError):
             storage.clear_container("test")
 
         with pytest.raises(ContainerNotFoundError):
@@ -125,7 +127,7 @@ def test_memory_storage():
 
         storage.set_container_item("test", "abc", "def")
         storage.set_container_item("test", "1", "2")
-        assert len(storage.get_container_items("test")) == 2
+        assert len(storage.get_container_items("test")) == len(list(storage.yield_container_items("test"))) == 2
         assert storage.get_container_item("test", "abc") == "def"
 
         storage.clear()
