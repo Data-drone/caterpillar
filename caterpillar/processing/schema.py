@@ -82,17 +82,6 @@ class FieldType(object):
         """
         return self._stored
 
-    def on_remove(self, schema, name):
-        """
-        Perform some action when the field is removed from a schema.
-
-        Required Arguments:
-        schema -- the ``Schema`` object this field is being removed from.
-        name -- the str name of the field being removed.
-
-        """
-        return
-
     def evaluate_op(self, operator, value1, value2):
         """
         Evaluate the specified operation.
@@ -394,13 +383,6 @@ class Schema(object):
             raise FieldConfigurationError("{} is not a FieldType object".format(field_type))
 
         self._fields[name] = field_type
-
-    def remove(self, field_name):
-        if field_name in self._fields:
-            self._fields[field_name].on_remove(self, field_name)
-            del self._fields[field_name]
-        else:
-            raise KeyError("No field named {}".format(field_name))
 
 
 class ColumnDataType(object):

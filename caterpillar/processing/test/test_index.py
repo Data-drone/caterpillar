@@ -104,6 +104,11 @@ def test_index_alice(storage_cls):
         assert index.get_term_frequency('Alice') == 23
         assert index.__sizeof__() == index.get_frame_count() * 10 * 1024
 
+        index.add_fields(field1=TEXT, field2=NUMERIC)
+        schema = index.get_schema()
+        assert 'field1' in schema
+        assert 'field2' in schema
+
         index.delete_document(doc_id, update_index=True)
 
         with pytest.raises(DocumentNotFoundError):
