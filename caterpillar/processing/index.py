@@ -316,6 +316,18 @@ class Index(object):
         """
         return self._schema
 
+    def add_fields(self, **fields):
+        """
+        Add new fields to the schema.
+
+        All keyword arguments are treated as field name, field type pairs.
+
+        """
+        for name, value in fields.items():
+            self._schema.add(name, fields[name])
+        # Save updated schema to storage
+        self._data_storage.set_container_item(Index.SETTINGS_CONTAINER, Index.SETTINGS_SCHEMA, self._schema.dumps())
+
     def get_revision(self):
         """
         Return the string revision identifier for this index.

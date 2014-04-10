@@ -54,11 +54,6 @@ def test_schema():
     with pytest.raises(FieldConfigurationError):
         simple_schema.add("text", str)
 
-    with pytest.raises(KeyError):
-        simple_schema.remove('text')
-    simple_schema.remove('test')
-    assert 'test' not in simple_schema
-
     with pytest.raises(ValueError):
         NUMERIC(num_type=str)
     with pytest.raises(NotImplementedError):
