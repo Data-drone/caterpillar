@@ -26,7 +26,7 @@ class SqliteStorage(Storage):
         self.acid = acid
         self._db_path = db_path
         create = not os.path.exists(db_path)
-        self._db = sqlite3.connect(db_path)
+        self._db = sqlite3.connect(db_path, check_same_thread=False)
 
         if create:
             # Initialisation of new storage
