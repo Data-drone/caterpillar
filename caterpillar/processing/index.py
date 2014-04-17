@@ -433,6 +433,7 @@ class Index(object):
         return {
             k: json.loads(v)
             for k, v in self._data_storage.get_container_items(Index.SETTINGS_CONTAINER, keys=names).items()
+            if v
         }
 
     def add_document(self, frame_size=2, update_index=True, encoding='utf-8', **fields):
