@@ -114,6 +114,9 @@ def test_index_alice(storage_cls):
         with pytest.raises(DocumentNotFoundError):
             index.get_document(doc_id)
 
+        with pytest.raises(DocumentNotFoundError):
+            index.delete_document(doc_id)
+
         assert 'Alice' not in index.get_frequencies()
         assert 'Alice' not in index.get_associations_index()
         assert 'Alice' not in index.get_positions_index()

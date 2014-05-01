@@ -442,7 +442,7 @@ class Index(object):
 
         We index text breaking it into frames for analysis. The frame_size param controls the size of those frames.
         Setting frame_size to a number < 1 will result in all text being put into one frame or, to put it another way,
-        the text not being broken up into frame.
+        the text not being broken up into frames.
 
         The fields need to match the schema for this Index otherwise an InvalidDocumentStructure exception will be
         thrown.
@@ -787,9 +787,13 @@ class Index(object):
 
         Optional Arguments:
         update_index -- a bool flag indicating whether to update the index or not. If set to ``False`` the index won't
-                     reflect the fact that the document has been deleted until `reindex()` has been run.
+                        reflect the fact that the document has been deleted until `reindex()` has been run.
 
         """
+        try:
+            doc = self._data_storage.get_container_item(Index.DOCUMENTS_CONTAINER, d_id)
+        except KeyError:
+            raise DocumentNotFoundError("No such document {}".format(d_id))
         frames = {k: json.loads(v) for k, v in self._data_storage.get_container_items(Index.FRAMES_CONTAINER).items()}
         frames_to_delete = []
         for f_id, frame in frames.items():
