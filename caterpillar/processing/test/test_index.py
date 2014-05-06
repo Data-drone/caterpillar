@@ -121,6 +121,11 @@ def test_index_alice(storage_cls):
         assert 'Alice' not in index.get_associations_index()
         assert 'Alice' not in index.get_positions_index()
 
+        # Test frame size = 0 (whole document)
+        index.add_document(text=data, document='alice', frame_size=0)
+        index.add_document(text=unicode("unicode data"), document='test', frame_size=0)
+        assert index.get_frame_count() == 2
+
 
 @pytest.mark.parametrize("storage_cls", STORAGE)
 def test_index_frames_docs_alice(storage_cls):
