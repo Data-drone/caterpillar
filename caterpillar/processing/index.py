@@ -22,7 +22,7 @@ import nltk
 from caterpillar.data.storage import DuplicateContainerError, StorageNotFoundError
 from caterpillar.data.sqlite import SqliteMemoryStorage
 from caterpillar.processing.analysis.analyse import PotentialBiGramAnalyser
-from caterpillar.processing.analysis.tokenize import ParagraphTokenizer
+from caterpillar.processing.analysis.tokenize import ParagraphTokenizer, Token
 from caterpillar.processing.schema import Schema
 from caterpillar.searching import IndexSearcher
 from caterpillar.searching.scoring import TfidfScorer
@@ -495,20 +495,26 @@ class Index(object):
                         metadata[field_name] = [token.value]
             else:
                 # Index non-categorical fields
-                #
-                # Break up into paragraphs first
-                try:
-                    if isinstance(fields[field_name], str) or isinstance(fields[field_name], bytes):
-                        paragraphs = ParagraphTokenizer().tokenize(fields[field_name].decode(encoding))
-                    else:
-                        # Must already be unicode
-                        paragraphs = ParagraphTokenizer().tokenize(fields[field_name])
-                except UnicodeError as e:
-                    raise IndexError("Couldn't decode the {} field - {}".format(field_name, e))
+                field_data = fields[field_name]
+                if isinstance(field_data, str) or isinstance(field_data, bytes):
+                    try:
+                        field_data = field_data.decode(encoding)
+                    except UnicodeError as e:
+                        raise IndexError("Couldn't decode the {} field - {}".format(field_name, e))
+                if frame_size > 0:
+                    # Break up into paragraphs
+                    paragraphs = ParagraphTokenizer().tokenize(field_data)
+                else:
+                    # Otherwise, the whole document is considered as one paragraph
+                    paragraphs = [Token(field_data)]
+
                 for paragraph in paragraphs:
                     # Next we need the sentences grouped by frame
                     sentences = sentence_tokenizer.tokenize(paragraph.value, realign_boundaries=True)
-                    sentences_by_frames = [sentences[i:i+frame_size] for i in xrange(0, len(sentences), frame_size)]
+                    if frame_size > 0:
+                        sentences_by_frames = [sentences[i:i+frame_size] for i in xrange(0, len(sentences), frame_size)]
+                    else:
+                        sentences_by_frames = [[s for s in sentences]]
                     for sentence_list in sentences_by_frames:
                         # Build our frames
                         frame_id = "{}-{}".format(document_id, frame_count)
