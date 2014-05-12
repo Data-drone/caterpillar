@@ -157,7 +157,7 @@ class Index(object):
         """
         return {
             k: json.loads(v)
-            for k, v in self._results_storage.get_container_items(Index.POSITIONS_CONTAINER).items()
+            for k, v in self._results_storage.get_container_items(Index.POSITIONS_CONTAINER).iteritems()
         }
 
     def get_term_positions(self, term):
@@ -193,7 +193,7 @@ class Index(object):
         """
         return {
             k: json.loads(v)
-            for k, v in self._results_storage.get_container_items(Index.ASSOCIATIONS_CONTAINER).items()
+            for k, v in self._results_storage.get_container_items(Index.ASSOCIATIONS_CONTAINER).iteritems()
         }
 
     def get_term_association(self, term, assc):
@@ -221,7 +221,7 @@ class Index(object):
         """
         return {
             k: json.loads(v)
-            for k, v in self._results_storage.get_container_items(Index.FREQUENCIES_CONTAINER).items()
+            for k, v in self._results_storage.get_container_items(Index.FREQUENCIES_CONTAINER).iteritems()
         }
 
     def get_term_frequency(self, term):
@@ -261,7 +261,7 @@ class Index(object):
         """
         return {
             k: json.loads(v)
-            for k, v in self._data_storage.get_container_items(Index.FRAMES_CONTAINER, keys=frame_ids).items()
+            for k, v in self._data_storage.get_container_items(Index.FRAMES_CONTAINER, keys=frame_ids).iteritems()
         }
 
     def get_frame_ids(self):
@@ -306,7 +306,7 @@ class Index(object):
         """
         return {
             k: json.loads(v)
-            for k, v in self._results_storage.get_container_items(Index.METADATA_CONTAINER).items()
+            for k, v in self._results_storage.get_container_items(Index.METADATA_CONTAINER).iteritems()
         }
 
     def get_schema(self):
@@ -323,8 +323,8 @@ class Index(object):
         All keyword arguments are treated as field name, field type pairs.
 
         """
-        for name, value in fields.items():
-            self._schema.add(name, fields[name])
+        for name, value in fields.iteritems():
+            self._schema.add(name, value)
         # Save updated schema to storage
         self._data_storage.set_container_item(Index.SETTINGS_CONTAINER, Index.SETTINGS_SCHEMA, self._schema.dumps())
 
@@ -432,7 +432,7 @@ class Index(object):
         """
         return {
             k: json.loads(v)
-            for k, v in self._data_storage.get_container_items(Index.SETTINGS_CONTAINER, keys=names).items()
+            for k, v in self._data_storage.get_container_items(Index.SETTINGS_CONTAINER, keys=names).iteritems()
             if v
         }
 
@@ -510,11 +510,11 @@ class Index(object):
 
                 for paragraph in paragraphs:
                     # Next we need the sentences grouped by frame
-                    sentences = sentence_tokenizer.tokenize(paragraph.value, realign_boundaries=True)
                     if frame_size > 0:
+                        sentences = sentence_tokenizer.tokenize(paragraph.value, realign_boundaries=True)
                         sentences_by_frames = [sentences[i:i+frame_size] for i in xrange(0, len(sentences), frame_size)]
                     else:
-                        sentences_by_frames = [[s for s in sentences]]
+                        sentences_by_frames = [[paragraph.value]]
                     for sentence_list in sentences_by_frames:
                         # Build our frames
                         frame_id = "{}-{}".format(document_id, frame_count)
@@ -523,7 +523,6 @@ class Index(object):
                             '_id': frame_id,
                             '_field': field_name,
                             '_positions': {},
-                            '_associations': {},
                             '_sequence_number': frame_count,
                             '_doc_id': document_id,
                             '_indexed': False,
@@ -544,16 +543,6 @@ class Index(object):
                                     except KeyError:
                                         frame['_positions'][token.value] = [token.index]
 
-                        # Record co-occurrences and frequencies for the terms we have seen in the frame
-                        for term in frame['_positions'].keys():
-                            for other_term in frame['_positions'].keys():
-                                if term != other_term:
-                                    # Record word associations
-                                    try:
-                                        frame['_associations'][term].add(other_term)
-                                    except KeyError:
-                                        frame['_associations'][term] = set()
-                                        frame['_associations'][term].add(other_term)
                         # Build the final frame
                         frame.update(shell_frame)
                         frames[frame_id] = frame
@@ -567,7 +556,6 @@ class Index(object):
                 '_id': frame_id,
                 '_field': None,  # There is no text field
                 '_positions': {},
-                '_associations': {},
                 '_sequence_number': frame_count,
                 '_doc_id': document_id,
                 '_indexed': False,
@@ -576,13 +564,14 @@ class Index(object):
             frames[frame_id] = frame
 
         # Make sure we store the meta-data on the frame
-        for f_id, frame in frames.items():
-            frame['_metadata'] = metadata
+        for f_id in frames:
+            frames[f_id]['_metadata'] = metadata
 
         logger.info('Tokenization complete. {} frames created.'.format(len(frames)))
 
         # Store the frames - really easy
-        self._data_storage.set_container_items(Index.FRAMES_CONTAINER, {k: json.dumps(v) for k, v in frames.items()})
+        self._data_storage.set_container_items(Index.FRAMES_CONTAINER,
+                                               {k: json.dumps(v) for k, v in frames.iteritems()})
 
         # Update the index data structures if needed.
         if update_index:
@@ -662,7 +651,7 @@ class Index(object):
             frame_id = frame['_id']
 
             # Positions & frequencies First
-            for term, indices in frame['_positions'].items():
+            for term, indices in frame['_positions'].iteritems():
                 frequencies.inc(term)
                 try:
                     positions[term][frame_id] = positions[term][frame_id] + indices
@@ -672,15 +661,17 @@ class Index(object):
                     except KeyError:
                         positions[term] = {frame_id: indices}
             # Associations next
-            for term, other_terms in frame['_associations'].items():
-                for other_term in other_terms:
+            for term in frame['_positions']:
+                for other_term in frame['_positions']:
+                    if term == other_term:
+                        continue
                     try:
                         associations[term][other_term] = associations[term].get(other_term, 0) + 1
                     except KeyError:
                         associations[term] = {other_term: 1}
             # Metadata
             if frame['_metadata']:
-                for field_name, values in frame['_metadata'].items():
+                for field_name, values in frame['_metadata'].iteritems():
                     for value in values:
                         if value is None:
                             # Skip null values
@@ -705,34 +696,34 @@ class Index(object):
         if update_only:
             # Need to merge existing index with un-indexed frames
             positions_index = {k: json.loads(v) if v else {} for k, v in self._results_storage.get_container_items(
-                Index.POSITIONS_CONTAINER, positions.keys()).items()}
+                Index.POSITIONS_CONTAINER, positions.keys()).iteritems()}
             assocs_index = {k: json.loads(v) if v else {} for k, v in self._results_storage.get_container_items(
-                Index.ASSOCIATIONS_CONTAINER, associations.keys()).items()}
+                Index.ASSOCIATIONS_CONTAINER, associations.keys()).iteritems()}
             frequencies_index = {k: json.loads(v) if v else 0 for k, v in self._results_storage.get_container_items(
-                Index.FREQUENCIES_CONTAINER, frequencies.keys()).items()}
+                Index.FREQUENCIES_CONTAINER, frequencies.keys()).iteritems()}
             metadata_index = {k: json.loads(v) if v else {} for k, v in self._results_storage.get_container_items(
-                Index.METADATA_CONTAINER, metadata.keys()).items()}
+                Index.METADATA_CONTAINER, metadata.keys()).iteritems()}
 
             # Positions
-            for term, indices in positions.items():
-                for frame_id, index in indices.items():
+            for term, indices in positions.iteritems():
+                for frame_id, index in indices.iteritems():
                     try:
                         positions_index[term][frame_id] = positions_index[term][frame_id] + index
                     except KeyError:
                         positions_index[term][frame_id] = index
 
             # Associations
-            for term, value in associations.items():
-                for other_term, count in value.items():
+            for term, value in associations.iteritems():
+                for other_term, count in value.iteritems():
                     assocs_index[term][other_term] = assocs_index[term].get(other_term, 0) + count
 
             # Frequencies
-            for key, value in frequencies.items():
+            for key, value in frequencies.iteritems():
                 frequencies_index[key] = frequencies_index[key] + value
 
             # Metadata
-            for name, values in metadata.items():
-                for value, f_ids in values.items():
+            for name, values in metadata.iteritems():
+                for value, f_ids in values.iteritems():
                     try:
                         metadata_index[name][value].extend(f_ids)
                     except KeyError:
@@ -750,19 +741,19 @@ class Index(object):
 
         # Now do the writing
         # Positions
-        for key, value in positions_index.items():
+        for key in positions_index:
             positions_index[key] = json.dumps(positions_index[key])
         self._results_storage.set_container_items(Index.POSITIONS_CONTAINER, positions_index)
         # Associations
-        for key, value in assocs_index.items():
+        for key in assocs_index:
             assocs_index[key] = json.dumps(assocs_index[key])
         self._results_storage.set_container_items(Index.ASSOCIATIONS_CONTAINER, assocs_index)
         # Frequencies
-        for key, value in frequencies_index.items():
+        for key in frequencies_index:
             frequencies_index[key] = json.dumps(frequencies_index[key])
         self._results_storage.set_container_items(Index.FREQUENCIES_CONTAINER, frequencies_index)
         # Metadata
-        for key, value in metadata_index.items():
+        for key in metadata_index:
             metadata_index[key] = json.dumps(metadata_index[key])
         self._results_storage.set_container_items(Index.METADATA_CONTAINER, metadata_index)
         logger.info("Re-indexed {} frames.".format(len(frames)))
@@ -800,9 +791,12 @@ class Index(object):
             doc = self._data_storage.get_container_item(Index.DOCUMENTS_CONTAINER, d_id)
         except KeyError:
             raise DocumentNotFoundError("No such document {}".format(d_id))
-        frames = {k: json.loads(v) for k, v in self._data_storage.get_container_items(Index.FRAMES_CONTAINER).items()}
+        frames = {
+            k: json.loads(v)
+            for k, v in self._data_storage.get_container_items(Index.FRAMES_CONTAINER).iteritems()
+        }
         frames_to_delete = []
-        for f_id, frame in frames.items():
+        for f_id, frame in frames.iteritems():
             if frame['_doc_id'] == d_id:
                 frames_to_delete.append(f_id)
         self._data_storage.delete_container_items(Index.FRAMES_CONTAINER, frames_to_delete)
@@ -827,19 +821,19 @@ class Index(object):
         # Pre-fetch indexes and pass them around to save I/O
         frequencies_index = {
             k: json.loads(v) if v else 0
-            for k, v in self._results_storage.get_container_items(Index.FREQUENCIES_CONTAINER).items()
+            for k, v in self._results_storage.get_container_items(Index.FREQUENCIES_CONTAINER).iteritems()
         }
         associations_index = {
             k: json.loads(v) if v else {}
-            for k, v in self._results_storage.get_container_items(Index.ASSOCIATIONS_CONTAINER).items()
+            for k, v in self._results_storage.get_container_items(Index.ASSOCIATIONS_CONTAINER).iteritems()
         }
         positions_index = {
             k: json.loads(v) if v else {}
-            for k, v in self._results_storage.get_container_items(Index.POSITIONS_CONTAINER).items()
+            for k, v in self._results_storage.get_container_items(Index.POSITIONS_CONTAINER).iteritems()
         }
         frames = {
             k: json.loads(v)
-            for k, v in self._data_storage.get_container_items(Index.FRAMES_CONTAINER).items()
+            for k, v in self._data_storage.get_container_items(Index.FRAMES_CONTAINER).iteritems()
         }
         for w, freq in frequencies_index.items():
             if w.islower() and w.title() in frequencies_index:
@@ -858,15 +852,15 @@ class Index(object):
         # Update stored data structures
         self._results_storage.clear(Index.ASSOCIATIONS_CONTAINER)
         self._results_storage.set_container_items(Index.ASSOCIATIONS_CONTAINER,
-                                                  {k: json.dumps(v) for k, v in associations_index.items()})
+                                                  {k: json.dumps(v) for k, v in associations_index.iteritems()})
         self._results_storage.clear(Index.POSITIONS_CONTAINER)
         self._results_storage.set_container_items(Index.POSITIONS_CONTAINER,
-                                                  {k: json.dumps(v) for k, v in positions_index.items()})
+                                                  {k: json.dumps(v) for k, v in positions_index.iteritems()})
         self._results_storage.clear(Index.FREQUENCIES_CONTAINER)
         self._results_storage.set_container_items(Index.FREQUENCIES_CONTAINER,
-                                                  {k: json.dumps(v) for k, v in frequencies_index.items()})
+                                                  {k: json.dumps(v) for k, v in frequencies_index.iteritems()})
         self._data_storage.set_container_items(Index.FRAMES_CONTAINER,
-                                               {f_id: json.dumps(d) for f_id, d in frames.items()})
+                                               {f_id: json.dumps(d) for f_id, d in frames.iteritems()})
         logger.info("Merged {} terms during case folding.".format(count))
 
     def merge_terms(self, merges):
@@ -881,19 +875,19 @@ class Index(object):
         # Pre-fetch indexes and pass them around to save I/O
         frequencies_index = {
             k: json.loads(v) if v else 0
-            for k, v in self._results_storage.get_container_items(Index.FREQUENCIES_CONTAINER).items()
+            for k, v in self._results_storage.get_container_items(Index.FREQUENCIES_CONTAINER).iteritems()
         }
         associations_index = {
             k: json.loads(v) if v else {}
-            for k, v in self._results_storage.get_container_items(Index.ASSOCIATIONS_CONTAINER).items()
+            for k, v in self._results_storage.get_container_items(Index.ASSOCIATIONS_CONTAINER).iteritems()
         }
         positions_index = {
             k: json.loads(v) if v else {}
-            for k, v in self._results_storage.get_container_items(Index.POSITIONS_CONTAINER).items()
+            for k, v in self._results_storage.get_container_items(Index.POSITIONS_CONTAINER).iteritems()
         }
         frames = {
             k: json.loads(v)
-            for k, v in self._data_storage.get_container_items(Index.FRAMES_CONTAINER).items()
+            for k, v in self._data_storage.get_container_items(Index.FRAMES_CONTAINER).iteritems()
         }
         for old_term, new_term in merges:
             logger.debug('Merging {} into {}'.format(old_term, new_term))
@@ -906,15 +900,15 @@ class Index(object):
         # Update indexes
         self._results_storage.clear(Index.ASSOCIATIONS_CONTAINER)
         self._results_storage.set_container_items(Index.ASSOCIATIONS_CONTAINER,
-                                                  {k: json.dumps(v) for k, v in associations_index.items()})
+                                                  {k: json.dumps(v) for k, v in associations_index.iteritems()})
         self._results_storage.clear(Index.POSITIONS_CONTAINER)
         self._results_storage.set_container_items(Index.POSITIONS_CONTAINER,
-                                                  {k: json.dumps(v) for k, v in positions_index.items()})
+                                                  {k: json.dumps(v) for k, v in positions_index.iteritems()})
         self._results_storage.clear(Index.FREQUENCIES_CONTAINER)
         self._results_storage.set_container_items(Index.FREQUENCIES_CONTAINER,
-                                                  {k: json.dumps(v) for k, v in frequencies_index.items()})
+                                                  {k: json.dumps(v) for k, v in frequencies_index.iteritems()})
         self._data_storage.set_container_items(Index.FRAMES_CONTAINER,
-                                               {f_id: json.dumps(d) for f_id, d in frames.items()})
+                                               {f_id: json.dumps(d) for f_id, d in frames.iteritems()})
         logger.info("Merged {} terms during manual merge.".format(count))
 
     def _merge_terms(self, old_term, new_term, associations, positions, frequencies, frames):
@@ -936,10 +930,9 @@ class Index(object):
             del associations[old_term]
 
         # Update term positions globally and positions and associations in frames
-        for frame_id, frame_positions in old_positions.items():
+        for frame_id, frame_positions in old_positions.iteritems():
 
             # Remove traces of old term from frame data
-            frames[frame_id]['_associations'].clear()
             del frames[frame_id]['_positions'][old_term]
 
             # Update global positions
@@ -982,19 +975,6 @@ class Index(object):
                 positions[new_term] = new_positions
                 frequencies[new_term] = len(new_positions)
 
-            # Update frame associations
-            for term in frames[frame_id]['_positions']:
-                for other_term in frames[frame_id]['_positions']:
-                    if other_term == term:
-                        continue
-                    try:
-                        frames[frame_id]['_associations'][term].append(other_term)
-                    except KeyError:
-                        frames[frame_id]['_associations'][term] = [other_term]
-            # Kludge! JSON doesn't support sets....
-            for term, asscs in frames[frame_id]['_associations'].items():
-                frames[frame_id]['_associations'][term] = set(asscs)
-
         # Finally, purge.
         del positions[old_term]
         del frequencies[old_term]
@@ -1017,7 +997,7 @@ class Index(object):
         logger.info('Running {} plugin.'.format(plugin.get_name()))
         result = plugin.run(**args)
 
-        for container, value in result.items():
+        for container, value in result.iteritems():
             # Max sure the container exists and is clear
             container_id = Index._plugin_container_name(plugin.get_name(), container)
             try:
@@ -1095,7 +1075,7 @@ def find_bi_gram_words(frames, min_bi_gram_freq=3, min_bi_gram_coverage=0.65):
                 uni_gram_frequencies.inc(term)
 
     # Filter and sort by frequency-decreasing
-    candidate_bi_gram_list = filter(lambda (k, v): v > min_bi_gram_freq, candidate_bi_grams.items())
+    candidate_bi_gram_list = filter(lambda (k, v): v > min_bi_gram_freq, candidate_bi_grams.iteritems())
     candidate_bi_gram_list = filter(lambda (k, v): v / uni_gram_frequencies[k.split(" ")[0]] > min_bi_gram_coverage
                                     and v / uni_gram_frequencies[k.split(" ")[1]] > min_bi_gram_coverage,
                                     candidate_bi_gram_list)
@@ -1125,7 +1105,8 @@ class DerivedIndex(Index):
         self._results_storage = results_storage
 
         # Store frames and build the index
-        self._data_storage.set_container_items(Index.FRAMES_CONTAINER, {k: json.dumps(v) for k, v in frames.items()})
+        self._data_storage.set_container_items(Index.FRAMES_CONTAINER,
+                                               {k: json.dumps(v) for k, v in frames.iteritems()})
         self.reindex()
         data_storage.set_container_item(Index.INFO_CONTAINER, 'derived', json.dumps(True))
 

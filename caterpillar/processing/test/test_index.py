@@ -277,23 +277,6 @@ def test_index_alice_case_folding(storage_cls):
             for other_term, assoc in term_associations.items():
                 assert assoc <= frequencies[term] and assoc <= frequencies[other_term]
 
-        # Check that global associations index matches frame associations
-        for term, term_positions in positions_index.items():
-            term_associations = {}
-            for frame_id in term_positions:
-                frame = frames[frame_id]
-                if len(frame['_associations']) == 0:
-                    # Skip frame with no associations
-                    continue
-                for other_term in frame['_associations'][term]:
-                    try:
-                        term_associations[other_term] += 1
-                    except KeyError:
-                        term_associations[other_term] = 1
-            for other_term in term_associations:
-                assert term_associations[other_term] == associations[term][other_term]\
-                    == associations[other_term][term]
-
         # Check frequencies against positions
         frequencies = index.get_frequencies()
         for term, freq in frequencies.items():
