@@ -366,6 +366,14 @@ def test_latin1(storage_cls):
                                     frame_size=2, update_index=True, encoding='latin1')
         assert doc_id
 
+        with pytest.raises(IndexError):
+            # Bad encoding
+            index.add_document(text=data, document='mt_warning_latin1.txt', frame_size=2, update_index=True)
+
+        # Ignore bad encoding errors
+        index.add_document(text=data, document='mt_warning_latin1.txt', frame_size=2, update_index=True,
+                           encoding_errors='ignore')
+
 
 @pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_encoding(storage_cls):
