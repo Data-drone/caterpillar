@@ -436,7 +436,7 @@ class Index(object):
             if v
         }
 
-    def add_document(self, frame_size=2, update_index=True, encoding='utf-8', **fields):
+    def add_document(self, frame_size=2, update_index=True, encoding='utf-8', encoding_errors='strict', **fields):
         """
         Add a document to this index.
 
@@ -460,6 +460,8 @@ class Index(object):
                       Defaults to 2. A value < 1 will result in only frame being created containing all the text.
         update_index -- A boolean flag indicating whether to update the index after adding this document or not.
         encoding -- this str argument is passed to ``str.decode()`` to decode all text fields.
+        encoding_errors -- str argument passed as the ``errors`` argument to ``str.decode()`` when decoding text fields.
+                           Defaults to 'strict'. Other options are 'ignore', 'replace'.
 
         """
         logger.info('Adding document')
@@ -498,7 +500,7 @@ class Index(object):
                 field_data = fields[field_name]
                 if isinstance(field_data, str) or isinstance(field_data, bytes):
                     try:
-                        field_data = field_data.decode(encoding)
+                        field_data = field_data.decode(encoding, encoding_errors)
                     except UnicodeError as e:
                         raise IndexError("Couldn't decode the {} field - {}".format(field_name, e))
                 if frame_size > 0:
@@ -590,7 +592,7 @@ class Index(object):
             if field.stored() and field_name in fields:
                 # Only record stored fields against the document
                 doc_fields[field_name] = fields[field_name]
-        doc_data = json.dumps(doc_fields).decode(encoding)
+        doc_data = json.dumps(doc_fields).decode(encoding, encoding_errors)
         self._data_storage.set_container_item(Index.DOCUMENTS_CONTAINER, document_id, doc_data)
 
         return document_id
