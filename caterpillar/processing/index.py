@@ -870,7 +870,10 @@ class Index(object):
         Merge the terms in `merges`.
 
         Required Arguments:
-        merges - a list of str tuples of the format `(old_term, new_term,)`. If new_term is '' then old_term is removed.
+        merges - A list of str tuples of the format `(old_term, new_term,)`. If new_term is '' then old_term is removed.
+                 N-grams can be specified by suppling a str tuple instead of str for the old term. For example:
+                    (('hot', 'dog'), 'hot dog')
+                 The n-gram case does not allow empty values for new_term.
 
         """
         count = 0
@@ -894,7 +897,12 @@ class Index(object):
         for old_term, new_term in merges:
             logger.debug('Merging {} into {}'.format(old_term, new_term))
             try:
-                self._merge_terms(old_term, new_term, associations_index, positions_index, frequencies_index, frames)
+                if isinstance(old_term, basestring):
+                    self._merge_terms(old_term, new_term, associations_index, positions_index, frequencies_index,
+                                      frames)
+                else:
+                    self._merge_terms_into_ngram(old_term, new_term, associations_index, positions_index,
+                                                 frequencies_index, frames)
                 count += 1
             except TermNotFoundError:
                 logger.exception('One of the terms doesn\'t exist in the index!')
@@ -973,13 +981,139 @@ class Index(object):
                     # New term had not been recorded in this frame
                     frames[frame_id]['_positions'][new_term] = frame_positions
 
-                # Update positions  and frequency index
-                positions[new_term] = new_positions
-                frequencies[new_term] = len(new_positions)
+        # Update positions and frequency index
+        if new_term:
+            positions[new_term] = new_positions
+            frequencies[new_term] = len(new_positions)
 
         # Finally, purge.
         del positions[old_term]
         del frequencies[old_term]
+
+    def _merge_terms_into_ngram(self, ngram_terms, new_term, associations, positions, frequencies, frames, MAX_GAP=2):
+        """
+        Merge n-gram term sequences into new_term. Updates all the passed index structures to reflect the change.
+
+        MAX_GAP specifies the maximum number of characters allowed between n-gram terms.
+
+        """
+        if not new_term:
+            raise Exception('A non-empty value for must be specified to represent the n-gram')
+
+        # First we need to find the positions of all matching n-grams in the index.
+        # We start with the positions of the first term in the n-gram...
+        try:
+            ngram_positions = positions[ngram_terms[0]].copy()
+        except KeyError:
+            raise TermNotFoundError("N-gram '{}' does not exist.".format(old_term))
+
+        # ..then loop through remaining n-gram terms, updating and
+        # restricting the recorded n-gram positions in the process
+        for next_term in ngram_terms[1:]:
+            try:
+                next_positions = positions[next_term]
+            except KeyError:
+                raise TermNotFoundError("N-gram '{}' does not exist.".format(old_term))
+
+            consumed_start_positions = {}
+            matched_frames = []
+
+            # Match the next n-gram term, for each frame it occurs in
+            for f_id, f_next_positions in next_positions.iteritems():
+
+                if f_id not in ngram_positions:
+                    # No valid n-gram sequences in this frame, skip to next one
+                    continue
+
+                # Look for a proximal match against each recorded partial n-gram sequence
+                joined_positions = []
+                for curr_pos in ngram_positions[f_id]:
+                    if curr_pos[0] in consumed_start_positions.get(f_id, []):
+                        # Already recorded a match against this partial sequence so skip it
+                        continue
+                    # Loop over positions of the next n-gram term
+                    for next_pos in f_next_positions:
+                        if curr_pos[0] < next_pos[0] and next_pos[0] - curr_pos[1] <= MAX_GAP:
+                            # Next term coincides with current partial n-gram sequence, record the match and move on
+                            new_pos = [curr_pos[0], next_pos[1]]
+                            try:
+                                joined_positions.append(new_pos)
+                                consumed_start_positions[f_id].append(next_pos[0])
+                            except:
+                                joined_positions = [new_pos]
+                                consumed_start_positions[f_id] = [next_pos[0]]
+                            break  # Break out to move to next partial n-gram sequence
+
+                # Update positions
+                ngram_positions[f_id] = joined_positions
+                if len(joined_positions) > 0:
+                    matched_frames.append(f_id)
+
+        # Only include frames that had an n-gram match
+        ngram_positions = {
+            f_id: f_positions for f_id, f_positions in ngram_positions.iteritems()
+            if f_id in matched_frames
+        }
+
+        # Next we have to update frame and global information in light of the matched n-grams
+        for f_id, f_ngram_positions in ngram_positions.iteritems():
+
+            f_positions = frames[f_id]['_positions']
+
+            # Update some information for terms consumed by n-gram matches
+            unique_terms = set(ngram_terms)  # Don't duplicate the process for n-grams with repeating terms
+            for term in unique_terms:
+
+                # Need to update the positions to reflect only the individual term occurrences
+                updated_positions = []
+                for term_pos in f_positions[term]:
+                    ngram_match = False
+                    for ngram_pos in f_ngram_positions:
+                        if (ngram_pos[0] <= term_pos[0] <= ngram_pos[1] or
+                                ngram_pos[0] <= term_pos[1] <= ngram_pos[1]):
+                            # Term position coincides with n-gram position
+                            ngram_match = True
+                            break  # Break out to check next position of term
+                    if not ngram_match:
+                        # Record the indivudal term occurrence
+                        updated_positions.append(term_pos)
+                f_positions[term] = updated_positions
+
+                if len(f_positions[term]) > 0:
+                    # We still had individual occurrences of term in this frame,
+                    # so set global positions based on updated frame positions.
+                    positions[term][f_id] = f_positions[term]
+                else:
+                    # No occurrences of the term in this frame were part of an n-gram sequence,
+                    # so adjust frequecies, associations and positions accordingly
+                    frequencies[term] -= 1
+                    del positions[term][f_id]
+                    del f_positions[term]
+                    for other_term in filter(lambda t: t != new_term and t in f_positions, associations[term]):
+                        associations[term][other_term] -= 1
+                        associations[other_term][term] -= 1
+                        if associations[term][other_term] == 0:
+                            # Remove entry if associations are 0
+                            del associations[term][other_term]
+                            del associations[other_term][term]
+
+            # Record associations for the new term
+            for other_term in f_positions:
+                try:
+                    associations[new_term][other_term] = associations[new_term].get(other_term, 0) + 1
+                except KeyError:
+                    associations[new_term] = {other_term: 1}
+                try:
+                    associations[other_term][new_term] += 1
+                except KeyError:
+                    associations[other_term][new_term] = 1
+
+            # Update frame positions for new term
+            f_positions[new_term] = f_ngram_positions
+
+        # Last global updates for new term
+        frequencies[new_term] = len(ngram_positions)
+        positions[new_term] = ngram_positions
 
     def run_plugin(self, cls, **args):
         """

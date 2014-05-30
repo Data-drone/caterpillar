@@ -180,6 +180,52 @@ def test_index_alice_bigram_words(storage_cls):
 
 
 @pytest.mark.parametrize("storage_cls", FAST_STORAGE)
+def test_index_alice_merge_bigram(storage_cls):
+    with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'r') as f:
+        bi_grams = find_bi_gram_words(frame_stream(f))
+        f.seek(0)
+        data = f.read()
+        analyser = BiGramAnalyser(bi_grams, stopword_list=stopwords.ENGLISH_TEST)
+        bigram_index = Index.create(Schema(text=TEXT(analyser=analyser)), storage_cls=storage_cls, path=os.getcwd())
+        bigram_index.add_document(text=data)
+
+        merges = [[b.split(' '), b] for b in bi_grams]
+        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        merge_index = Index.create(Schema(text=TEXT(analyser=analyser)), storage_cls=storage_cls, path=os.getcwd())
+        merge_index.add_document(text=data)
+        merge_index.merge_terms(merges)
+
+        # Verify indexes match
+        # Frequencies
+        merge_frequencies = merge_index.get_frequencies()
+        for term, frequency in bigram_index.get_frequencies().iteritems():
+            assert merge_frequencies[term] == frequency
+        # Associations
+        merge_associations = merge_index.get_associations_index()
+        for term, associations in bigram_index.get_associations_index().iteritems():
+            assert merge_associations[term] == associations
+        # Frame positions
+        frame_mappings = {}
+        merge_frames = sorted(merge_index.get_frames().itervalues(), key=lambda f: f['_sequence_number'])
+        frames = sorted(bigram_index.get_frames().itervalues(), key=lambda f: f['_sequence_number'])
+        for i, merge_frame in enumerate(merge_frames):
+            frame_mappings[frames[i]['_id']] = merge_frame['_id']
+            assert merge_frame['_positions'] == frames[i]['_positions']
+        # Global positions
+        merge_positions = merge_index.get_positions_index()
+        for term, positions in bigram_index.get_positions_index().iteritems():
+            for f_id, f_positions in positions.iteritems():
+                assert f_positions == merge_positions[term][frame_mappings[f_id]]
+
+        with pytest.raises(Exception):
+            merge_index.merge_terms([[('hot', 'dog',), '']])
+        with pytest.raises(Exception):
+            merge_index.merge_terms([[('garbage_term', 'Alice',), 'test']])
+        with pytest.raises(Exception):
+            merge_index.merge_terms([[('Alice', 'garbage_term',), 'test']])
+
+
+@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
 def test_index_moby_case_folding(storage_cls):
     with open(os.path.abspath('caterpillar/test_resources/moby.txt'), 'r') as f:
         data = f.read()
