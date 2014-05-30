@@ -219,10 +219,11 @@ def test_index_alice_merge_bigram(storage_cls):
 
         with pytest.raises(Exception):
             merge_index.merge_terms([[('hot', 'dog',), '']])
-        with pytest.raises(Exception):
-            merge_index.merge_terms([[('garbage_term', 'Alice',), 'test']])
-        with pytest.raises(Exception):
-            merge_index.merge_terms([[('Alice', 'garbage_term',), 'test']])
+
+        merge_index.merge_terms([[('garbage', 'term',), 'test']])
+        assert 'garbage term' not in merge_index.get_frequencies()
+        merge_index.merge_terms([[('term', 'garbage',), 'test']])
+        assert 'term garbage' not in merge_index.get_frequencies()
 
 
 @pytest.mark.parametrize("storage_cls", FAST_STORAGE)
