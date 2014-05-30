@@ -998,7 +998,7 @@ class Index(object):
 
         """
         if not new_term:
-            raise Exception('A non-empty value for must be specified to represent the n-gram')
+            raise Exception('A non-empty value must be specified to represent the n-gram')
 
         # First we need to find the positions of all matching n-grams in the index.
         # We start with the positions of the first term in the n-gram...
