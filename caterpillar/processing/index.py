@@ -1005,7 +1005,7 @@ class Index(object):
         try:
             ngram_positions = positions[ngram_terms[0]].copy()
         except KeyError:
-            raise TermNotFoundError("N-gram '{}' does not exist.".format(old_term))
+            raise TermNotFoundError("N-gram '{}' does not exist.".format(ngram_terms))
 
         # ..then loop through remaining n-gram terms, updating and
         # restricting the recorded n-gram positions in the process
@@ -1013,7 +1013,7 @@ class Index(object):
             try:
                 next_positions = positions[next_term]
             except KeyError:
-                raise TermNotFoundError("N-gram '{}' does not exist.".format(old_term))
+                raise TermNotFoundError("N-gram '{}' does not exist.".format(ngram_terms))
 
             consumed_start_positions = {}
             matched_frames = []
