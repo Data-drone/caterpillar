@@ -316,6 +316,14 @@ class Index(object):
         """
         return self._schema
 
+    def set_schema(self, schema):
+        """
+        Update the schema for this index.
+
+        """
+        self._schema = schema
+        self._data_storage.set_container_item(Index.SETTINGS_CONTAINER, Index.SETTINGS_SCHEMA, self._schema.dumps())
+
     def add_fields(self, **fields):
         """
         Add new fields to the schema.
