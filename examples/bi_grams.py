@@ -1,15 +1,23 @@
-# caterpillar - Create an index from a file
-#
-# Copyright (C) 2012-2013 Mammoth Labs
-# Author: Ryan Stuart <ryan@mammothlabs.com.au>
-from caterpillar.processing.analysis.analyse import BiGramAnalyser
-from caterpillar.processing.index import Index, find_bi_gram_words
-from caterpillar.processing.schema import Schema, TEXT
-from caterpillar.processing.frames import frame_stream
+# Copyright (c) 2012-2014 Kapiche Limited
+# Author: Ryan Stuart <ryan@kapiche.com>
+import os
+import shutil
+import tempfile
 
-with open('examples/alice.txt', 'r') as f:
-    bi_grams = find_bi_gram_words(frame_stream(f))
-    f.seek(0)
-    data = f.read()
-    index = Index.create(Schema(text=TEXT(analyser=BiGramAnalyser(bi_grams))))
-    index.add_document(text=data, frame_size=2, fold_case=True, update_index=True)
+from caterpillar.processing.index import find_bi_gram_words, IndexWriter, IndexConfig, IndexReader
+from caterpillar.processing.schema import Schema, TEXT
+from caterpillar.storage.sqlite import SqliteStorage
+
+path = tempfile.mkdtemp()
+try:
+    index_dir = os.path.join(path, "example")
+    with open('caterpillar/test_resources/alice.txt', 'r') as f:
+        data = f.read()
+        with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT))) as writer:
+            writer.add_document(text=data, frame_size=2)
+        # What are the bigrams?
+        with IndexReader(index_dir) as reader:
+            bi_grams = find_bi_gram_words(reader.get_frames())
+finally:
+    shutil.rmtree(path)
+

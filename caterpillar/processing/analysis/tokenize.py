@@ -1,14 +1,8 @@
-# caterpillar: Tools to tokenize text
-#
-# Copyright (C) 2012-2013 Mammoth Labs
-# Author: Ryan Stuart <ryan@mammothlabs.com.au>
-import logging
+# Copyright (c) 2012-2014 Kapiche Limited
+# Author: Ryan Stuart <ryan@kapiche.com>
+"""Tools to tokenize text."""
 from nltk.internals import convert_regexp_to_nongrouping
-
 import regex
-
-
-logger = logging.getLogger(__name__)
 
 
 class Token(object):

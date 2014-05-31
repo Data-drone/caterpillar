@@ -1,347 +1,415 @@
-# caterpillar: Tests for the caterpillar.processing.index module
-#
-# Copyright (C) 2012-2013 Mammoth Labs
-# Author: Kris Rogers <kris@mammothlabs.com.au>, Ryan Stuart <ryan@mammothlabs.com.au)
+# Copyright (c) 2012-2014 Kapiche Limited
+# Author: Kris Rogers <kris@kapiche.com>, Ryan Stuart <ryan@kapiche.com>
+"""Tests for caterpillar.processing.index."""
 from __future__ import division
+
 import csv
-import os
+import pickle
 import tempfile
+import shutil
 
 import pytest
 
-from caterpillar.data.sqlite import SqliteStorage
+from caterpillar.storage.sqlite import SqliteStorage
 from caterpillar.processing.analysis import stopwords
 from caterpillar.processing.analysis.analyse import EverythingAnalyser, DefaultAnalyser, BiGramAnalyser
-from caterpillar.processing.frames import frame_stream
 from caterpillar.processing.index import *
 from caterpillar.processing.schema import ID, NUMERIC, TEXT, FieldType, Schema
-from caterpillar.searching.query.querystring import QueryStringQuery as QSQ
 
 
-STORAGE = [(SqliteStorage), (SqliteMemoryStorage)]
-FAST_STORAGE = [(SqliteMemoryStorage)]
-
-
-@pytest.fixture(scope="function", autouse=True)
-def delete_databases():
-    if os.path.isfile(Index.DATA_STORAGE):
-        os.remove(Index.DATA_STORAGE)
-    if os.path.isfile(Index.RESULTS_STORAGE):
-        os.remove(Index.RESULTS_STORAGE)
-
-
-@pytest.mark.parametrize("storage_cls", STORAGE)
-def test_index_destroy(storage_cls):
+def test_index_open(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
         data = f.read()
         analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
-        index = Index.create(Schema(text=TEXT(analyser=analyser), document=TEXT(analyser=analyser, indexed=False)),
-                             storage_cls=storage_cls, path=os.getcwd())
-        index.add_document(text=data, document='alice.txt', frame_size=2, )
-        index.destroy()
+        writer = IndexWriter(index_dir, IndexConfig(SqliteStorage,
+                             Schema(text=TEXT(analyser=analyser), document=TEXT(analyser=analyser, indexed=False),
+                                    flag=FieldType(analyser=EverythingAnalyser(), indexed=True, categorical=True))))
+        with writer:
+            writer.add_document(text=data, document='alice.txt', flag=True, frame_size=2)
 
+        with IndexReader(index_dir) as reader:
+            assert sum(1 for _ in reader.get_frequencies()) == 504
+            assert reader.get_term_frequency('Alice') == 23
+            assert reader.get_document_count() == 1
+            assert isinstance(reader.get_schema()['text'], TEXT)
 
-def test_index_open():
-    with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
-        data = f.read()
-        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
-        index = Index.create(Schema(text=TEXT(analyser=analyser),
-                                    document=TEXT(analyser=analyser, indexed=False),
-                                    flag=FieldType(analyser=EverythingAnalyser(), indexed=True, categorical=True)),
-                             storage_cls=SqliteStorage, path=os.getcwd())
-        index.add_document(text=data, document='alice.txt', flag=True, frame_size=2, )
-        index = Index.open(os.getcwd(), SqliteStorage)
-        index.reindex()
-        assert len(index.get_frequencies()) == 504
-        assert index.get_term_frequency('Alice') == 23
-        assert index.get_document_count() == 1
-        assert isinstance(index.get_schema()['text'], TEXT)
-        assert index.is_derived() is False
-        index.destroy()
+        path = tempfile.mkdtemp()
+        new_dir = os.path.join(path, "no_reader")
+        try:
+            with pytest.raises(IndexNotFoundError):
+                IndexWriter(new_dir, IndexConfig(SqliteStorage, Schema(text=TEXT)))
+                os.remove(os.path.join(new_dir, "storage.db"))
+                IndexReader(new_dir)
+        finally:
+            shutil.rmtree(path)
 
     with pytest.raises(IndexNotFoundError):
-        Index.open("fake", SqliteStorage)
+        IndexReader("fake")
 
 
-@pytest.mark.parametrize("storage_cls", STORAGE)
-def test_index_settings(storage_cls):
-    index = Index.create(Schema(text=TEXT()), storage_cls=storage_cls, path=os.getcwd())
-    index.set_setting('test', True)
-    assert index.get_setting('test')
-
-    index.set_setting('is_testing_fun', False)
-    assert not index.get_setting('is_testing_fun')
-
-    settings = index.get_settings(['test', 'is_testing_fun'])
-    assert len(settings) == 2
-    assert 'test' in settings
-
-    with pytest.raises(SettingNotFoundError):
-        index.get_setting('dummy')
-
-    index.destroy()
+def test_index_writer_not_found(index_dir):
+    with pytest.raises(IndexNotFoundError):
+        IndexWriter(index_dir)
 
 
-# Functional tests
-@pytest.mark.parametrize("storage_cls", STORAGE)
-def test_index_alice(storage_cls):
+def test_index_settings(index_dir):
+    writer = IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT())))
+    with writer:
+        writer.set_setting('test', True)
+        writer.set_setting('is_testing_fun', False)
+
+    with IndexReader(index_dir) as reader:
+        assert reader.get_setting('test')
+        assert not reader.get_setting('is_testing_fun')
+        settings = {k: v for k, v in reader.get_settings(['test', 'is_testing_fun'])}
+        assert len(settings) == 2
+        assert 'test' in settings
+        with pytest.raises(SettingNotFoundError):
+            reader.get_setting('dummy')
+
+
+def test_index_config():
+    """Test the IndexConfig object."""
+    conf = IndexConfig("blah", Schema())
+    assert conf.version == VERSION
+
+    pickle_data = pickle.dumps(True)
+    with pytest.raises(ValueError):
+        IndexConfig.loads(pickle_data)
+    with pytest.raises(ValueError):
+        IndexConfig.loads(" ")
+
+
+def test_index_alice(index_dir):
+    """Whole bunch of functional tests on the index."""
     with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
         data = f.read()
         analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
-        index = Index.create(Schema(text=TEXT(analyser=analyser),
-                                    document=TEXT(analyser=analyser, indexed=False),
-                                    blank=NUMERIC(indexed=True), ref=ID(indexed=True)),
-                             storage_cls=storage_cls, path=os.getcwd())
-        doc_id = index.add_document(text=data, document='alice.txt', blank=None,
-                                    ref=123, frame_size=2, update_index=True)
+        writer = IndexWriter(index_dir, IndexConfig(SqliteStorage,
+                                                    Schema(text=TEXT(analyser=analyser),
+                                                           document=TEXT(analyser=analyser, indexed=False),
+                                                           blank=NUMERIC(indexed=True), ref=ID(indexed=True))))
+        with writer:
+            doc_id = writer.add_document(text=data, document='alice.txt', blank=None,
+                                         ref=123, frame_size=2)
 
-        assert len(index.get_term_positions('nice')) == 3
-        assert len(index.get_term_positions('key')) == 5
+        with IndexReader(index_dir) as reader:
+            assert sum(1 for _ in reader.get_term_positions('nice')) == 3
+            assert sum(1 for _ in reader.get_term_positions('key')) == 5
 
-        assert index.get_term_association('Alice', 'poor') == index.get_term_association('poor', 'Alice') == 3
-        assert index.get_term_association('key', 'golden') == index.get_term_association('golden', 'key') == 3
+            assert reader.get_term_association('Alice', 'poor') == reader.get_term_association('poor', 'Alice') == 3
+            assert reader.get_term_association('key', 'golden') == reader.get_term_association('golden', 'key') == 3
 
-        assert index.get_vocab_size() == len(index.get_frequencies()) == 504
-        assert index.get_term_frequency('Alice') == 23
+            assert reader.get_vocab_size() == sum(1 for _ in reader.get_frequencies()) == 504
+            assert reader.get_term_frequency('Alice') == 23
 
-        # Make sure this works
-        index.__sizeof__()
+            # Make sure this works
+            reader.__sizeof__()
 
-        index.add_fields(field1=TEXT, field2=NUMERIC)
-        schema = index.get_schema()
-        assert 'field1' in schema
-        assert 'field2' in schema
-        schema.add('testadd', TEXT)
-        index.set_schema(schema)
-        assert 'testadd' in index.get_schema()
+        with IndexWriter(index_dir) as writer:
+            writer.add_fields(field1=TEXT, field2=NUMERIC)
 
-        index.delete_document(doc_id, update_index=True)
+        with IndexReader(index_dir) as reader:
+            schema = reader.get_schema()
+            assert 'field1' in schema
+            assert 'field2' in schema
 
-        with pytest.raises(DocumentNotFoundError):
-            index.get_document(doc_id)
+        with IndexWriter(index_dir) as writer:
+            schema.add('testadd', TEXT)
+            writer.set_schema(schema)
 
-        with pytest.raises(DocumentNotFoundError):
-            index.delete_document(doc_id)
+        with IndexReader(index_dir) as reader:
+            assert 'testadd' in reader.get_schema()
 
-        assert 'Alice' not in index.get_frequencies()
-        assert 'Alice' not in index.get_associations_index()
-        assert 'Alice' not in index.get_positions_index()
+        with IndexWriter(index_dir) as writer:
+            writer.delete_document(doc_id)
+
+        with IndexReader(index_dir) as reader:
+            with pytest.raises(DocumentNotFoundError):
+                reader.get_document(doc_id)
+
+        with IndexWriter(index_dir) as writer:
+            with pytest.raises(DocumentNotFoundError):
+                writer.delete_document(doc_id)
+
+        with IndexReader(index_dir) as reader:
+            assert 'Alice' not in reader.get_frequencies()
+            assert 'Alice' not in reader.get_associations_index()
+            assert 'Alice' not in reader.get_positions_index()
 
         # Test not text
-        with pytest.raises(TypeError):
-            index.add_document(text=False, document='alice', frame_size=0)
+        with IndexWriter(index_dir) as writer:
+            with pytest.raises(TypeError):
+                writer.add_document(text=False, document='alice', frame_size=0)
 
         # Test frame size = 0 (whole document)
-        index.add_document(text=data, document='alice', frame_size=0)
-        index.add_document(text=unicode("unicode data"), document='test', frame_size=0)
-        assert index.get_frame_count() == 2
+        with IndexWriter(index_dir) as writer:
+            writer.add_document(text=data, document='alice', frame_size=0)
+            writer.add_document(text=unicode("unicode data"), document='test', frame_size=0)
+
+        with IndexReader(index_dir) as reader:
+            assert reader.get_frame_count() == 2
 
 
-@pytest.mark.parametrize("storage_cls", STORAGE)
-def test_index_frames_docs_alice(storage_cls):
+def test_index_writer_rollback(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
         data = f.read()
         analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
-        index = Index.create(Schema(text=TEXT(analyser=analyser),
-                                    document=TEXT(analyser=analyser, indexed=False)),
-                             storage_cls=storage_cls, path=os.getcwd())
-        index.add_document(text=data, document='alice.txt', frame_size=2, update_index=True)
+        writer = IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser))))
+        writer.begin()
+        try:
+            writer.add_document(text=data)
+        finally:
+            writer.close()
 
-        assert index.get_frame_count() == 49
+        with IndexReader(index_dir) as reader:
+            assert reader.get_document_count() == 0
 
-        frame_id = index.get_term_positions('Alice').keys()[0]
-        assert frame_id == index.get_frame(frame_id)['_id']
+        # Test rollback on exception
+        try:
+            with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser)))) as writer:
+                writer.add_document(text=data)
+                raise ValueError()
+        except ValueError:
+            pass
 
-        doc_id = frame_id.split('-')[0]
-        assert doc_id == index.get_document(doc_id)['_id']
-        assert doc_id == next(index.get_documents())[0]
+        with IndexReader(index_dir) as reader:
+            assert reader.get_document_count() == 0
 
 
-@pytest.mark.parametrize("storage_cls", STORAGE)
-def test_index_moby_small(storage_cls):
+def test_index_writer_lock(index_dir):
+    analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+    with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser)))) as writer1:
+        writer1.add_document(text="Blah")
+        writer2 = IndexWriter(index_dir)
+        with pytest.raises(IndexWriteLockedError):
+            writer2.begin(timeout=0.5)
+
+
+def test_index_frames_docs_alice(index_dir):
+    with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
+        data = f.read()
+        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        writer = IndexWriter(index_dir, IndexConfig(SqliteStorage,
+                                                    Schema(text=TEXT(analyser=analyser),
+                                                           document=TEXT(analyser=analyser, indexed=False))))
+        with writer:
+            writer.add_document(text=data, document='alice.txt', frame_size=2)
+
+        with IndexReader(index_dir) as reader:
+            assert reader.get_frame_count() == 49
+
+            frame_id = reader.get_term_positions('Alice').keys()[0]
+            assert frame_id == reader.get_frame(frame_id)['_id']
+
+            doc_id = frame_id.split('-')[0]
+            assert doc_id == reader.get_document(doc_id)['_id']
+            assert doc_id == next(reader.get_documents())[0]
+
+
+def test_index_moby_small(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/moby_small.txt'), 'r') as f:
         data = f.read()
         analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
-        index = Index.create(Schema(text=TEXT(analyser=analyser)),
-                             storage_cls=storage_cls, path=os.getcwd())
-        index.add_document(text=data, frame_size=2, )
+        writer = IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser))))
+        with writer:
+            writer.add_document(text=data, frame_size=2, )
 
-        assert len(index.get_term_positions('Mr. Chace')) == 1
-        assert len(index.get_term_positions('CONVERSATIONS')) == 1
-        assert len(index.get_frequencies()) == 38
+        with IndexReader(index_dir) as reader:
+            assert sum(1 for _ in reader.get_term_positions('Mr. Chace')) == 1
+            assert sum(1 for _ in reader.get_term_positions('CONVERSATIONS')) == 1
+            assert sum(1 for _ in reader.get_frequencies()) == 38
 
 
-@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
-def test_index_alice_bigram_words(storage_cls):
+def test_index_alice_bigram_discovery(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'r') as f:
-        bi_grams = find_bi_gram_words(frame_stream(f))
+        data = f.read()
+        with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT))) as writer:
+            writer.add_document(text=data, frame_size=2)
+
+        with IndexReader(index_dir) as reader:
+            bi_grams = find_bi_gram_words(reader.get_frames())
+            assert len(bi_grams) == 5
+            assert 'golden key' in bi_grams
+
+
+def test_index_alice_merge_bigram(index_dir):
+    with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'r') as f:
         f.seek(0)
         data = f.read()
-        analyser = BiGramAnalyser(bi_grams, stopword_list=stopwords.ENGLISH_TEST)
-        index = Index.create(Schema(text=TEXT(analyser=analyser)),
-                             storage_cls=storage_cls, path=os.getcwd())
-        index.add_document(text=data, frame_size=2, )
+        with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT))) as writer:
+            writer.add_document(text=data)
+        with IndexReader(index_dir) as reader:
+            bi_grams = find_bi_gram_words(reader.get_frames())
 
-        assert len(bi_grams) == 5
-        assert 'golden key' in bi_grams
-        assert index.get_term_frequency('golden key') == 6
-        assert index.get_term_frequency('golden') == 1
-        assert index.get_term_frequency('key') == 3
+        bigram_index = os.path.join(tempfile.mkdtemp(), "bigram")
+        merge_index = os.path.join(tempfile.mkdtemp(), "merge")
+        try:
+            analyser = BiGramAnalyser(bi_grams, stopword_list=stopwords.ENGLISH_TEST)
+            with IndexWriter(bigram_index, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser)))) as writer:
+                writer.add_document(text=data)
+                # Quick plumbing test.
+                with pytest.raises(ValueError):
+                    writer._merge_terms_into_ngram("old", None, {}, {}, {}, {})
+
+            merges = [[b.split(' '), b] for b in bi_grams]
+            analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+            with IndexWriter(merge_index, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser)))) as writer:
+                writer.add_document(text=data)
+                writer.merge_terms(merges)
+
+            # Verify indexes match
+            with IndexReader(merge_index) as merges, IndexReader(bigram_index) as bigrams:
+                # Frequencies
+                merge_frequencies = {k: v for k, v in merges.get_frequencies()}
+                for term, frequency in bigrams.get_frequencies():
+                    assert merge_frequencies[term] == frequency
+                # Associations
+                merge_associations = {k: v for k, v in merges.get_associations_index()}
+                for term, associations in bigrams.get_associations_index():
+                    assert merge_associations[term] == associations
+                # Frame positions
+                frame_mappings = {}
+                merge_frames = sorted({k: v for k, v in merges.get_frames()}.values(),
+                                      key=lambda t: t['_sequence_number'])
+                bigram_frames = sorted({k: v for k, v in bigrams.get_frames()}.values(),
+                                       key=lambda t: t['_sequence_number'])
+                for i, merge_frame in enumerate(merge_frames):
+                    frame_mappings[bigram_frames[i]['_id']] = merge_frame['_id']
+                    assert merge_frame['_positions'] == bigram_frames[i]['_positions']
+                # Global positions
+                merge_positions = {k: v for k, v in merges.get_positions_index()}
+                for term, positions in bigrams.get_positions_index():
+                    for f_id, f_positions in positions.iteritems():
+                        assert f_positions == merge_positions[term][frame_mappings[f_id]]
+
+                with pytest.raises(Exception):
+                    merges.merge_terms([[('hot', 'dog',), '']])
+
+            with IndexWriter(merge_index) as writer:
+                writer.merge_terms([[('garbage', 'term',), 'test']])
+                writer.merge_terms([[('Alice', 'garbage',), 'test']])
+            with IndexReader(merge_index) as reader:
+                with pytest.raises(KeyError):
+                    reader.get_term_frequency('garbage term')
+                with pytest.raises(KeyError):
+                    reader.get_term_frequency('Alice garbage')
+        finally:
+            shutil.rmtree(bigram_index)
+            shutil.rmtree(merge_index)
 
 
-@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
-def test_index_alice_merge_bigram(storage_cls):
-    with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'r') as f:
-        bi_grams = find_bi_gram_words(frame_stream(f))
-        f.seek(0)
-        data = f.read()
-        analyser = BiGramAnalyser(bi_grams, stopword_list=stopwords.ENGLISH_TEST)
-        bigram_index = Index.create(Schema(text=TEXT(analyser=analyser)), storage_cls=storage_cls, path=os.getcwd())
-        bigram_index.add_document(text=data)
-
-        merges = [[b.split(' '), b] for b in bi_grams]
-        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
-        merge_index = Index.create(Schema(text=TEXT(analyser=analyser)), storage_cls=storage_cls, path=os.getcwd())
-        merge_index.add_document(text=data)
-        merge_index.merge_terms(merges)
-
-        # Verify indexes match
-        # Frequencies
-        merge_frequencies = merge_index.get_frequencies()
-        for term, frequency in bigram_index.get_frequencies().iteritems():
-            assert merge_frequencies[term] == frequency
-        # Associations
-        merge_associations = merge_index.get_associations_index()
-        for term, associations in bigram_index.get_associations_index().iteritems():
-            assert merge_associations[term] == associations
-        # Frame positions
-        frame_mappings = {}
-        merge_frames = sorted(merge_index.get_frames().itervalues(), key=lambda f: f['_sequence_number'])
-        frames = sorted(bigram_index.get_frames().itervalues(), key=lambda f: f['_sequence_number'])
-        for i, merge_frame in enumerate(merge_frames):
-            frame_mappings[frames[i]['_id']] = merge_frame['_id']
-            assert merge_frame['_positions'] == frames[i]['_positions']
-        # Global positions
-        merge_positions = merge_index.get_positions_index()
-        for term, positions in bigram_index.get_positions_index().iteritems():
-            for f_id, f_positions in positions.iteritems():
-                assert f_positions == merge_positions[term][frame_mappings[f_id]]
-
-        with pytest.raises(Exception):
-            merge_index.merge_terms([[('hot', 'dog',), '']])
-
-        merge_index.merge_terms([[('garbage', 'term',), 'test']])
-        assert 'garbage term' not in merge_index.get_frequencies()
-        merge_index.merge_terms([[('Alice', 'garbage',), 'test']])
-        assert 'Alice garbage' not in merge_index.get_frequencies()
-
-
-@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
-def test_index_moby_case_folding(storage_cls):
+def test_index_moby_case_folding(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/moby.txt'), 'r') as f:
         data = f.read()
         analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
-        index = Index.create(Schema(text=TEXT(analyser=analyser)),
-                             storage_cls=storage_cls, path=os.getcwd())
-        index.add_document(text=data, frame_size=2, update_index=True)
-        index.fold_term_case()
+        writer = IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser))))
+        with writer:
+            writer.add_document(text=data, frame_size=2)
+            writer.fold_term_case()
 
-        with pytest.raises(KeyError):
-            index.get_term_positions('flask')
-        with pytest.raises(KeyError):
-            assert not index.get_term_frequency('flask')
-        assert index.get_term_frequency('Flask') == 91
-        assert index.get_term_association('Flask', 'person') == index.get_term_association('person', 'Flask') == 2
+        with IndexReader(index_dir) as reader:
+            with pytest.raises(KeyError):
+                reader.get_term_positions('flask')
+            with pytest.raises(KeyError):
+                assert not reader.get_term_frequency('flask')
+            assert reader.get_term_frequency('Flask') == 91
+            assert reader.get_term_association('Flask', 'person') == reader.get_term_association('person', 'Flask') == 2
 
-        with pytest.raises(KeyError):
-            index.get_term_positions('Well')
-        with pytest.raises(KeyError):
-            assert not index.get_term_frequency('Well')
-        assert index.get_term_frequency('well') == 208
-        assert index.get_term_association('well', 'whale') == index.get_term_association('whale', 'well') == 26
+            with pytest.raises(KeyError):
+                reader.get_term_positions('Well')
+            with pytest.raises(KeyError):
+                assert not reader.get_term_frequency('Well')
+            assert reader.get_term_frequency('well') == 208
+            assert reader.get_term_association('well', 'whale') == reader.get_term_association('whale', 'well') == 26
 
-        with pytest.raises(KeyError):
-            index.get_term_positions('Whale')
-        with pytest.raises(KeyError):
-            assert not index.get_term_frequency('Whale')
-        assert index.get_term_frequency('whale') == 803
-        assert index.get_term_association('whale', 'American') == index.get_term_association('American', 'whale') == 14
+            with pytest.raises(KeyError):
+                reader.get_term_positions('Whale')
+            with pytest.raises(KeyError):
+                assert not reader.get_term_frequency('Whale')
+            assert reader.get_term_frequency('whale') == 803
+            assert reader.get_term_association('whale', 'American') == \
+                reader.get_term_association('American', 'whale') == 14
 
-        assert index.get_term_frequency('T. HERBERT') == 1
-        assert len(index.get_frequencies()) == 17913
+            assert reader.get_term_frequency('T. HERBERT') == 1
+            assert sum(1 for _ in reader.get_frequencies()) == 17913
 
 
-@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
-def test_index_merge_terms(storage_cls):
+def test_index_merge_terms(index_dir):
     """Test merging terms together."""
     with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'r') as f:
         data = f.read()
         analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
-        index = Index.create(Schema(text=TEXT(analyser=analyser)), storage_cls=storage_cls, path=os.getcwd())
-        index.add_document(text=data, frame_size=2, update_index=True)
+        writer = IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser))))
+        with writer:
+            writer.add_document(text=data, frame_size=2)
 
-        assert index.get_term_frequency('alice') == 86
-        assert index.get_term_association('alice', 'creatures') == 1
-        assert len(index.get_term_positions('alice')) == 86
+        with IndexReader(index_dir) as reader:
+            assert reader.get_term_frequency('alice') == 86
+            assert reader.get_term_association('alice', 'creatures') == 1
+            assert sum(1 for _ in reader.get_term_positions('alice')) == 86
 
-        assert index.get_term_frequency('party') == 9
-        assert index.get_term_association('party', 'creatures') == 1
-        assert index.get_term_association('party', 'assembled') == 1
-        assert len(index.get_term_positions('party')) == 9
+            assert reader.get_term_frequency('party') == 9
+            assert reader.get_term_association('party', 'creatures') == 1
+            assert reader.get_term_association('party', 'assembled') == 1
+            assert sum(1 for _ in reader.get_term_positions('party')) == 9
 
-        index.reindex(merges=[
-            ('Alice', '',),  # delete
-            ('alice', 'tplink',),  # rename
-            ('Eaglet', 'party',),  # merge
-            ('idonotexist', '',),  # non-existent term
-        ])
+        writer = IndexWriter(index_dir)
+        with writer:
+            writer.merge_terms(merges=[
+                ('Alice', '',),  # delete
+                ('alice', 'tplink',),  # rename
+                ('Eaglet', 'party',),  # merge
+                ('idonotexist', '',),  # non-existent term
+            ])
 
-        assert 'Alice' not in index.get_frequencies()
-        assert 'Alice' not in index.get_associations_index()
-        assert 'Alice' not in index.get_positions_index()
+        with IndexReader(index_dir) as reader:
+            with pytest.raises(KeyError):
+                reader.get_term_frequency('Alice')
+            with pytest.raises(KeyError):
+                reader.get_term_positions('Alice')
 
-        assert index.get_term_frequency('tplink') == 86
-        assert index.get_term_association('tplink', 'creatures') == 1
-        assert len(index.get_term_positions('tplink')) == 86
+            assert reader.get_term_frequency('tplink') == 86
+            assert reader.get_term_association('tplink', 'creatures') == 1
+            assert sum(1 for _ in reader.get_term_positions('tplink')) == 86
 
-        assert index.get_term_frequency('party') == 11
-        assert index.get_term_association('party', 'creatures') == 1
-        assert index.get_term_association('party', 'assembled') == 1
-        assert len(index.get_term_positions('party')) == 11
+            assert reader.get_term_frequency('party') == 11
+            assert reader.get_term_association('party', 'creatures') == 1
+            assert reader.get_term_association('party', 'assembled') == 1
+            assert sum(1 for _ in reader.get_term_positions('party')) == 11
 
 
-@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
-def test_index_alice_case_folding(storage_cls):
+def test_index_alice_case_folding(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'r') as f:
         data = f.read()
         analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
-        index = Index.create(Schema(text=TEXT(analyser=analyser),
-                             document=TEXT(analyser=analyser, indexed=False)),
-                             storage_cls=storage_cls, path=os.getcwd())
-        index.add_document(text=data, document='alice.txt', frame_size=2, update_index=False)
-        index.reindex(fold_case=True)
+        writer = IndexWriter(index_dir, IndexConfig(SqliteStorage,
+                                                    Schema(text=TEXT(analyser=analyser),
+                                                           document=TEXT(analyser=analyser, indexed=False))))
+        with writer:
+            writer.add_document(text=data, document='alice.txt', frame_size=2)
+            writer.fold_term_case()
 
-        positions_index = index.get_positions_index()
-        frames = {k: json.loads(v) for k, v in index._data_storage.get_container_items(Index.FRAMES_CONTAINER).items()}
-        for frame_id, frame in frames.items():
-            for term in frame['_positions']:
-                assert frame_id in positions_index[term]
+        with IndexReader(index_dir) as reader:
+            positions_index = {k: v for k, v in reader.get_positions_index()}
+            for frame_id, frame in reader.get_frames():
+                for term in frame['_positions']:
+                    assert frame_id in positions_index[term]
 
-        # Check that associations never exceed frequency of either term
-        associations = index.get_associations_index()
-        frequencies = index.get_frequencies()
-        for term, term_associations in associations.items():
-            for other_term, assoc in term_associations.items():
-                assert assoc <= frequencies[term] and assoc <= frequencies[other_term]
+            # Check that associations never exceed frequency of either term
+            associations = {k: v for k, v in reader.get_associations_index()}
+            frequencies = {k: v for k, v in reader.get_frequencies()}
+            for term, term_associations in associations.iteritems():
+                for other_term, assoc in term_associations.items():
+                    assert assoc <= frequencies[term] and assoc <= frequencies[other_term]
 
-        # Check frequencies against positions
-        frequencies = index.get_frequencies()
-        for term, freq in frequencies.items():
-            assert freq == len(positions_index[term])
+            # Check frequencies against positions
+            frequencies = {k: v for k, v in reader.get_frequencies()}
+            for term, freq in frequencies.items():
+                assert freq == len(positions_index[term])
 
 
-@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
-def test_index_case_fold_no_new_term(storage_cls):
+def test_index_case_fold_no_new_term(index_dir):
     """
     Test a dataset that has only uppercase occurrences of a term where it mostly appears at the start of the 1 word
     sentence. This results in those occurrences being converted to lower case (because they are at the start of a
@@ -352,224 +420,146 @@ def test_index_case_fold_no_new_term(storage_cls):
     """
     with open(os.path.abspath('caterpillar/test_resources/case_fold_no_assoc.csv'), 'rbU') as f:
         analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
-        index = Index.create(Schema(text=TEXT(analyser=analyser)), storage_cls=storage_cls)
-        csv_reader = csv.reader(f)
-        for row in csv_reader:
-            index.add_document(update_index=False, text=row[0])
-        index.reindex(fold_case=True)
+        with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser)))) as writer:
+            csv_reader = csv.reader(f)
+            for row in csv_reader:
+                writer.add_document(text=row[0])
+            writer.fold_term_case()
 
-        assert index.get_term_frequency('stirling') == 6
-        assert 'Stirling' not in index.get_frequencies()
-
-
-@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
-def test_find_bigram_words(storage_cls):
-    with open(os.path.abspath('caterpillar/test_resources/moby.txt'), 'r') as f:
-        bi_grams = find_bi_gram_words(frame_stream(f))
-        f.seek(0)
-        data = f.read()
-        analyser = BiGramAnalyser(bi_grams, stopword_list=stopwords.ENGLISH_TEST)
-        index = Index.create(Schema(text=TEXT(analyser=analyser)),
-                             storage_cls=storage_cls, path=os.getcwd())
-        index.add_document(text=data, frame_size=2, update_index=True)
-
-        assert len(bi_grams) == 3
-        assert 'vinegar cruet' in bi_grams
-        assert index.get_term_frequency('vinegar cruet') == 4
-        with pytest.raises(KeyError):
-            index.get_term_positions('vinegar')
-        with pytest.raises(KeyError):
-            index.get_term_positions('cruet')
+        with IndexReader(index_dir) as reader:
+            assert reader.get_term_frequency('stirling') == 6
+            with pytest.raises(KeyError):
+                reader.get_term_frequency('Stirling')
 
 
-@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
-def test_utf8(storage_cls):
+def test_index_utf8(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/mt_warning_utf8.txt'), 'r') as f:
         data = f.read()
         analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
-        index = Index.create(Schema(text=TEXT(analyser=analyser),
-                                    document=TEXT(analyser=analyser, indexed=False)),
-                             storage_cls=storage_cls, path=os.getcwd())
-        doc_id = index.add_document(text=data, document='mt_warning_utf8.txt', frame_size=2, update_index=True)
-        assert doc_id
+        writer = IndexWriter(index_dir, IndexConfig(SqliteStorage,
+                                                    Schema(text=TEXT(analyser=analyser),
+                                                           document=TEXT(analyser=analyser, indexed=False))))
+        with writer:
+            doc_id = writer.add_document(text=data, document='mt_warning_utf8.txt', frame_size=2)
+            assert doc_id
 
 
-@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
-def test_latin1(storage_cls):
+def test_index_latin1(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/mt_warning_latin1.txt'), 'r') as f:
         data = f.read()
         analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
-        index = Index.create(Schema(text=TEXT(analyser=analyser),
-                                    document=TEXT(analyser=analyser, indexed=False)),
-                             storage_cls=storage_cls, path=os.getcwd())
-        doc_id = index.add_document(text=data, document='mt_warning_latin1.txt',
-                                    frame_size=2, update_index=True, encoding='latin1')
-        assert doc_id
+        writer = IndexWriter(index_dir, IndexConfig(SqliteStorage,
+                                                    Schema(text=TEXT(analyser=analyser),
+                                                           document=TEXT(analyser=analyser, indexed=False))))
+        with writer:
+            doc_id = writer.add_document(text=data, document='mt_warning_latin1.txt', frame_size=2, encoding='latin1')
+            assert doc_id
 
-        with pytest.raises(IndexError):
-            # Bad encoding
-            index.add_document(text=data, document='mt_warning_latin1.txt', frame_size=2, update_index=True)
+            with pytest.raises(IndexError):
+                # Bad encoding
+                writer.add_document(text=data, document='mt_warning_latin1.txt', frame_size=2)
 
-        # Ignore bad encoding errors
-        index.add_document(text=data, document='mt_warning_latin1.txt', frame_size=2, update_index=True,
-                           encoding_errors='ignore')
+            # Ignore bad encoding errors
+            writer.add_document(text=data, document='mt_warning_latin1.txt', frame_size=2, encoding_errors='ignore')
 
 
-@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
-def test_encoding(storage_cls):
+def test_index_encoding(index_dir):
     analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
-    index = Index.create(Schema(text=TEXT(analyser=analyser)))
-    doc_id = index.add_document(text=u'This is a unicode string to test our field decoding.', frame_size=2,
-                                update_index=True)
-    assert doc_id is not None
+    writer = IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser))))
+    with writer:
+        doc_id = writer.add_document(text=u'This is a unicode string to test our field decoding.', frame_size=2)
+        assert doc_id is not None
 
-    with open(os.path.abspath('caterpillar/test_resources/mt_warning_utf8.txt'), 'r') as f:
-        data = f.read()
-    with pytest.raises(IndexError):
-        doc_id = index.add_document(text=data, frame_size=2, update_index=True, encoding='ascii')
-
-
-@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
-def test_derived_index_composite(storage_cls):
-    temp1 = tempfile.mkdtemp()
-    temp2 = tempfile.mkdtemp()
-    analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
-    try:
-        with open(os.path.abspath('caterpillar/test_resources/detractors.csv'), 'rbU') as f:
-            index1 = Index.create(Schema(text=TEXT(analyser=analyser)), storage_cls=storage_cls, path=temp1)
-            csv_reader = csv.reader(f)
-            for row in csv_reader:
-                index1.add_document(update_index=False, text=row[0])
-            index1.reindex()
-            scount1 = index1.searcher().count(QSQ("service"))
-            nscount1 = index1.searcher().count(QSQ("* not service"))
-
-        with open(os.path.abspath('caterpillar/test_resources/promoters.csv'), 'rbU') as f:
-            index2 = Index.create(Schema(text=TEXT(analyser=analyser)), storage_cls=storage_cls, path=temp2)
-            csv_reader = csv.reader(f)
-            for row in csv_reader:
-                index2.add_document(update_index=False, text=row[0])
-            index2.reindex()
-            scount2 = index2.searcher().count(QSQ("service"))
-            nscount2 = index2.searcher().count(QSQ("* not service"))
-
-        index = DerivedIndex.create_from_composite_query([(index1, QSQ("service")), (index2, QSQ("service"))],
-                                                         storage_cls=storage_cls, path=os.getcwd())
-
-        searcher = index.searcher()
-        assert searcher.count(QSQ("service")) == scount1 + scount2
-        assert searcher.count(QSQ("*")) == (index1.get_frame_count() - nscount1) + (index2.get_frame_count() - nscount2)
-        assert index.is_derived() is True
-
-        with pytest.raises(NotImplementedError):
-            index.add_document(text='text')
-        with pytest.raises(NotImplementedError):
-            index.delete_document(None)
-        with pytest.raises(NotImplementedError):
-            index.get_document(None)
-        with pytest.raises(NotImplementedError):
-            index.get_document_count()
-
-        # Test empty query
-        with pytest.raises(EmptyCompositeQueryError):
-            DerivedIndex.create_from_composite_query([(index1, QSQ('garbageterm'))])
-
-        index1.destroy()
-        index2.destroy()
-    finally:
-        os.rmdir(temp1)
-        os.rmdir(temp2)
-
-
-@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
-def test_derived_index_asymmetric_schema(storage_cls):
-    temp1 = tempfile.mkdtemp()
-    temp2 = tempfile.mkdtemp()
-    analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
-    try:
         with open(os.path.abspath('caterpillar/test_resources/mt_warning_utf8.txt'), 'r') as f:
             data = f.read()
-            index1 = Index.create(Schema(text=TEXT(analyser=analyser),
-                                         document=TEXT(analyser=analyser, indexed=False)),
-                                  storage_cls=storage_cls, path=temp1)
-            index1.add_document(text=data, document='mt_warning_utf8.txt', frame_size=2, update_index=True)
-
-        with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
-            data = f.read()
-            index2 = Index.create(Schema(text=TEXT(analyser=analyser),
-                                         document=TEXT(analyser=analyser, indexed=False), marker=NUMERIC),
-                                  storage_cls=storage_cls, path=temp2)
-            index2.add_document(text=data, document='alice.txt', marker=777, frame_size=2, update_index=True)
-
-        q1 = QSQ("mountain or rock or volcanic or volcano")
-        q2 = QSQ("Alice or King or Queen")
-        index = DerivedIndex.create_from_composite_query([(index1, q1), (index2, q2)],
-                                                         storage_cls=storage_cls, path=os.getcwd())
-
-        searcher = index.searcher()
-        c1 = index1.searcher().count(q1)
-        c2 = index2.searcher().count(q2)
-        assert searcher.count(q1) == c1
-        assert searcher.count(q2) == c2
-        assert searcher.count(QSQ("*")) == index.get_frame_count() == c1 + c2
-
-        assert searcher.search(q2, limit=1)[0].data['marker'] == 777
-        assert 'marker' not in searcher.search(q1, limit=1)[0].data
-
-        index1.destroy()
-        index2.destroy()
-    finally:
-        os.rmdir(temp1)
-        os.rmdir(temp2)
+        with pytest.raises(IndexError):
+            writer.add_document(text=data, frame_size=2, encoding='ascii')
 
 
-@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
-def test_index_update(storage_cls):
-    docs_added = 0
+def test_index_state(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/detractors.csv'), 'rbU') as f:
-        index = Index.create(Schema(text=TEXT), storage_cls=storage_cls)
-        csv_reader = csv.reader(f)
-        for row in csv_reader:
-            index.add_document(update_index=False, text=row[0])
-            docs_added += 1
-        index.reindex(update_only=True, )
+        writer = IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT)))
 
-    assert index.get_term_frequency('service') == 14
+        with IndexReader(index_dir) as reader:
+            start_revision = reader.get_revision()
 
-    with open(os.path.abspath('caterpillar/test_resources/promoters.csv'), 'rbU') as f:
-        csv_reader = csv.reader(f)
-        for row in csv_reader:
-            index.add_document(update_index=False, text=row[0])
-            docs_added += 1
-        index.reindex(update_only=True, fold_case=False)
+        with writer:
+            csv_reader = csv.reader(f)
+            doc_ids = []
+            for row in csv_reader:
+                doc_ids.append(writer.add_document(text=row[0]))
 
-    assert index.get_term_frequency('service') == 65
-    assert index.get_frame_count() == 534
+        with IndexReader(index_dir) as reader:
+            assert start_revision != reader.get_revision()
+            revision = reader.get_revision()
 
-    index.reindex(fold_case=False, update_only=False)
+        writer = IndexWriter(index_dir, Schema(text=TEXT))
+        with writer:
+            writer.delete_document(doc_ids[0])
 
-    assert index.get_term_frequency('service') == 65
-    assert index.get_frame_count() == 534
-
-    assert len(list(index.get_documents())) == docs_added
+        with IndexReader(index_dir) as reader:
+            assert revision != reader.get_revision()
 
 
-@pytest.mark.parametrize("storage_cls", FAST_STORAGE)
-def test_index_state(storage_cls):
-    with open(os.path.abspath('caterpillar/test_resources/detractors.csv'), 'rbU') as f:
-        index = Index.create(Schema(text=TEXT), storage_cls=storage_cls)
-        start_revision = index.get_revision()
-        csv_reader = csv.reader(f)
-        doc_ids = []
-        for row in csv_reader:
-            doc_ids.append(index.add_document(update_index=False, text=row[0]))
-            assert start_revision != index.get_revision()
-        assert not index.is_clean()
-        index.reindex()
-        assert index.is_clean()
-        revision = index.get_revision()
-        index.delete_document(doc_ids[0], update_index=False)
-        assert revision != index.get_revision()
-        assert not index.is_clean()
-        index.reindex()
-        assert index.is_clean()
+def test_index_reader_writer_isolation(index_dir):
+    """Test that readers and writers are isolated."""
+    with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
+        data = f.read()
+        writer = IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT)))
+        with writer:
+            writer.add_document(text=data)
+
+        reader = IndexReader(index_dir)
+        reader.begin()
+
+        assert reader.get_frame_count() == 49
+        assert reader.get_term_frequency('Alice') == 23
+
+        # Add another copy of Alice
+        writer = IndexWriter(index_dir, Schema(text=TEXT))
+        with writer:
+            writer.add_document(text=data)
+
+        # Check reader can't see it
+        assert reader.get_frame_count() == 49
+        assert reader.get_term_frequency('Alice') == 23
+
+        # Open new reader and make sure it CAN see the changes
+        with IndexReader(index_dir) as reader1:
+            assert reader1.get_frame_count() == reader.get_frame_count() * 2
+            assert reader1.get_term_frequency('Alice') == reader.get_term_frequency('Alice') * 2
+
+        reader.close()
+
+
+def test_index_document_delete(index_dir):
+    """Sanity test for delete document."""
+    with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
+        data = f.read()
+        with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT))) as writer:
+            writer.add_document(text=data)
+            doc_id = writer.add_document(text=data)
+
+        with IndexReader(index_dir) as reader:
+            assert reader.get_frame_count() == 98
+            assert reader.get_term_frequency('Alice') == 46
+
+        with IndexWriter(index_dir) as writer:
+            writer.delete_document(doc_id)
+
+        with IndexReader(index_dir) as reader:
+            assert reader.get_frame_count() == 49
+            assert reader.get_term_frequency('Alice') == 23
+
+
+def test_index_writer_buffer_flush(index_dir):
+    """Test we flush when we fill the buffer."""
+    old_buffer = IndexWriter.RAM_BUFFER_SIZE
+    IndexWriter.RAM_BUFFER_SIZE = 1
+
+    with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
+        data = f.read()
+        with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT))) as writer:
+            writer.add_document(text=data)
+
+    IndexWriter.RAM_BUFFER_SIZE = old_buffer

@@ -1,14 +1,14 @@
-# caterpillar: Schema for documents
-#
-# Copyright (C) 2012-2013 Mammoth Labs
-# Kris Rogers <kris@mammothlabs.com.au>, Ryan Stuart <ryan@stuart.id.au>
-from __future__ import division
-import abc
+# Copyright (c) 2012-2014 Kapiche Limited
+# Author: Kris Rogers <kris@kapiche.com>, Ryan Stuart <ryan@kapiche.com>
+"""
+Indexes (see :mod:`caterpillar.processing.index`) in caterpillar must have a :class:`.Schema`. This module defines that
+schema and also provides a bunch of utility functions for working with schemas and csv.
+
+"""
+from __future__ import absolute_import, division
+
 import csv
-import pickle
-import ujson as json
 import re
-from StringIO import StringIO
 import sys
 
 import regex
@@ -23,13 +23,13 @@ class FieldConfigurationError(Exception):
 
 class FieldType(object):
     """
-    Represents a field configuration. Schemas are built out of fields.
+    Represents a field configuration. :class:`.Schema`s are built out of fields.
 
-    The FieldType object supports the following attributes:
+    The FieldType object controls how a field is analysed via the ``analyser``
+    (:class:`caterpillar.processing.analysis.Analyser`) attribute.
 
-    * analyzer (analysis.Analyzer): the analyzer to use to turn text into terms.
-
-    If you don't provide an analyser for your field, it will default to a ``EverythingAnalyser``.
+    If you don't provide an analyser for your field, it will default to a
+    :class:``caterpillar.processing.analysis.EverythingAnalyser``.
 
     """
     # Convenience hash of operators -> methods
@@ -37,12 +37,13 @@ class FieldType(object):
 
     def __init__(self, analyser=EverythingAnalyser(), indexed=False, categorical=False, stored=True):
         """
-        Optional Arguments:
-        analyser -- the ``Analyser`` for this field.
-        indexed -- a boolean flag indicating if this field should be indexed or not.
-        categorical -- a boolean flag indicating if this field is categorical or not. Categorical fields only support
-        indexing for the purpose of searching and do not collect full statistics such as positions and associations.
-        stored -- a boolean flag indiciating if this field should be stored or not.
+        Create a new field.
+
+        ``analyser`` (:class:`caterpillar.processing.analysis.Analyser`) is the analyser used for this field.
+        ``indexed`` (bool) indicates if this field should be indexed or not. ``categorical`` (bool) indicates if this
+        field is categorical or not. Categorical fields only support indexing for the purpose of searching and do not
+        collect full statistics such as positions and associations. ``stored`` (bool) says if this field should be
+        stored or not.
 
         """
         self._analyser = analyser
@@ -51,111 +52,67 @@ class FieldType(object):
         self._stored = stored
 
     def analyse(self, value):
-        """
-        Analyse this field, converting its value to a ``Token`` generator.
-
-        Required Arguments:
-        value -- the value of the field to analyse.
-
-        """
+        """Analyse ``value``, returning a :class:`caterpillar.processing.analysis.tokenize.Token` generator."""
         for token in self._analyser.analyse(value):
             yield token
 
+    @property
     def categorical(self):
-        """
-        Is this field categorical data?
-
-        """
         return self._categorical
 
+    @property
     def indexed(self):
-        """
-        Should this field be indexed?
-
-        """
         return self._indexed
 
+    @property
     def stored(self):
-        """
-        Is this field stored?
-
-        """
         return self._stored
 
     def evaluate_op(self, operator, value1, value2):
         """
-        Evaluate the specified operation.
-
-        Required Arguments:
-        operator -- string operator.
-        value1 -- first operand field value.
-        value2 -- second operand field value.
+        Evaluate ``operator`` (str from :const:`FieldType.FIELD_OPS`) on operands ``value1`` and ``value2``.
 
         """
         op_method = getattr(self, FieldType.FIELD_OPS[operator])
         return op_method(value1, value2)
 
     def equals(self, value1, value2):
-        """
-        Returns whether ``value1`` is equal to ``value2``.
-
-        """
+        """Returns whether ``value1`` is equal to ``value2``."""
         raise NotImplementedError('Equality operator not supported for field type {}.'.format(self.__class__.__name__))
 
     def equals_wildcard(self, value, wildcard_value):
-        """
-        Returns whether ``value`` matches regex ``wildcard_value``.
-
-        """
+        """Returns whether ``value`` matches regex ``wildcard_value``."""
         raise NotImplementedError('Wildcard equality operator not supported for field type {}.'
                                   .format(self.__class__.__name__))
 
     def gt(self, value1, value2):
-        """
-        Returns whether ``value1`` is greater than ``value2``.
-
-        """
+        """Returns whether ``value1`` is greater than ``value2``."""
         raise NotImplementedError('Greater-than operator not supported for field type {}.'
                                   .format(self.__class__.__name__))
 
     def gte(self, value1, value2):
-        """
-        Returns whether ``value1`` is greater than or equal to ``value2``.
-
-        """
+        """Returns whether ``value1`` is greater than or equal to ``value2``."""
         raise NotImplementedError('Greater-than-or-equals operator not supported for field type {}.'
                                   .format(self.__class__.__name__))
 
     def lt(self, value1, value2):
-        """
-        Returns whether ``value1`` is less than ``value2``.
-
-        """
+        """Returns whether ``value1`` is less than ``value2``."""
         raise NotImplementedError('Less-than operator not supported for field type {}.'
                                   .format(self.__class__.__name__))
 
     def lte(self, value1, value2):
-        """
-        Returns whether ``value1`` is less than or equal to ``value2``.
-
-        """
+        """Returns whether ``value1`` is less than or equal to ``value2``."""
         raise NotImplementedError('Less-than-or-equals operator not supported for field type {}.'
                                   .format(self.__class__.__name__))
 
 
 class CategoricalFieldType(FieldType):
-    """
-    Represents a categorical field type. Categorical fields can extend this class for convenience.
-
-    """
+    """Represents a categorical field type. Categorical fields can extend this class for convenience."""
     def __init__(self, analyser=EverythingAnalyser(), indexed=False, stored=True):
         super(CategoricalFieldType, self).__init__(analyser=analyser, indexed=indexed, categorical=True, stored=stored)
 
     def value_of(self, raw_value):
-        """
-        Return the value of ``raw_value`` after being processed by this field type's analyse method.
-
-        """
+        """Return the value of ``raw_value`` after being processed by this field type's analyse method."""
         return list(self.analyse(raw_value))[0].value
 
     def equals(self, value1, value2):
@@ -173,19 +130,11 @@ class ID(CategoricalFieldType):
 
 
 class NUMERIC(CategoricalFieldType):
-    """
-    Special field type that lets you index integer or floating point numbers.
-
-    """
+    """Special field type that lets you index ints or floats."""
     TYPES = (int, float)
 
     def __init__(self, indexed=False, stored=True, num_type=int, default_value=None):
-        """
-        Optional Arguments:
-        num_type -- python number type to use for this field (float or int)
-        default_value -- default value when no data present.
-
-        """
+        """Create new NUMERIC instance with type ``num_type`` (float or int) and default_value (float or int)."""
         if num_type not in NUMERIC.TYPES:
             raise ValueError("Invalid num_type '{}'".format(num_type))
         self._num_type = num_type
@@ -216,14 +165,10 @@ class NUMERIC(CategoricalFieldType):
 
 class BOOLEAN(CategoricalFieldType):
     """
-    Special field type that lets you index boolean values (True and False). The field converts the boolean values to
-    text for you before indexing.
+    bool field type that lets you index boolean values (True and False).
 
-    >>> schema = Schema(path=STORED, done=BOOLEAN)
-    >>> ix = storage.create_index(schema)
-    >>> w = ix.writer()
-    >>> w.add_document(path="/a", done=False)
-    >>> w.commit()
+    The field converts the bool values to text for you before indexing.
+
     """
     def __init__(self, indexed=False, stored=True):
         super(BOOLEAN, self).__init__(analyser=None, indexed=indexed, stored=stored)
@@ -233,25 +178,18 @@ class BOOLEAN(CategoricalFieldType):
 
 
 class TEXT(FieldType):
-    """
-    Configured field type for text fields.
-
-    """
+    """Configured field type for text fields."""
     def __init__(self, analyser=DefaultAnalyser(), indexed=True, stored=True):
         """
-        Optional Arguments:
-        analyzer -- The processing.analysis.Analyser to use to index the field contents. If you omit this argument, the
-        field uses processing.analysis.DefaultAnalyzer.
+        Create a text field with ``analyser`` (:class:`caterpillar.processing.analysis.Analyser`) default to
+        :class:`caterpillar.processing.analysis.DefaultAnalyzer`.
 
         """
         super(TEXT, self).__init__(analyser=analyser, indexed=indexed, categorical=False, stored=stored)
 
 
 class CATEGORICAL_TEXT(CategoricalFieldType):
-    """
-    Configured field type for categorical text fields.
-
-    """
+    """Configured field type for categorical text fields."""
     def __init__(self, indexed=False, stored=True):
         super(CATEGORICAL_TEXT, self).__init__(indexed=indexed, stored=stored)
 
@@ -270,7 +208,7 @@ class Schema(object):
     """
     def __init__(self, **fields):
         """
-        All keyword arguments to the constructor are treated as fieldname = fieldtype pairs. The fieldtype can be an
+        All keyword arguments to the constructor are treated as ``fieldname = fieldtype`` pairs. The fieldtype can be an
         instantiated FieldType object, or a FieldType sub-class (in which case the Schema will instantiate it with the
         default constructor before adding it).
 
@@ -286,80 +224,45 @@ class Schema(object):
             self.add(name, fields[name])
 
     def __iter__(self):
-        """
-        Returns the field objects in this schema.
-
-        """
+        """Returns the field objects in this schema."""
         return iter(self._fields.values())
 
     def __getitem__(self, name):
-        """
-        Returns the field associated with the given field name.
-
-        """
+        """Returns the field associated with the given field name."""
         if name in self._fields:
             return self._fields[name]
 
         raise KeyError("No field named {}".format(name))
 
     def __len__(self):
-        """
-        Returns the number of fields in this schema.
-
-        """
+        """Returns the number of fields in this schema."""
         return len(self._fields)
 
     def __contains__(self, field_name):
-        """
-        Returns True if a field by the given name is in this schema.
-
-        """
-        # Defined in terms of __getitem__ so that there's only one method to
-        # override to provide dynamic fields
+        """Returns True if a field by the given name is in this schema."""
+        # Defined in terms of __getitem__ so that there's only one method to override to provide dynamic fields
         try:
             field = self[field_name]
             return field is not None
         except KeyError:
             return False
 
-    @staticmethod
-    def loads(schema_str):
-        """
-        Load string generated by ``dumps`` into a new Schema object.
-
-        """
-        return pickle.loads(schema_str)
-
-    def dumps(self):
-        """
-        Dump this Schema to a string that can be used by the ``loads`` method to regenerate the schema.
-
-        """
-        return pickle.dumps(self)
-
     def items(self):
-        """
-        Returns a list of ("field_name", field_object) pairs for the fields in this schema.
-
-        """
+        """Returns a list of ``("field_name", field_object)`` pairs for the fields in this schema."""
         return sorted(self._fields.items())
 
     def names(self):
-        """
-        Returns a list of the names of the fields in this schema.
-
-        """
+        """Returns a list of the names of the fields in this schema."""
         return sorted(self._fields.keys())
 
     def add(self, name, field_type):
         """
         Adds a field to this schema.
 
-        Required Arguments:
-        name -- The string name of the field.
-        fieldtype -- An instantiated fields.FieldType object, or a FieldType subclass. If you pass an instantiated
-                     object, the schema will use that as the field configuration for this field. If you pass a FieldType
-                     subclass, the schema will automatically instantiate it with the default constructor.
+        ``name`` (str) is the name of the field. ``fieldtype`` (:class:`FieldType`) is either
+        instantiated FieldType object, or a FieldType subclass. If you pass an instantiated object, the schema will use
+        that as the field configuration for this field. If you pass a FieldType subclass, the schema will automatically
+        instantiate it with the default constructor.
 
         """
         # Check field name

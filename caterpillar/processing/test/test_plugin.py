@@ -1,4 +1,4 @@
-# Copyright (C) Kapiche
+# Copyright (c) 2012-2014 Kapiche Limited
 # Author: Ryan Stuart <ryan@kapiche.com>, Kris Rogers <kris@kapiche.com>
 """Tests for plugin module."""
 import os
@@ -6,9 +6,10 @@ import os
 from caterpillar import abstract_method_tester
 from caterpillar.processing.analysis import stopwords
 from caterpillar.processing.analysis.analyse import DefaultAnalyser
-from caterpillar.processing.index import Index
+from caterpillar.processing.index import IndexConfig, IndexWriter, IndexReader
 from caterpillar.processing.plugin import AnalyticsPlugin
 from caterpillar.processing import schema
+from caterpillar.storage.sqlite import SqliteStorage
 
 
 class TrivialTestPlugin(AnalyticsPlugin):
@@ -26,15 +27,18 @@ class TrivialTestPlugin(AnalyticsPlugin):
         }
 
 
-def test_plugin():
+def test_plugin(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'rbU') as f:
         data = f.read()
         analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
-        index = Index.create(schema.Schema(text=schema.TEXT(analyser=analyser)))
-        index.add_document(text=data, frame_size=2)
-        index.run_plugin(TrivialTestPlugin)
-        assert int(index.get_plugin_data(TrivialTestPlugin, 'fake_data')['a']) == 100
-        index.run_plugin(TrivialTestPlugin)  # Overwrite plugin results
+        with IndexWriter(index_dir, IndexConfig(SqliteStorage, schema.Schema(text=schema.TEXT(analyser=analyser)))) as \
+                writer:
+            writer.add_document(text=data, frame_size=2)
+            writer.run_plugin(TrivialTestPlugin)
+        with IndexReader(index_dir) as reader:
+            assert int(dict(reader.get_plugin_data(TrivialTestPlugin, 'fake_data'))['a']) == 100
+        with IndexWriter(index_dir) as writer:
+            writer.run_plugin(TrivialTestPlugin)  # Overwrite plugin results
 
 
 def test_plugin_abc():

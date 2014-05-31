@@ -1,3 +1,15 @@
+# Copyright (c) 2012-2014 Kapiche Limited
+# Author: Ryan Stuart <ryan@kapiche.com>
+import os
+
+version_file = open(os.path.join(os.path.dirname(__file__), 'VERSION'), 'r')
+full_version = version_file.read().strip().split('-')
+version_file.close()
+
+VERSION = full_version[0]  # Major version number, X.Y
+RELEASE = full_version[1] if len(full_version) > 1 else ''  # Release name
+
+
 def abstract_method_tester(abc):
     """Utility function to test abstract classes"""
 

@@ -1,9 +1,7 @@
-# caterpillar - tests for caterpillar.data.storage module
-#
-# Copyright (C) 2012-2013 Mammoth Labs
-# Author: Ryan Stuart <ryan@mammothlabs.com.au>
+# Copyright (c) 2012-2014 Kapcihe Limited
+# Author: Ryan Stuart <ryan@kapiche.com>
 from caterpillar import abstract_method_tester
-from caterpillar.data.storage import Storage
+from caterpillar.storage import Storage
 
 
 def test_storage_abc():

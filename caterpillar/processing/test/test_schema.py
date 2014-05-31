@@ -1,17 +1,18 @@
-# caterpillar: Tests for the caterpillar.processing.schema module
-#
-# Copyright (C) 2012-2013 Mammoth Labs
-# Author: Kris Rogers <kris@mammothlabs.com.au>
+# Copyright (c) 2012-2014 Kapiche Limited
+# Author: Kris Rogers <kris@kapiche.com>, Ryan Stuart <ryan@kapiche.com>
+"""Tests for caterpillar.processing.schema"""
 import csv
 import os
+import shutil
+import tempfile
+from caterpillar.storage.sqlite import SqliteStorage
 
 import pytest
 
 from caterpillar.processing import schema
 from caterpillar.processing.analysis import stopwords
 from caterpillar.processing.analysis.analyse import DefaultAnalyser
-from caterpillar.processing.index import Index, find_bi_gram_words
-from caterpillar.processing.frames import frame_stream_csv
+from caterpillar.processing.index import IndexWriter, IndexReader, IndexConfig
 from caterpillar.processing.schema import BOOLEAN, FieldType, ID, NUMERIC, Schema, TEXT, FieldConfigurationError
 from caterpillar.searching.query.querystring import QueryStringQuery
 
@@ -21,11 +22,6 @@ def test_schema():
     simple_schema = Schema(test=TEXT, user=ID)
     names = simple_schema.names()
     items = simple_schema.items()
-
-    schema_str = simple_schema.dumps()
-    loaded_schema = Schema.loads(schema_str)
-    assert len(loaded_schema.items()) == len(simple_schema.items())
-    assert loaded_schema['user'].categorical()
 
     assert len(simple_schema) == 2
     assert len(names) == 2
@@ -51,9 +47,11 @@ def test_schema():
     with pytest.raises(FieldConfigurationError):
         simple_schema.add("test", TEXT)
     with pytest.raises(FieldConfigurationError):
-        simple_schema.add("text", Index)
+        simple_schema.add("text", object)
     with pytest.raises(FieldConfigurationError):
         simple_schema.add("text", str)
+    with pytest.raises(FieldConfigurationError):
+        simple_schema.add("text", IndexWriter)
 
     with pytest.raises(ValueError):
         NUMERIC(num_type=str)
@@ -125,8 +123,7 @@ def test_generate_csv_schema_twitter():
         assert columns[1].name == 'Text'
         assert columns[1].type == schema.ColumnDataType.TEXT
 
-        bi_grams = find_bi_gram_words(frame_stream_csv(f, csv_schema))
-        index_schema = csv_schema.as_index_schema(bi_grams)
+        index_schema = csv_schema.as_index_schema(['good quality'])
         assert len(index_schema) == 1
         assert isinstance(index_schema['Text'], TEXT)
 
@@ -138,20 +135,27 @@ def test_generate_csv_schema_twitter():
 
 
 def test_index_stored_fields():
-    analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
-    index = Index.create(Schema(text=TEXT(analyser=analyser, stored=False),
-                                test=NUMERIC(stored=True),
-                                test2=BOOLEAN(stored=False)))
-    doc_id = index.add_document(text="hello world", test=777, test2=True,
-                                frame_size=2, fold_case=False, update_index=True)
+    path = tempfile.mkdtemp()
+    try:
+        tmp_dir = os.path.join(path, "tmp")
+        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        with IndexWriter(tmp_dir, IndexConfig(SqliteStorage,
+                                              Schema(text=TEXT(analyser=analyser, stored=False),
+                                                     test=NUMERIC(stored=True),
+                                                     test2=BOOLEAN(stored=False)))) as writer:
+            doc_id = writer.add_document(text="hello world", test=777, test2=True,
+                                         frame_size=2, fold_case=False, update_index=True)
 
-    searcher = index.searcher()
-    hit = searcher.search(QueryStringQuery("*"), limit=1)[0]
-    assert 'text' not in hit.data
-    assert 'test2' not in hit.data
-    assert hit.data['test'] == 777
+        with IndexReader(tmp_dir) as reader:
+            searcher = reader.searcher()
+            hit = searcher.search(QueryStringQuery("*"), limit=1)[0]
+            assert 'text' not in hit.data
+            assert 'test2' not in hit.data
+            assert hit.data['test'] == 777
 
-    doc = index.get_document(doc_id)
-    assert 'text' not in doc
-    assert 'test2' not in doc
-    assert doc['test'] == 777
+            doc = reader.get_document(doc_id)
+            assert 'text' not in doc
+            assert 'test2' not in doc
+            assert doc['test'] == 777
+    finally:
+        shutil.rmtree(path)
