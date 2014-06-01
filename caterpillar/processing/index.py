@@ -926,12 +926,14 @@ class Index(object):
         Merge old_term into new_term. If new_term is a falsey value, old_term is deleted. Updates all the passed index
         structures to reflect the change.
 
+        Raises TermNotFoundError if the term does not exist in the index.
+
         """
         try:
             old_positions = positions[old_term]
             new_positions = positions[new_term] if new_term in positions else {}
         except KeyError:
-            raise TermNotFoundError("Term '{}' does not exists.".format(old_term))
+            raise TermNotFoundError("Term '{}' does not exist.".format(old_term))
 
         # Clear global associations for old term
         if old_term in associations:
@@ -992,7 +994,10 @@ class Index(object):
 
     def _merge_terms_into_ngram(self, ngram_terms, new_term, associations, positions, frequencies, frames, MAX_GAP=2):
         """
-        Merge n-gram term sequences into new_term. Updates all the passed index structures to reflect the change.
+        Merge n-gram term sequences into new_term and update all the passed index structures to reflect the change.
+
+        This method cannot be used to delete terms, so a falsey value for new_term will produce an exception. Also,
+        raises TermNotFoundError if the n-gram does not exist in the index.
 
         MAX_GAP specifies the maximum number of characters allowed between n-gram terms.
 
