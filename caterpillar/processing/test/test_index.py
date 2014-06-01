@@ -108,6 +108,9 @@ def test_index_alice(storage_cls):
         schema = index.get_schema()
         assert 'field1' in schema
         assert 'field2' in schema
+        schema.add('testadd', TEXT)
+        index.set_schema(schema)
+        assert 'testadd' in index.get_schema()
 
         index.delete_document(doc_id, update_index=True)
 
