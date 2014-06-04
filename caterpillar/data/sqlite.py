@@ -232,7 +232,7 @@ class SqliteStorage(Storage):
 
     def _has_container(self, c_id):
         """
-        Return wheter the specified container exists on this storage.
+        Return whether the specified container exists on this storage.
 
         """
         cursor = self._db.cursor()
@@ -252,6 +252,8 @@ class SqliteStorage(Storage):
 class SqliteMemoryStorage(SqliteStorage):
     """
     A version of SqliteStorage that uses an in-memory database.
+
+    **WARNING** Instances of this storage can't be shared between threads or processes.
 
     """
 
