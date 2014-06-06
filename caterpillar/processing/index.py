@@ -12,6 +12,7 @@ of a statistical analysis (for example) you can use a `DerivedIndex`. This modul
 """
 
 from __future__ import division
+import os
 import random
 import ujson as json
 import logging
@@ -398,8 +399,16 @@ class Index(object):
         each frame is 10KB big. This was arrived at by looking at the size of the DB created after adding a large
         document and dividing by the number of frames and rounding to the nearest 10KB.
 
+        If this index is using `SqliteStorage <caterpillar.data.sqlite.SqliteStorage>` then we just measure the size of
+        its on-disk DBs.
+
         """
-        return self.get_frame_count() * 10 * 1024
+        if not isinstance(self._data_storage, SqliteMemoryStorage):
+            data = os.path.getsize(self._data_storage.get_db_path())
+            results = os.path.getsize(self._results_storage.get_db_path())
+            return data + results
+        else:
+            return 10*1024*self.get_frame_count()
 
     def get_setting(self, name):
         """
@@ -1253,6 +1262,8 @@ class DerivedIndex(Index):
         self._data_storage = data_storage
         self._results_storage = results_storage
 
+        # Store schema
+        self._data_storage.set_container_item(Index.SETTINGS_CONTAINER, Index.SETTINGS_SCHEMA, schema.dumps())
         # Store frames and build the index
         self._data_storage.set_container_items(Index.FRAMES_CONTAINER,
                                                {k: json.dumps(v) for k, v in frames.iteritems()})
