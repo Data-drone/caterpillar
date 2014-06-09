@@ -81,7 +81,7 @@ def test_searching_alice():
         # Topic searching
         assert searcher.count("topic: Rabbit") == 35
         assert searcher.count("topic: voice and topic: said") == 17
-        assert searcher.count("topic: voice or topic: said") <= 500
+        assert searcher.count("topic: voice or topic: said") == 500
         assert searcher.count("topic: voice or topic: said") <= \
             searcher.count("topic: voice") + searcher.count("topic: said")
 
