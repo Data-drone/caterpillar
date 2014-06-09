@@ -1290,8 +1290,9 @@ class DerivedIndex(Index):
         frames = {}
         for index, query in index_queries:
             frame_ids = list(index.searcher().filter(query))
-            frames.update(index.get_frames(frame_ids=frame_ids))
-            fields.update(index.get_schema().items())
+            if len(frame_ids) > 0:
+                frames.update(index.get_frames(frame_ids=frame_ids))
+                fields.update(index.get_schema().items())
 
         schema = Schema(**fields)
         data_storage = storage_cls.create(Index.DATA_STORAGE, path=path, acid=True, containers=[

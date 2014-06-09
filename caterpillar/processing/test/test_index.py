@@ -465,6 +465,10 @@ def test_derived_index_composite(storage_cls):
         with pytest.raises(NotImplementedError):
             index.get_document_count()
 
+        # Test empty query
+        index = DerivedIndex.create_from_composite_query([(index1, 'garbageterm')])
+        assert index.get_frame_count() == 0
+
         index1.destroy()
         index2.destroy()
     finally:
