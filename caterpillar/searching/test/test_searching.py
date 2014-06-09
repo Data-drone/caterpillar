@@ -1,7 +1,5 @@
-# caterpillar: Tests for the caterpillar.searching
-#
-# Copyright (C) 2013 Mammoth Labs
-# Author: Kris Rogers <kris@mammothlabs.com.au>
+# Copyright (C) 2014 Kapiche
+# Author: Kris Rogers <kris@kapiche.com> & Ryan Stuart <ryan@kapiche.com>
 import csv
 import os
 
@@ -79,6 +77,13 @@ def test_searching_alice():
         with pytest.raises(QueryError):
             # Topic 'and' does not exist
             searcher.count('topic:"and"')
+
+        # Topic searching
+        assert searcher.count("topic: Rabbit") == 35
+        assert searcher.count("topic: voice and topic: said") == 17
+        assert searcher.count("topic: voice or topic: said") == 500
+        assert searcher.count("topic: voice or topic: said") <= \
+            searcher.count("topic: voice") + searcher.count("topic: said")
 
 
 def test_searching_alice_simple():
