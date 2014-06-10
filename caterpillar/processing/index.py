@@ -1242,6 +1242,10 @@ def find_bi_gram_words(frames, min_bi_gram_freq=3, min_bi_gram_coverage=0.65):
     return [b[0] for b in candidate_bi_gram_list]
 
 
+class EmptyCompositeQueryError(Exception):
+    """Composite query has no results."""
+
+
 class DerivedIndex(Index):
     """
     Subclass of ``Index`` that allows for a derived index to be created by the filtering/composition of any number
@@ -1293,6 +1297,9 @@ class DerivedIndex(Index):
             if len(frame_ids) > 0:
                 frames.update(index.get_frames(frame_ids=frame_ids))
                 fields.update(index.get_schema().items())
+
+        if len(frames) == 0:
+            raise EmptyCompositeQueryError("Composite query did not yield any frames")
 
         schema = Schema(**fields)
         data_storage = storage_cls.create(Index.DATA_STORAGE, path=path, acid=True, containers=[
