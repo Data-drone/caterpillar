@@ -1,12 +1,10 @@
-# caterpillar - Compare the performance of RAM with SQL storage
-#
-# Copyright (C) 2012-2013 Mammoth Labs
-# Author: Kris Rogers <kris@mammothlabs.com.au>
+# Copyright (C) Kapiche
+# Author: Kris Rogers <kris@kapiche.com>, Ryan Stuart <ryan@kapiche.com
 import csv
 import os
 import time
 
-from caterpillar.analytics.influence import InfluenceAnalyticsPlugin
+from caterpillar.analytics.influence import InfluenceAnalyticsPlugin, InfluenceTopicsPlugin
 from caterpillar.data.sqlite import SqliteStorage, SqliteMemoryStorage
 from caterpillar.processing.analysis.analyse import DefaultAnalyser
 from caterpillar.processing.index import Index
@@ -23,7 +21,8 @@ index = Index.create(Schema(text=TEXT(analyser=DefaultAnalyser()),
                      storage_cls=SqliteMemoryStorage)
 index.add_document(text=data, document='moby.txt', frame_size=2, fold_case=True, update_index=True)
 index.run_plugin(InfluenceAnalyticsPlugin, influence_factor_smoothing=False)
-topical_classification = InfluenceAnalyticsPlugin(index).get_topical_classification(influence_threshold=3.841)
+topics_plugin = index.run_plugin(InfluenceTopicsPlugin)
+topical_classification = topics_plugin.get_topical_classification()
 ram_latency = time.time() - ram_start
 
 # Sqlite
@@ -33,13 +32,13 @@ index = Index.create(Schema(text=TEXT(analyser=DefaultAnalyser()),
                      storage_cls=SqliteStorage, path=os.getcwd())
 index.add_document(text=data, document='moby.txt', frame_size=2, fold_case=True, update_index=True)
 index.run_plugin(InfluenceAnalyticsPlugin, influence_factor_smoothing=False)
-topical_classification = InfluenceAnalyticsPlugin(index).get_topical_classification(influence_threshold=3.841)
+topics_plugin = index.run_plugin(InfluenceTopicsPlugin)
+topical_classification = topics_plugin.get_topical_classification()
 sql_latency = time.time() - sql_start
 index.destroy()
 
 print 'Ram time: {}s\nSQL time: {}s'.format(ram_latency, sql_latency)
 
-"""
 import cProfile, StringIO, pstats
 pr = cProfile.Profile()
 pr.enable()
@@ -55,9 +54,6 @@ with open(os.path.abspath('caterpillar/test_resources/nps_medium.csv'), 'rbU') a
                            disliked=row[4], would_like=row[5], nps=row[6])
 
     index.reindex()
-
-#filtered_index = DerivedIndex.create_from_composite_query((index, "nps>=8"))
-#filtered_index.run_plugin(InfluenceAnalyticsPlugin)
 pr.disable()
 index.destroy()
 s = StringIO.StringIO()
@@ -65,4 +61,3 @@ sortby = 'cumulative'
 ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
 ps.print_stats()
 print s.getvalue()
-"""
