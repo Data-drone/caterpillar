@@ -702,6 +702,14 @@ class Index(object):
                                 metadata[field_name][value] = [frame_id]
                             except KeyError:
                                 metadata[field_name] = {value: [frame_id]}
+            # Record text field metadata
+            field_name = frame['_field']
+            if field_name is not None:
+                try:
+                    metadata[field_name]['_text'].append(frame_id)
+                except KeyError:
+                    metadata[field_name] = {'_text': [frame_id]}
+
             if not frame['_indexed']:
                 frame['_indexed'] = True
                 frames_to_save.append(frame)

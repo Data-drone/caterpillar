@@ -21,27 +21,33 @@ class IndexSearcher(object):
         self.scorer = scorer_cls(index)
         self.query_evaluator = QueryEvaluator(self.index)
 
-    def count(self, query):
+    def count(self, query, text_field=None):
         """
         Return the number of frames matching the specified query.
 
         Required Arguments:
-        query -- The query string
+        query -- str value for query.
+
+        Optional Arguments:
+        text_field -- str name of text field to restrict search by.
 
         """
-        return len(self._do_query(query).frame_ids)
+        return len(self._do_query(query, text_field).frame_ids)
 
-    def filter(self, query):
+    def filter(self, query, text_field=None):
         """
         Return a list of ids for frames that match the specified query.
 
         Required Arguments:
-        query -- the query string.
+        query -- str value for query.
+
+        Optional Arguments:
+        text_field -- str name of text field to restrict search by.
 
         """
-        return self._do_query(query).frame_ids
+        return self._do_query(query, text_field).frame_ids
 
-    def search(self, query, start=0, limit=25):
+    def search(self, query, start=0, limit=25, text_field=None):
         """
         Return ranked frame data for frames that match the specified query.
 
@@ -51,9 +57,10 @@ class IndexSearcher(object):
         Optional Arguments:
         start -- Start position for returned results.
         limit -- Number of results returned.
+        text_field -- str name of text field to restrict search by.
 
         """
-        query_result = self._do_query(query)
+        query_result = self._do_query(query, text_field)
         hits = [SearchHit(fid, self.index.get_frame(fid)) for fid in query_result.frame_ids]
         num_matches = len(hits)
         if num_matches > 0:
@@ -64,9 +71,11 @@ class IndexSearcher(object):
 
         return SearchResults(query, hits, num_matches, query_result.matched_terms)
 
-    def _do_query(self, query):
+    def _do_query(self, query, text_field=None):
         """
-        Perform the query, returning an instance of ``QueryResult``.
+        Perform the query, optionally restricting to a specified text field.
+
+        Returns an instance of ``QueryResult``.
 
         """
-        return self.query_evaluator.evaluate(query)
+        return self.query_evaluator.evaluate(query, text_field)
