@@ -159,7 +159,10 @@ def test_searching_nps():
                                            fake2=schema.CATEGORICAL_TEXT(indexed=True)))
         csv_reader = csv.reader(f)
         csv_reader.next()  # Skip header
+        empty_rows = 0
         for row in csv_reader:
+            if len(row[3]) + len(row[4]) + len(row[5]) == 0:
+                empty_rows += 1
             index.add_document(update_index=False, respondant=row[0], region=row[1], store=row[2], liked=row[3],
                                disliked=row[4], would_like=row[5], nps=row[6], fake2=None)
 
@@ -167,6 +170,12 @@ def test_searching_nps():
         index.run_plugin(InfluenceAnalyticsPlugin, influence_factor_smoothing=False)
 
         searcher = index.searcher()
+
+        assert index.get_frame_count() == searcher.count('*', text_field='disliked')\
+            + searcher.count('*', text_field='liked') + searcher.count('*', text_field='would_like') + empty_rows
+
+        assert searcher.count('point*', text_field='would_like')\
+            == searcher.count('point or points or pointed', text_field='would_like')
 
         assert searcher.count('nps=10 and store=DANNEVIRKE') == 6
 
@@ -199,6 +208,8 @@ def test_searching_nps():
         with pytest.raises(QueryError):
             searcher.count('badfield=something')
         with pytest.raises(QueryError):
+            searcher.count('liked=something')
+        with pytest.raises(QueryError):
             searcher.count('region>something')
         with pytest.raises(QueryError):
             searcher.count('region>=something')
@@ -206,8 +217,6 @@ def test_searching_nps():
             searcher.count('region<something')
         with pytest.raises(QueryError):
             searcher.count('region<=something')
-        with pytest.raises(QueryError):
-            searcher.count('liked=something')
         with pytest.raises(QueryError):
             searcher.count('respondant=something')
         with pytest.raises(QueryError):

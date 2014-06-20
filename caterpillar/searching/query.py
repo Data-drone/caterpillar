@@ -3,19 +3,25 @@
 # Copyright (C) 2012-2013 Mammoth Labs
 # Author: Kris Rogers <kris@mammothlabs.com.au>
 """
-Query Syntax
+Query Examples
 
 Boolean operators:
-    dog AND cat -- Text frames that contain both dog and cat.
-    dog NOT cat -- Text frames that contain dog but not cat.
-    dog OR cat -- Text frames that contain dog or cat.
+    telephone AND email -- Text frames that contain both 'telephone' and 'email'.
+    telephone NOT email -- Text frames that contain 'telephone' but not 'email'.
+    telephone OR email -- Text frames that contain 'telephone' or 'email'.
 
 Wildcards:
-    d?g -- '?' represents a single character wildcard.
-    d* -- '*' represents a multiple character wildcard.
+    ?mail -- '?' represents a single character wildcard.
+    *phon* -- '*' represents a multiple character wildcard.
 
 Term Weighting:
-    dog^2 -- Increase the importance of the term dog with a 2x multiplier.
+    telephone^2 OR email -- Increase the importance of the term 'telephone' in the query by a 2x multiplier.
+
+Topics:
+    topic:support -- Text frames that match the topic 'support'.
+
+Field Equality:
+    score=9 -- Text frames which have 'score' metadata  of '9'. (<, <=, >, >= operators supported for numeric fields)
 
 """
 import regex
@@ -76,20 +82,26 @@ class QueryEvaluator(object):
 
         return node
 
-    def evaluate(self, query):
+    def evaluate(self, query, text_field=None):
         """
         Evaluate a query, returning an instance of ``QueryResult``.
 
         Required Arguments:
         query -- Query string
 
+        Optional Arguments:
+        text_field -- str name of text field to restrict frames by.
+
         """
         try:
             query_tree = _QueryGrammar.parse(query, tree_factory=self)
         except ParseError, e:
             raise QueryError("Invalid query syntax.")
-        return QueryResult(query_tree.frame_ids, query_tree.matched_terms,
-                           query_tree.term_weights)
+
+        if text_field is not None:
+            query_tree.frame_ids.intersection_update(set(self.metadata[text_field]['_text']))
+
+        return QueryResult(query_tree.frame_ids, query_tree.matched_terms, query_tree.term_weights)
 
     def _evaluate_field(self, node):
         """
@@ -103,6 +115,20 @@ class QueryEvaluator(object):
         if '*' in field_name or '?' in field_name:
             raise QueryError("Field name cannot contain wildcards")
 
+        # Get schema field
+        try:
+            field = self.schema[field_name]
+        except KeyError:
+            raise QueryError("Invalid field name '{}'".format(field_name))
+
+        if not field.indexed():
+            raise QueryError("Non-indexed field '{}' cannot be searched".format(field_name))
+
+        if not field.categorical():
+            raise QueryError("Cannot use field comparison syntax for non-categorical field '{}'".format(field_name))
+
+        # Categorical field
+        #
         wildcard = False
         if '?' in field_value:
             # Insert regex pattern for single character wildcard
@@ -113,20 +139,7 @@ class QueryEvaluator(object):
             field_value = field_value.replace('*', r'[\w]*')
             wildcard = True
 
-        # Get schema field
-        try:
-            field = self.schema[field_name]
-        except KeyError:
-            raise QueryError("Invalid field name '{}'".format(field_name))
-
-        if not field.categorical():
-            raise QueryError("Improper use of field searching for non-categorical field '{}'".format(field_name))
-
-        if not field.indexed():
-            raise QueryError("Non-indexed field '{}' cannot be searched".format(field_name))
-
         # Determine matching frames
-        #
         try:
             frames_by_value = self.metadata[field_name]
         except KeyError:
@@ -151,7 +164,7 @@ class QueryEvaluator(object):
                         pass
             else:
                 if wildcard:
-                    raise QueryError("Wildcards are only permitted for field searching when using the '=' operator.")
+                    raise QueryError("Wildcards only permitted for field searching when using the '=' operator.")
                 # Look for values that match the field comparison expression
                 for value in frames_by_value:
                     if field.evaluate_op(operator, value, field_value):
@@ -165,34 +178,34 @@ class QueryEvaluator(object):
         Evaluate operand (term) node via lookup in the term positions index.
 
         """
-        term = self._extract_term_value(node)
-        wildcard = False
-        if term == '*':
+        value = self._extract_term_value(node)
+        if value == '*':
             # Single wildcard matches all frames
             node.frame_ids = set(self.index.get_frame_ids())
-            return
-        if '?' in term:
-            # Insert regex pattern for single character wildcard
-            term = term.replace('?', r'\w')
-            wildcard = True
-        if '*' in term:
-            # Insert regex pattern for multiple character wildcard
-            term = term.replace('*', r'[\w]*')
-            wildcard = True
-        if wildcard:
-            re = regex.compile('^' + term + '$')
-            for term in self.terms:
-                # Search for terms that match wildcard query
-                if re.match(term):
-                    node.frame_ids.update(set(self.index.get_term_positions(term).keys()))
-                    node.matched_terms.add(term)
         else:
-            try:
-                node.frame_ids.update(set(self.index.get_term_positions(term).keys()))
-                node.matched_terms.add(term)
-            except KeyError:
-                # Term not matched in index
-                pass
+            wildcard = False
+            if '?' in value:
+                # Insert regex pattern for single character wildcard
+                value = value.replace('?', r'\w')
+                wildcard = True
+            if '*' in value:
+                # Insert regex pattern for multiple character wildcard
+                value = value.replace('*', r'[\w]*')
+                wildcard = True
+            if wildcard:
+                re = regex.compile('^' + value + '$')
+                for term in self.terms:
+                    # Search for terms that match wildcard query
+                    if re.match(term):
+                        node.frame_ids.update(set(self.index.get_term_positions(term).keys()))
+                        node.matched_terms.add(term)
+            else:
+                try:
+                    node.frame_ids.update(set(self.index.get_term_positions(value).keys()))
+                    node.matched_terms.add(value)
+                except KeyError:
+                    # Term not matched in index
+                    pass
 
     def _evaluate_weighting(self, node):
         """
