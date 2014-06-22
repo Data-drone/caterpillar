@@ -126,6 +126,10 @@ def test_index_alice(storage_cls):
         assert 'Alice' not in index.get_associations_index()
         assert 'Alice' not in index.get_positions_index()
 
+        # Test not text
+        with pytest.raises(TypeError):
+            index.add_document(text=False, document='alice', frame_size=0)
+
         # Test frame size = 0 (whole document)
         index.add_document(text=data, document='alice', frame_size=0)
         index.add_document(text=unicode("unicode data"), document='test', frame_size=0)
