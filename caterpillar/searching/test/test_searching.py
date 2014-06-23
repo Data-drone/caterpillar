@@ -223,6 +223,8 @@ def test_searching_nps():
             searcher.count('region>Christchurch')
         with pytest.raises(QueryError):
             searcher.count('nps>bad')
+        with pytest.raises(QueryError):
+            searcher.count('*', text_field='badfield')
 
         assert searcher.count('fake=1') == 0
         assert searcher.count('fake2=something') == 0

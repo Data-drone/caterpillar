@@ -1289,7 +1289,7 @@ class DerivedIndex(Index):
         derived index in `Index.INFO_CONTAINER`.
 
         Required Arguments:
-        index_queries -- A list of 2-tuples in the form of (index, query_string).
+        index_queries -- A list of tuples in the form of (index, query_string, [text_field]).
 
         Optional Arguments:
         path -- path to store index data under. MUST be specified if persistent storage is used.
@@ -1300,8 +1300,11 @@ class DerivedIndex(Index):
         """
         fields = {}
         frames = {}
-        for index, query in index_queries:
-            frame_ids = list(index.searcher().filter(query))
+        for index_query in index_queries:
+            index = index_query[0]
+            query = index_query[1]
+            text_field = index_query[2] if len(index_query) > 2 else None
+            frame_ids = list(index.searcher().filter(query, text_field=text_field))
             if len(frame_ids) > 0:
                 frames.update(index.get_frames(frame_ids=frame_ids))
                 fields.update(index.get_schema().items())
