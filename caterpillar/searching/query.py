@@ -99,6 +99,8 @@ class QueryEvaluator(object):
             raise QueryError("Invalid query syntax.")
 
         if text_field is not None:
+            if text_field not in self.metadata:
+                raise QueryError("Specified text field {} doesn't exist".format(text_field))
             query_tree.frame_ids.intersection_update(set(self.metadata[text_field]['_text']))
 
         return QueryResult(query_tree.frame_ids, query_tree.matched_terms, query_tree.term_weights)
