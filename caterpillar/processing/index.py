@@ -501,7 +501,7 @@ class Index(object):
         frame_count = 0
         for field_name, field in schema_fields:
 
-            if field_name not in fields or not field.indexed():
+            if field_name not in fields or not field.indexed() or fields[field_name] is None:
                 # Skip non-indexed fields or fields with no value supplied for this document
                 continue
 
@@ -515,11 +515,15 @@ class Index(object):
             else:
                 # Index non-categorical fields
                 field_data = fields[field_name]
+                expected_types = (str, bytes, unicode)
                 if isinstance(field_data, str) or isinstance(field_data, bytes):
                     try:
                         field_data = field_data.decode(encoding, encoding_errors)
                     except UnicodeError as e:
                         raise IndexError("Couldn't decode the {} field - {}".format(field_name, e))
+                elif type(field_data) not in expected_types:
+                    raise TypeError("Expected str or bytes or unicode for text field {} but got {}".
+                                    format(field_name, type(field_data)))
                 if frame_size > 0:
                     # Break up into paragraphs
                     paragraphs = ParagraphTokenizer().tokenize(field_data)
