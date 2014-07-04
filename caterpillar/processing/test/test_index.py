@@ -15,6 +15,7 @@ from caterpillar.processing.analysis.analyse import EverythingAnalyser, DefaultA
 from caterpillar.processing.frames import frame_stream
 from caterpillar.processing.index import *
 from caterpillar.processing.schema import ID, NUMERIC, TEXT, FieldType, Schema
+from caterpillar.searching.query.querystring import QueryStringQuery as QSQ
 
 
 STORAGE = [(SqliteStorage), (SqliteMemoryStorage)]
@@ -440,8 +441,8 @@ def test_derived_index_composite(storage_cls):
             for row in csv_reader:
                 index1.add_document(update_index=False, text=row[0])
             index1.reindex()
-            scount1 = index1.searcher().count("service")
-            nscount1 = index1.searcher().count("* not service")
+            scount1 = index1.searcher().count(QSQ("service"))
+            nscount1 = index1.searcher().count(QSQ("* not service"))
 
         with open(os.path.abspath('caterpillar/test_resources/promoters.csv'), 'rbU') as f:
             index2 = Index.create(Schema(text=TEXT(analyser=analyser)), storage_cls=storage_cls, path=temp2)
@@ -449,15 +450,15 @@ def test_derived_index_composite(storage_cls):
             for row in csv_reader:
                 index2.add_document(update_index=False, text=row[0])
             index2.reindex()
-            scount2 = index2.searcher().count("service")
-            nscount2 = index2.searcher().count("* not service")
+            scount2 = index2.searcher().count(QSQ("service"))
+            nscount2 = index2.searcher().count(QSQ("* not service"))
 
-        index = DerivedIndex.create_from_composite_query([(index1, "service"), (index2, "service")],
+        index = DerivedIndex.create_from_composite_query([(index1, QSQ("service")), (index2, QSQ("service"))],
                                                          storage_cls=storage_cls, path=os.getcwd())
 
         searcher = index.searcher()
-        assert searcher.count("service") == scount1 + scount2
-        assert searcher.count("*") == (index1.get_frame_count() - nscount1) + (index2.get_frame_count() - nscount2)
+        assert searcher.count(QSQ("service")) == scount1 + scount2
+        assert searcher.count(QSQ("*")) == (index1.get_frame_count() - nscount1) + (index2.get_frame_count() - nscount2)
         assert index.is_derived() is True
 
         with pytest.raises(NotImplementedError):
@@ -471,7 +472,7 @@ def test_derived_index_composite(storage_cls):
 
         # Test empty query
         with pytest.raises(EmptyCompositeQueryError):
-            DerivedIndex.create_from_composite_query([(index1, 'garbageterm')])
+            DerivedIndex.create_from_composite_query([(index1, QSQ('garbageterm'))])
 
         index1.destroy()
         index2.destroy()
@@ -500,8 +501,8 @@ def test_derived_index_asymmetric_schema(storage_cls):
                                   storage_cls=storage_cls, path=temp2)
             index2.add_document(text=data, document='alice.txt', marker=777, frame_size=2, update_index=True)
 
-        q1 = "mountain or rock or volcanic or volcano"
-        q2 = "Alice or King or Queen"
+        q1 = QSQ("mountain or rock or volcanic or volcano")
+        q2 = QSQ("Alice or King or Queen")
         index = DerivedIndex.create_from_composite_query([(index1, q1), (index2, q2)],
                                                          storage_cls=storage_cls, path=os.getcwd())
 
@@ -510,7 +511,7 @@ def test_derived_index_asymmetric_schema(storage_cls):
         c2 = index2.searcher().count(q2)
         assert searcher.count(q1) == c1
         assert searcher.count(q2) == c2
-        assert searcher.count("*") == index.get_frame_count() == c1 + c2
+        assert searcher.count(QSQ("*")) == index.get_frame_count() == c1 + c2
 
         assert searcher.search(q2, limit=1)[0].data['marker'] == 777
         assert 'marker' not in searcher.search(q1, limit=1)[0].data

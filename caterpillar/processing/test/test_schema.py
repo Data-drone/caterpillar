@@ -13,6 +13,7 @@ from caterpillar.processing.analysis.analyse import DefaultAnalyser
 from caterpillar.processing.index import Index, find_bi_gram_words
 from caterpillar.processing.frames import frame_stream_csv
 from caterpillar.processing.schema import BOOLEAN, FieldType, ID, NUMERIC, Schema, TEXT, FieldConfigurationError
+from caterpillar.searching.query.querystring import QueryStringQuery
 
 
 # Plumbing tests
@@ -145,7 +146,7 @@ def test_index_stored_fields():
                                 frame_size=2, fold_case=False, update_index=True)
 
     searcher = index.searcher()
-    hit = searcher.search("*", limit=1)[0]
+    hit = searcher.search(QueryStringQuery("*"), limit=1)[0]
     assert 'text' not in hit.data
     assert 'test2' not in hit.data
     assert hit.data['test'] == 777
