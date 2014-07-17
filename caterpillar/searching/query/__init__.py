@@ -16,7 +16,9 @@ class QueryResult(object):
 
     Fields:
     frame_ids -- A list of IDs for frames that match the query.
-    term_weights -- A dict of *matched* query terms to their weightings.
+    term_weights -- A dict of *matched* query terms to their float weightings. All weightings default to 1 unless they
+                    are modified explicitly by the query. Their purpose is to facilitate scoring a query result, based
+                    on the query that returned it.
 
     """
     def __init__(self, frame_ids, term_weights):

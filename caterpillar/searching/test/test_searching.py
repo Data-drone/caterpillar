@@ -69,7 +69,7 @@ def test_searching_alice():
         results = searcher.search(MatchSomeQuery([QSQ("King"), QSQ("court AND King^1.5")]))
         assert results.term_weights['King'] == 1.5
 
-        with pytest.raises(ValueError):
+        with pytest.raises(TypeError):
             # Invalid query format
             searcher.count('hello')
 

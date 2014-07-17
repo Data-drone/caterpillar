@@ -1,7 +1,12 @@
 # Copyright (C) Kapiche
 # Author: Kris Rogers <kris@kapiche.com>
 """
-This module implements boolean queries that can be used to join together other queries.
+This module implements boolean-like queries that can be used to join together other queries. This is of particular use
+in combining the core query functionality of `QueryStringQuery <caterpillar.searching.querystring.QueryStringQuery>`_
+with various plugin-provided queries.
+
+Callers should use either `MatchAllQuery` or `MatchSomeQuery` to match the results of 1 or more
+`BaseQuery <caterpillar.searching.query.BaseQuery>`_ objects.
 
 """
 from caterpillar.searching.query import BaseQuery, QueryResult, QueryError

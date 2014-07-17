@@ -1,7 +1,8 @@
 # Copyright (C) Kapiche
 # Author: Kris Rogers <kris@kapiche.com>
 """
-This module supports all basic querying functionality in query string format.
+This module supports all basic querying functionality in query string format, which is exposed through the
+`QueryStringQuery` class.
 
 Examples:
 
@@ -101,8 +102,8 @@ class _QueryStringParser(object):
         """
         Evaluate a query string, returning a 2-tuple containing (frame_ids, term_weights).
 
-        Required Arguments:
-        query -- Query string.
+        The term weights represent specific weighting values for terms specified in the query. They default to 1 unless
+        modified explicity using the appropriate query sytax.
 
         """
         try:
