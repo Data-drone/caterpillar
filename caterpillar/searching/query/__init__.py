@@ -32,7 +32,8 @@ class QueryError(Exception):
 
 class BaseQuery(object):
     """
-    Each ``BaseQuery`` concrete class should represent an individual facet of the query API.
+    Each ``BaseQuery`` concrete class should represent an individual facet of the query API, providing query
+    functionality in the ``evaluate`` method.
 
     """
     __metaclass__ = abc.ABCMeta
@@ -42,7 +43,9 @@ class BaseQuery(object):
         """
         Evaluate this query against the specified index.
 
+        Returns ``QueryResult``.
+
         Raises ``QueryError`` on exception.
 
         """
-        return  # pragma: no cover
+        raise NotImplementedError

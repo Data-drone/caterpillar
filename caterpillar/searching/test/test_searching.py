@@ -12,7 +12,7 @@ from caterpillar.processing.index import Index, find_bi_gram_words
 from caterpillar.processing import schema
 from caterpillar.processing.frames import frame_stream
 from caterpillar.searching.query import QueryError
-from caterpillar.searching.query.boolean import MatchAllQuery, MatchSomeQuery
+from caterpillar.searching.query.match import MatchAllQuery, MatchSomeQuery
 from caterpillar.searching.query.querystring import QueryStringQuery as QSQ
 from caterpillar.searching.scoring import SimpleScorer
 

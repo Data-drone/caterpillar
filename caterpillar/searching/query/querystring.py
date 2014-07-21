@@ -2,7 +2,7 @@
 # Author: Kris Rogers <kris@kapiche.com>
 """
 This module supports all basic querying functionality in query string format, which is exposed through the
-`QueryStringQuery` class.
+``QueryStringQuery`` class.
 
 Examples:
 
@@ -32,13 +32,9 @@ from caterpillar.searching.query import BaseQuery, QueryError, QueryResult
 
 class QueryStringQuery(BaseQuery):
     """
-    This class allows term and metadata based querying via simple query string.
+    This class allows term and metadata based querying via raw query string passed to ``query_str``.
 
-    Required Arguments
-    query_str -- the query string.
-
-    Optional Arguments
-    text_field -- string name of text field to restrict search by.
+    Optionally restricts query to the specified ``text_field``.
 
     """
     def __init__(self, query_str, text_field=None):
@@ -59,10 +55,7 @@ class QueryStringQuery(BaseQuery):
 
 class _QueryStringParser(object):
     """
-    This class parses and evaluates query strings against a specified index.
-
-    Required Arguments:
-    index -- The index to perform the query on.
+    This class parses and evaluates query strings against a specified ``index``.
 
     """
     def __init__(self, index):

@@ -5,10 +5,10 @@ The purpose of this module is to allow the matching of arbitrary combinations of
 of particular use in combining the core query functionality of
 `QueryStringQuery <caterpillar.searching.querystring.QueryStringQuery>`_ with various plugin-provided queries.
 
-Callers should use either `MatchAllQuery` or `MatchSomeQuery` to match the results of 1 or more
+Callers should use either :class:`MatchAllQuery`` or :class:`MatchSomeQuery` to match the results of 1 or more
 `BaseQuery <caterpillar.searching.query.BaseQuery>`_ objects.
 
-Also note that it is possible to nest `MatchAllQuery` and `MatchSomeQuery` objects within themselves and each other.
+Also note that it is possible to nest ``MatchAllQuery`` and ``MatchSomeQuery`` objects within themselves and each other.
 
 """
 from caterpillar.searching.query import BaseQuery, QueryResult, QueryError
@@ -16,16 +16,14 @@ from caterpillar.searching.query import BaseQuery, QueryResult, QueryError
 
 class _MatchQuery(BaseQuery):
     """
-    Implement functionality for matching a list of queries via intersection (boolan and) or union (boolean or).
+    Implement functionality for matching a list of queries via intersection (boolean and) or union (boolean or).
 
-    For public usage, see ``MatchAllQuery`` and ``MatchSomeQuery``.
+    For public usage, see :class:`MatchAllQuery` and :class:`MatchSomeQuery`.
 
-    Required Arguments:
-    queries -- List of query objects to join. Must be of type ``BaseQuery``.
-    intersection -- True-like to join using intersection, otherwise union.
+    Expects a list of ``queries`` that must be of type ``BaseQuery``. ``intersection`` specifies to join queries using
+    intersection, otherwise union.
 
-    Optional Arguments:
-    exclude_queries -- List of queries to exclude from result set.
+    Optionally accepts a list of ``exclude_queries`` whose results are subtracted from the matched queries.
 
     """
     def __init__(self, queries, intersection, exclude_queries=None):
@@ -73,14 +71,8 @@ class _MatchQuery(BaseQuery):
 
 class MatchAllQuery(_MatchQuery):
     """
-    The match all query performs an intersection across a list of queries, optionally excluding the results of another
-    list of queries.
-
-    Required Arguments:
-    queries -- List of queries to match. Must be of type ``BaseQuery``.
-
-    Optional Arguments:
-    exclude_queries -- List of queries to exclude. Must be of type ``BaseQuery``.
+    The match all query performs an intersection across a list of ``queries`` (of type ``BaseQuery``), optionally
+    subtracting the results of ``exclude_queries``.
 
     """
     def __init__(self, queries, exclude_queries=None):
@@ -89,14 +81,8 @@ class MatchAllQuery(_MatchQuery):
 
 class MatchSomeQuery(_MatchQuery):
     """
-    The match some query performs a union across a list of queries, optionally excluding the results of another list of
-    queries.
-
-    Required Arguments:
-    queries -- List of queries to match. Must be of type ``BaseQuery``.
-
-    Optional Arguments:
-    exclude_queries -- List of queries to exclude. Must be of type ``BaseQuery``.
+    The match some query performs a union across a list of ``queries`` (of type ``BaseQuery``), optionally excluding the
+    results of ``exclude_queries``.
 
     """
     def __init__(self, queries, exclude_queries=None):
