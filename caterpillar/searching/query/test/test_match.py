@@ -30,7 +30,6 @@ def test_match_all():
     assert r.frame_ids == set([3])
 
 
-
 def test_match_some():
     """Test match some query."""
     # Simple match some

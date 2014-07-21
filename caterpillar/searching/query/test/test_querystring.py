@@ -31,6 +31,7 @@ def test_querystring_query_basic():
     assert len(QueryStringQuery('*ice').evaluate(index).frame_ids) > alice_count
     assert len(QueryStringQuery('K??g').evaluate(index).frame_ids) == king_count
 
+
 def test_querystring_query_advanced():
     """Test querysting query advanced searching."""
     index = Index.create(schema.Schema(liked=schema.TEXT, disliked=schema.TEXT, age=schema.NUMERIC(indexed=True),
@@ -48,4 +49,3 @@ def test_querystring_query_advanced():
     # Text field
     assert len(QueryStringQuery('product', 'liked').evaluate(index).frame_ids) == 2
     assert len(QueryStringQuery('gender=female not product', 'disliked').evaluate(index).frame_ids) == 1
-    

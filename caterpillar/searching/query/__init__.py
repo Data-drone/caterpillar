@@ -4,7 +4,7 @@
 This module implements the query framework for caterpillar.
 
 The design intends that the ``BaseQuery`` class is extended to provide specific query functionality that can be used by
-``caterpillar.searching.IndexSearcher``.
+`IndexSearcher <caterpillar.searching.IndexSearcher>`_.
 
 """
 import abc
@@ -12,13 +12,10 @@ import abc
 
 class QueryResult(object):
     """
-    Encapsulates result data for a single query.
-
-    Fields:
-    frame_ids -- A list of IDs for frames that match the query.
-    term_weights -- A dict of *matched* query terms to their float weightings. All weightings default to 1 unless they
-                    are modified explicitly by the query. Their purpose is to facilitate scoring a query result, based
-                    on the query that returned it.
+    Encapsulates result data for a single query, which is comprised of a list of ``frame_ids`` that match the query, and
+    ``term_weights``, which is a dit of *matched* query terms to their float weightings. All weightings default to 1
+    unless they are modified explicitly by the query. Their purpose is to facilitate scoring a query result, based
+    on the query that returned it.
 
     """
     def __init__(self, frame_ids, term_weights):
@@ -41,7 +38,7 @@ class BaseQuery(object):
     @abc.abstractmethod
     def evaluate(self, index):
         """
-        Evaluate this query against the specified index.
+        Evaluate this query against the specified ``index``.
 
         Returns ``QueryResult``.
 
