@@ -1,9 +1,10 @@
-# caterpillar: Tools to parse and evaluate search queries
-#
-# Copyright (C) 2012-2013 Mammoth Labs
-# Author: Kris Rogers <kris@mammothlabs.com.au>
+# Copyright (C) Kapiche
+# Author: Kris Rogers <kris@kapiche.com>
 """
-Query Examples
+This module supports all basic querying functionality in query string format, which is exposed through the
+``QueryStringQuery`` class.
+
+Examples:
 
 Boolean operators:
     telephone AND email -- Text frames that contain both 'telephone' and 'email'.
@@ -17,9 +18,6 @@ Wildcards:
 Term Weighting:
     telephone^2 OR email -- Increase the importance of the term 'telephone' in the query by a 2x multiplier.
 
-Topics:
-    topic:support -- Text frames that match the topic 'support'.
-
 Field Equality:
     score=9 -- Text frames which have 'score' metadata  of '9'. (<, <=, >, >= operators supported for numeric fields)
 
@@ -28,21 +26,36 @@ import regex
 
 from lrparsing import Grammar, Keyword, ParseError, Prio, Ref, Repeat, Token, Tokens
 
-from caterpillar.analytics.influence import InfluenceTopicsPlugin
 from caterpillar.processing import schema
+from caterpillar.searching.query import BaseQuery, QueryError, QueryResult
 
 
-class QueryError(Exception):
-    """Invalid query"""
-
-
-class QueryEvaluator(object):
+class QueryStringQuery(BaseQuery):
     """
-    This class evaluates queries against a term position index supplied at
-    instantiation.
+    This class allows term and metadata based querying via raw query string passed to ``query_str``.
 
-    Required Arguments:
-    positions_index -- index of term positions.
+    Optionally restricts query to the specified ``text_field``.
+
+    """
+    def __init__(self, query_str, text_field=None):
+        self.query_str = query_str
+        self.text_field = text_field
+
+    def evaluate(self, index):
+        frame_ids, term_weights = _QueryStringParser(index).parse_and_evaluate(self.query_str)
+        if self.text_field is not None:
+            # Restrict for text field
+            metadata = index.get_metadata()
+            if self.text_field not in metadata:
+                raise QueryError("Specified text field {} doesn't exist".format(self.text_field))
+            frame_ids.intersection_update(set(metadata[self.text_field]['_text']))
+
+        return QueryResult(frame_ids, term_weights)
+
+
+class _QueryStringParser(object):
+    """
+    This class parses and evaluates query strings against a specified ``index``.
 
     """
     def __init__(self, index):
@@ -53,21 +66,17 @@ class QueryEvaluator(object):
 
     def __call__(self, node):
         """
-        This method is called in a bottom-up fashion for each node in the
-        parse tree.
+        This method is called in a bottom-up fashion for each node in the parse tree.
 
-        In it, we record a list of ids for frames that match the query
-        specified by the current node. When the last (root) node is
-        evaluated, we have arrived at the final list of frame ids that match
-        the entire query.
+        In it, we record a list of ids for frames that match the query specified by the current node. When the last
+        (root) node is evaluated, we have arrived at the final list of frame ids that match the entire query string.
 
-        ``node`` is a tuple that holds operator and operand components for
-        evaluating a node in the query tree. It is constructred according
-        to the ``_QueryGrammar`` definition and contains extra attributes
-        specified by the ``_QueryNode`` class.
+        ``node`` is a tuple that holds operator and operand components for evaluating a node in the query tree. It is
+        constructred according to the ``_QueryStringGrammar`` definition and contains extra attributes specified by the
+        ``_QueryStringNode`` class.
 
         """
-        node = _QueryNode(node)
+        node = _QueryStringNode(node)
         eval_method_name = '_evaluate_' + node[0].name
         if eval_method_name in self.__class__.__dict__:
             # This type of node has an evaluation method defined
@@ -82,28 +91,25 @@ class QueryEvaluator(object):
 
         return node
 
-    def evaluate(self, query, text_field=None):
+    def parse_and_evaluate(self, query):
         """
-        Evaluate a query, returning an instance of ``QueryResult``.
+        Evaluate a query string, returning a 2-tuple containing (frame_ids, term_weights).
 
-        Required Arguments:
-        query -- Query string
-
-        Optional Arguments:
-        text_field -- str name of text field to restrict frames by.
+        The term weights represent specific weighting values for terms specified in the query. They default to 1 unless
+        modified explicity using the appropriate query sytax.
 
         """
         try:
-            query_tree = _QueryGrammar.parse(query, tree_factory=self)
+            query_tree = _QueryStringGrammar.parse(query, tree_factory=self)
         except ParseError, e:
             raise QueryError("Invalid query syntax.")
 
-        if text_field is not None:
-            if text_field not in self.metadata:
-                raise QueryError("Specified text field {} doesn't exist".format(text_field))
-            query_tree.frame_ids.intersection_update(set(self.metadata[text_field]['_text']))
+        # Only pass on term weights for terms that were a positive match
+        term_weights = {mt: 1 for mt in query_tree.matched_terms}
+        for term, weight in query_tree.term_weights.iteritems():
+            term_weights[term] = weight
 
-        return QueryResult(query_tree.frame_ids, query_tree.matched_terms, query_tree.term_weights)
+        return (query_tree.frame_ids, term_weights)
 
     def _evaluate_field(self, node):
         """
@@ -248,26 +254,6 @@ class QueryEvaluator(object):
         node.frame_ids = node[1].frame_ids.union(node[3].frame_ids)
         node.matched_terms = node[1].matched_terms.union(node[3].matched_terms)
 
-    def _evaluate_topic(self, node):
-        """
-        Evaluate topic query.
-
-        """
-        topic_name = ' '.join([n[1][1] for n in node[3:]])
-        topic_name = topic_name.replace('"', '')  # Remove quotes
-        topics_plugin = InfluenceTopicsPlugin(self.index)
-        try:
-            node.frame_ids = topics_plugin.get_topic_frames(topic_name)
-        except KeyError, e:
-            raise QueryError(e)
-        topic_details = topics_plugin.get_topic_details(topic_name)
-        node.term_weights = {}
-        for term_value in topic_details['primary_terms']:
-            # Primary terms receive a 1.5x ranking multiplier
-            node.term_weights[term_value] = 1.5
-        for term_value in topic_details['secondary_terms']:
-            node.term_weights[term_value] = 1
-
     def _extract_term_value(self, node):
         """
         Extract term value from an operand node; handles arbitrary number of term components (compounds).
@@ -278,23 +264,7 @@ class QueryEvaluator(object):
         return term_value
 
 
-class QueryResult(object):
-    """
-    Encapsulates result data for a single query.
-
-    Fields:
-    frame_ids -- A list of IDs for frames that match the query.
-    matched_terms -- A dict of matched query terms to their weightings.
-
-    """
-    def __init__(self, frame_ids, matched_terms, term_weights):
-        self.frame_ids = frame_ids
-        self.matched_terms = {mt: 1 for mt in matched_terms}
-        for term, weight in term_weights.items():
-            self.matched_terms[term] = weight
-
-
-class _QueryGrammar(Grammar):
+class _QueryStringGrammar(Grammar):
     """
     Specifies an lrparsing grammar to parse a query string.
 
@@ -309,7 +279,6 @@ class _QueryGrammar(Grammar):
     operand = Repeat(term, 1)
     weighting = operand << Token(re=r'\^[0-9]*\.?[0-9]+')
     field = operand + Tokens('= < > <= >=') + operand
-    topic = Keyword('topic', case=False) + Token(':') + Repeat(term, 1)
     expr = Prio(
         brackets,
         not_op,
@@ -317,22 +286,24 @@ class _QueryGrammar(Grammar):
         or_op,
         weighting,
         field,
-        topic,
         operand
     )
     START = expr    # Where the grammar must start
 
 
-class _QueryNode(tuple):
+class _QueryStringNode(tuple):
     """
     Wrapper for nodes in query parse tree to allow some custom fields.
 
+    At every stage of evaluating the query tree, an instance of this class will be created to store the evaluation
+    results.
+
     """
     def __init__(self, node):
-        self.term_weights = dict()
         self.frame_ids = set()
+        self.term_weights = dict()
         self.matched_terms = set()
-        super(_QueryNode, self).__init__(node)
+        super(_QueryStringNode, self).__init__(node)
 
     def __new__(cls, n):
-        return super(_QueryNode, cls).__new__(cls, n)
+        return super(_QueryStringNode, cls).__new__(cls, n)

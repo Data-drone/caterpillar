@@ -1,3 +1,10 @@
+[report]
+exclude_lines =
+    # Have to re-enable the standard pragma
+    pragma: no cover
+    # Abstract stuff
+    raise NotImplementedError
+
 [html]
 directory = coverage_report
 title = Caterpillar Coverage Report

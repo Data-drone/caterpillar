@@ -1,17 +1,19 @@
-# Copyright (C) 2014 Kapiche
-# Author: Kris Rogers <kris@kapiche.com> & Ryan Stuart <ryan@kapiche.com>
+# Copyright (C) Kapiche
+# Author: Kris Rogers <kris@kapiche.com>, Ryan Stuart <ryan@kapiche.com>
+"""Tests for the searching package."""
 import csv
 import os
 
 import pytest
 
-from caterpillar.analytics.influence import InfluenceAnalyticsPlugin, InfluenceTopicsPlugin
 from caterpillar.processing.analysis import stopwords
 from caterpillar.processing.analysis.analyse import DefaultAnalyser, BiGramAnalyser
 from caterpillar.processing.index import Index, find_bi_gram_words
 from caterpillar.processing import schema
 from caterpillar.processing.frames import frame_stream
 from caterpillar.searching.query import QueryError
+from caterpillar.searching.query.match import MatchAllQuery, MatchSomeQuery
+from caterpillar.searching.query.querystring import QueryStringQuery as QSQ
 from caterpillar.searching.scoring import SimpleScorer
 
 
@@ -25,65 +27,51 @@ def test_searching_alice():
         index = Index.create(schema.Schema(text=schema.TEXT(analyser=analyser)))
         index.add_document(text=data, frame_size=2)
         index.fold_term_case()
-        index.run_plugin(InfluenceAnalyticsPlugin, influence_factor_smoothing=False)
-        topics_plugin = index.run_plugin(InfluenceTopicsPlugin)
-        topics = topics_plugin.get_topical_classification().topics
-
         searcher = index.searcher()
-        match = False
-        for topic in topics:
-            if topic.name == 'Queen':
-                match = searcher.count(topic.get_query()) == 70
-        assert match
 
-        assert searcher.count("King") == searcher.count("K?ng") == 60
+        assert searcher.count(QSQ("King")) == searcher.count(QSQ("K?ng"))
+        assert searcher.count(QSQ("Queen or K??g")) == 123 == \
+            searcher.count(QSQ("King or Queen"))
+        assert searcher.count(QSQ("King AND Queen")) == 4 == \
+            searcher.count(MatchAllQuery([QSQ('King'), QSQ('Queen')])) == \
+            searcher.count(QSQ('King')) - searcher.count(QSQ('King not Queen'))
+        assert searcher.count(QSQ("King NOT Queen")) == 56
+        assert searcher.count(QSQ('golden key')) == 6
+        assert searcher.count(QSQ('*ing')) == 514
+        assert searcher.count(QSQ("Alice and (thought or little)")) == \
+            searcher.count(QSQ("Alice and thought or Alice and little")) == 95 == \
+            searcher.count(MatchAllQuery([QSQ('Alice'), MatchSomeQuery([QSQ('thought'), QSQ('little')])]))
+        assert searcher.count(QSQ("thistermdoesntexist")) == 0
+        assert searcher.count(QSQ('Mock Turtle')) == 51
+        assert searcher.count(QSQ('*t? R*b??')) == searcher.count(QSQ('White Rabbit'))
 
-        assert searcher.count("Queen or K??g") == 123 == searcher.count("King or Queen")
-        assert searcher.count("King AND Queen") == 4
-        assert searcher.count("King NOT Queen") == 56
-        assert searcher.count('golden key') == 6
-        assert searcher.count('*ing') == 514
+        assert "jury" in searcher.search(QSQ("jury"), limit=1)[0].data['text']
 
-        assert "jury" in searcher.search("jury", limit=1)[0].data['text']
-
-        assert searcher.count("Alice and (thought or little)") == \
-            searcher.count("Alice and thought or Alice and little") == 95
-
-        assert searcher.count("thistermdoesntexist") == 0
-
-        voice_hits = searcher.count("voice")
+        voice_hits = searcher.count(QSQ("voice"))
         assert voice_hits == 47
-
-        results = searcher.search("Alice or voice^1.5", limit=voice_hits)
+        results = searcher.search(QSQ("Alice or voice^1.5"), limit=voice_hits)
         for hit in results:
             assert "voice" in hit.data['text']
-
-        results = searcher.search("Alice or voice^1.5", start=voice_hits)
+        results = searcher.search(QSQ("Alice or voice^1.5"), start=voice_hits)
         for hit in results:
             assert "voice" not in hit.data['text']
 
-        results = searcher.search("King not (court or evidence)")
-        assert len(results.term_weights) == 1
+        results = searcher.search(QSQ("King not (court or evidence)"))
         assert len(results) == 25
-        assert results.num_matches == 53
+        assert len(results.term_weights) == 1
+        assert results.num_matches == 53 == searcher.count(MatchAllQuery([QSQ('King')], [QSQ('court or evidence')]))
         for hit in results:
             assert "evidence" not in hit.data['text']
             assert "court" not in hit.data['text']
 
-        assert searcher.count('Mock Turtle') == 51
+        # Check multiple boostings; this example is totally contrived but a real case could occur when combining
+        # different plugin queries.
+        results = searcher.search(MatchSomeQuery([QSQ("King"), QSQ("court AND King^1.5")]))
+        assert results.term_weights['King'] == 1.5
 
-        assert searcher.count('*t? R*b??') == searcher.count('White Rabbit')
-
-        with pytest.raises(QueryError):
-            # Topic 'and' does not exist
-            searcher.count('topic:"and"')
-
-        # Topic searching
-        assert searcher.count("topic: Rabbit") == 35
-        assert searcher.count("topic: voice and topic: said") == 17
-        assert searcher.count("topic: voice or topic: said") == 500
-        assert searcher.count("topic: voice or topic: said") <= \
-            searcher.count("topic: voice") + searcher.count("topic: said")
+        with pytest.raises(TypeError):
+            # Invalid query format
+            searcher.count('hello')
 
 
 def test_searching_alice_simple():
@@ -95,11 +83,8 @@ def test_searching_alice_simple():
         analyser = BiGramAnalyser(bi_grams, stopword_list=stopwords.ENGLISH_TEST)
         index = Index.create(schema.Schema(text=schema.TEXT(analyser=analyser)))
         index.add_document(text=data, frame_size=2)
-        index.run_plugin(InfluenceAnalyticsPlugin, influence_factor_smoothing=False)
-
         searcher = index.searcher(scorer_cls=SimpleScorer)
-
-        results = searcher.search('Alice or Caterpillar')
+        results = searcher.search(QSQ('Alice or Caterpillar'))
         assert results[0].score == 2
 
 
@@ -112,15 +97,12 @@ def test_searching_mt_warning():
         analyser = BiGramAnalyser(bi_grams, stopword_list=stopwords.ENGLISH_TEST)
         index = Index.create(schema.Schema(text=schema.TEXT(analyser=analyser)))
         index.add_document(text=data, frame_size=2)
-        index.run_plugin(InfluenceAnalyticsPlugin, influence_factor_smoothing=False)
-
         searcher = index.searcher()
 
-        assert searcher.count('1770') == 2
-        assert searcher.count('1,900') == 1
-        assert searcher.count('4.4') == 1
-
-        assert searcher.count('*') == index.get_frame_count()
+        assert searcher.count(QSQ('1770')) == 2
+        assert searcher.count(QSQ('1,900')) == 1
+        assert searcher.count(QSQ('4.4')) == 1
+        assert searcher.count(QSQ('*')) == index.get_frame_count()
 
 
 def test_searching_twitter():
@@ -134,14 +116,12 @@ def test_searching_twitter():
         for row in csv_reader:
             index.add_document(text=row[1], sentiment=row[0])
         index.reindex()
-        index.run_plugin(InfluenceAnalyticsPlugin, influence_factor_smoothing=False)
-
         searcher = index.searcher()
 
-        assert searcher.count('@NYSenate') == 1
-        assert searcher.count('summerdays@gmail.com') == 1
-
-        assert searcher.count('sentiment=positive') + searcher.count('sentiment=negative') == index.get_frame_count()
+        assert searcher.count(QSQ('@NYSenate')) == 1
+        assert searcher.count(QSQ('summerdays@gmail.com')) == 1
+        assert searcher.count(QSQ('sentiment=positive')) + \
+            searcher.count(QSQ('sentiment=negative')) == index.get_frame_count()
 
 
 def test_searching_nps():
@@ -167,68 +147,67 @@ def test_searching_nps():
                                disliked=row[4], would_like=row[5], nps=row[6], fake2=None)
 
         index.reindex()
-        index.run_plugin(InfluenceAnalyticsPlugin, influence_factor_smoothing=False)
-
         searcher = index.searcher()
 
-        assert index.get_frame_count() == searcher.count('*', text_field='disliked')\
-            + searcher.count('*', text_field='liked') + searcher.count('*', text_field='would_like') + empty_rows
+        # Search limited by text field
+        assert index.get_frame_count() == empty_rows + searcher.count(QSQ('*', 'disliked'))\
+            + searcher.count(QSQ('*', 'liked')) + searcher.count(QSQ('*', 'would_like'))
+        assert searcher.count(QSQ('point*', 'would_like'))\
+            == searcher.count(QSQ('point or points or pointed', 'would_like'))
 
-        assert searcher.count('point*', text_field='would_like')\
-            == searcher.count('point or points or pointed', text_field='would_like')
-
-        assert searcher.count('nps=10 and store=DANNEVIRKE') == 6
-
+        # Verify uniqueness of returned results
         docs = set()
-        results = searcher.search('region=Otago and nps<5')
+        results = searcher.search(QSQ('region=Otago and nps<5'))
         for hit in results:
             docs.add(hit.doc_id)
         assert len(docs) == 5
         assert len(results) == 15
 
-        num_christchurch = searcher.count('region=Christchurch')
-        num_null_nps_christchurch = num_christchurch - searcher.count('region=Christchurch and nps > 0')
-        assert num_christchurch == searcher.count('region=Christchurch and nps < 8') \
-            + searcher.count('region=Christchurch and nps >= 8') \
+        # Metadata field searching
+        assert searcher.count(QSQ('nps=10 and store=DANNEVIRKE')) == 6
+        num_christchurch = searcher.count(QSQ('region=Christchurch'))
+        num_null_nps_christchurch = num_christchurch \
+            - searcher.count(QSQ('region=Christchurch and nps > 0'))
+        assert num_christchurch == searcher.count(QSQ('region=Christchurch and nps < 8')) \
+            + searcher.count(QSQ('region=Christchurch and nps >= 8')) \
             + num_null_nps_christchurch
-        assert searcher.count('region=Christchurch and nps>7 and (reliable or quick)') \
-            == searcher.count('region = Christchurch and nps>7') \
-            - searcher.count('region=Christchurch and nps > 7 not (reliable or quick)')
+        assert searcher.count(QSQ('region=Christchurch and nps>7 and (reliable or quick)')) \
+            == searcher.count(QSQ('region = Christchurch and nps>7')) \
+            - searcher.count(QSQ('region=Christchurch and nps > 7 not (reliable or quick)'))
+        assert searcher.count(QSQ('nps>0')) == searcher.count(QSQ('nps<=7')) \
+            + searcher.count(QSQ('nps>7'))
+        assert searcher.count(QSQ('region=Christ*')) == num_christchurch == 1399
+        assert searcher.count(QSQ('fake=1')) == 0
+        assert searcher.count(QSQ('fake2=something')) == 0
+        assert searcher.count(QSQ('region=nonexistentregion')) == 0
 
-        assert searcher.count('nps>0') == searcher.count('nps<=7') + searcher.count('nps>7')
-
-        assert searcher.count('region=Christ*') == num_christchurch == 1399
-
+        # Check all incorrect usages of metadata field searching
         with pytest.raises(QueryError):
-            searcher.count('nps >= 1?')
+            searcher.count(QSQ('nps >= 1?'))
         with pytest.raises(QueryError):
-            searcher.count('nps=?')
+            searcher.count(QSQ('nps=?'))
         with pytest.raises(QueryError):
-            searcher.count('n*s=10')
+            searcher.count(QSQ('n*s=10'))
         with pytest.raises(QueryError):
-            searcher.count('badfield=something')
+            searcher.count(QSQ('badfield=something'))
         with pytest.raises(QueryError):
-            searcher.count('liked=something')
+            searcher.count(QSQ('liked=something'))
         with pytest.raises(QueryError):
-            searcher.count('region>something')
+            searcher.count(QSQ('region>something'))
         with pytest.raises(QueryError):
-            searcher.count('region>=something')
+            searcher.count(QSQ('region>=something'))
         with pytest.raises(QueryError):
-            searcher.count('region<something')
+            searcher.count(QSQ('region<something'))
         with pytest.raises(QueryError):
-            searcher.count('region<=something')
+            searcher.count(QSQ('region<=something'))
         with pytest.raises(QueryError):
-            searcher.count('respondant=something')
+            searcher.count(QSQ('respondant=something'))
         with pytest.raises(QueryError):
-            searcher.count('region>Christchurch')
+            searcher.count(QSQ('region>Christchurch'))
         with pytest.raises(QueryError):
-            searcher.count('nps>bad')
+            searcher.count(QSQ('nps>bad'))
         with pytest.raises(QueryError):
-            searcher.count('*', text_field='badfield')
-
-        assert searcher.count('fake=1') == 0
-        assert searcher.count('fake2=something') == 0
-        assert searcher.count('region=nonexistentregion') == 0
+            searcher.count(QSQ('*', 'badfield'))
 
 
 def test_searching_nps_no_text_update():
@@ -242,9 +221,8 @@ def test_searching_nps_no_text_update():
             index.add_document(update_index=False, respondant=row[0], region=row[1], nps=row[6])
         index.reindex(update_only=True)
         searcher = index.searcher()
-
-        assert searcher.count('respondant = 1') == 1
-        assert searcher.count('region = Chr*') == 878  # Previous test gets 1399 for this because of text frame splits.
+        assert searcher.count(QSQ('respondant = 1')) == 1
+        assert searcher.count(QSQ('region = Chr*')) == 878
 
 
 def test_no_data_by_circumstance():
@@ -257,8 +235,7 @@ def test_no_data_by_circumstance():
             index.add_document(update_index=False, respondant=row[0], region=row[1], nps=row[6])
         index.reindex(update_only=True)
         searcher = index.searcher()
-
-        assert searcher.count('*') == 0
+        assert searcher.count(QSQ('*')) == 0
 
 
 def test_searching_reserved_words():
@@ -267,17 +244,12 @@ def test_searching_reserved_words():
         index = Index.create(schema.Schema(text=schema.TEXT(analyser=DefaultAnalyser(stopword_list=[]))))
         index.add_document(text=data, frame_size=2)
         index.fold_term_case()
-        index.run_plugin(InfluenceAnalyticsPlugin, influence_factor_smoothing=False)
-        index.run_plugin(InfluenceTopicsPlugin)
-
         searcher = index.searcher()
 
-        # Unescaped reserved word
-        with pytest.raises(QueryError):
-            searcher.count('topic:and')
-        with pytest.raises(QueryError):
-            searcher.count('and')
+        assert searcher.count(QSQ('"and"')) == len(index.get_term_positions('and')) == 474
+        assert searcher.count(QSQ('"or"')) == 0
+        assert searcher.count(QSQ('"not"')) == 117
 
-        assert searcher.count('"and"') == len(index.get_term_positions('and')) == 474
-        assert searcher.count('"or"') == 0
-        assert searcher.count('"not"') == 117
+        with pytest.raises(QueryError):
+            # Unescaped reserved word
+            searcher.count(QSQ('and'))
