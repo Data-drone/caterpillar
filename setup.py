@@ -34,6 +34,7 @@ setup(
         'caterpillar.processing.analysis',
         'caterpillar.resources',
         'caterpillar.searching',
+        'caterpillar.searching.query',
     ],
     package_data={
         'caterpillar': ['resources/*.txt'],
