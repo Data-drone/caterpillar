@@ -29,7 +29,6 @@ setup(
     version='1.0.0alpha',
     packages=[
         'caterpillar',
-        'caterpillar.analytics',
         'caterpillar.data',
         'caterpillar.processing',
         'caterpillar.processing.analysis',
