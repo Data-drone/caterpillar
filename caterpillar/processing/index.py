@@ -1286,8 +1286,8 @@ class DerivedIndex(Index):
         self.reindex()
         data_storage.set_container_item(Index.INFO_CONTAINER, 'derived', json.dumps(True))
 
-    @staticmethod
-    def create_from_composite_query(index_queries, path=None, storage_cls=SqliteMemoryStorage, **args):
+    @classmethod
+    def create_from_composite_query(cls, index_queries, path=None, storage_cls=SqliteMemoryStorage, **args):
         """
         Create a new ``DerivedIndex`` from an arbitrary number of index queries. Stores the fact that this index is a
         derived index in `Index.INFO_CONTAINER`.
