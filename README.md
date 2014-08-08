@@ -64,4 +64,7 @@ Anyone who is willing! In other words none yet, but we are more then accepting o
 Contributing
 ============
 Not code will be merged unless it has 100% test coverage and passes pep8. We code with a line length of 120 characters 
-and we use [py.test](http://pytest.org/) for testing. Tests are in a *test* sub-folder in each package.
+(see tox.ini [pep8] section) and we use [py.test](http://pytest.org/) for testing. Tests are in a *test* sub-folder in 
+each package. We generally run coverage as follows:
+
+    coverage erase; coverage run --source caterpillar -m py.test -v caterpillar; coverage report
