@@ -1,5 +1,6 @@
 # Copyright (c) 2012-2014 Kapiche Limited
 # Author: Kris Rogers <kris@mammothlabs.com.au>, Ryan Stuart <ryan@kapiche.com>
+"""Tests for caterpillar.storage.sqlite.py."""
 import os
 import shutil
 import tempfile

@@ -34,10 +34,10 @@ Documents can be added to an index using an :class:`.IndexWriter`. Data can be r
 number of ``IndexReader``s active for an index.
 
 The type of index stored by caterpillar is different from those stored by regular information retrieval libraries (like
-Lucene for example). Caterpillar is designed to text analytics as well as information retrieval. One side affect of this
-is that caterpillar breaks documents down into *frames*. Breaking documents down into smaller parts (or context blocks)
-enables users to implement their own statistical methods for analysing text. Frames are a configurable component. See
-:class:`.IndexWriter` for more information.
+Lucene for example). Caterpillar is designed for text analytics as well as information retrieval. One side affect of
+this is that caterpillar breaks documents down into *frames*. Breaking documents down into smaller parts (or context
+blocks) enables users to implement their own statistical methods for analysing text. Frames are a configurable
+component. See :class:`.IndexWriter` for more information.
 
 Here is a quick example:
 
@@ -107,9 +107,9 @@ class IndexConfig(object):
     Stores configuration information about an index.
 
     This object is a core part of any index. It is serialised and stored with every index so that an index can be
-    opened. It tells an :class:`.IndexWriter` and :class:`.IndexReader` what type of storage class to use via
-    ``storage_cls`` (must be a subclass of :class:`Storage <caterpillar.storage.Storage>`) and its structure via
-    ``schema`` (an instance of :class:`Schema <caterpillar.processing.schema.Schema>`).
+    opened. It tells an :class:`IndexWriter` and :class:`IndexReader` what type of storage class to use via
+    ``storage_cls`` (must be a subclass of :class:`Storage <caterpillar.storage.Storage>`) and structure of the index
+    via ``schema`` (an instance of :class:`Schema <caterpillar.processing.schema.Schema>`).
 
     In the interest of future proofing this object, it will also store a ``version`` number with itself so that
     older/new version have the best possible chance at opening indexes.
@@ -156,7 +156,7 @@ class IndexConfig(object):
             return instance
 
     def dumps(self):
-        """Dump this instance a sa string for serialization."""
+        """Dump this instance as a string for serialization."""
         return pickle.dumps(self)
 
 
@@ -218,7 +218,6 @@ class IndexWriter(object):
     DOCUMENTS_CONTAINER = "documents"
     FRAMES_CONTAINER = "frames"
     SETTINGS_CONTAINER = "settings"
-    SETTINGS_SCHEMA = "schema"
     INFO_CONTAINER = "info"
     ASSOCIATIONS_CONTAINER = "associations"
     FREQUENCIES_CONTAINER = "frequencies"
@@ -235,10 +234,10 @@ class IndexWriter(object):
         """
         Open an existing index for writing or create a new index for writing.
 
-        If ``path`` (str) doesn't exist and ``config`` is not None, then a new index is created. Otherwise,
-        :exc:`IndexNotFoundError` is raised.
+        If ``path`` (str) doesn't exist and ``config`` is not None, then a new index will created when :meth:`begin` is
+        called (after the lock is acquired. Otherwise, :exc:`IndexNotFoundError` is raised.
 
-        If present, ``config`` (IndexConfig) must be an instance of :class:`.IndexConfig`.
+        If present, ``config`` (IndexConfig) must be an instance of :class:`IndexConfig`.
 
         """
         self._path = path
@@ -246,40 +245,17 @@ class IndexWriter(object):
             # Index path doesn't exist and no schema passed
             raise IndexNotFoundError('No index exists at {}'.format(path))
         elif config and not os.path.exists(path):
+            # Index doesn't exist. Delay creating until we have the lock in begin().
             self.__config = config
             self.__schema = config.schema
-            os.makedirs(path)
-            # Store config
-            with open(os.path.join(path, IndexWriter.CONFIG_FILE), 'w') as f:
-                f.write(config.dumps())
-            # Initialize storage
-            storage = config.storage_cls(path, create=True)
-            # Need to create the containers
-            storage.begin()
-            storage.add_container(IndexWriter.DOCUMENTS_CONTAINER)
-            storage.add_container(IndexWriter.FRAMES_CONTAINER)
-            storage.add_container(IndexWriter.SETTINGS_CONTAINER)
-            storage.add_container(IndexWriter.INFO_CONTAINER)
-            storage.add_container(IndexWriter.POSITIONS_CONTAINER)
-            storage.add_container(IndexWriter.ASSOCIATIONS_CONTAINER)
-            storage.add_container(IndexWriter.FREQUENCIES_CONTAINER)
-            storage.add_container(IndexWriter.METADATA_CONTAINER)
-            # Index settings
-            storage.set_container_item(IndexWriter.INFO_CONTAINER, 'derived', json.dumps(False))
-            # Revision
-            storage.set_container_item(IndexWriter.INFO_CONTAINER, 'revision',
-                                       json.dumps(random.SystemRandom().randint(0, 10**10)))
-            storage.commit()
-            # And finally the instance storage
-            self.__storage = config.storage_cls(path, create=False)
+            self.__storage = None
         else:
             # Fetch the config
             with open(os.path.join(path, IndexWriter.CONFIG_FILE), 'r') as f:
                 self.__config = IndexConfig.loads(f.read())
             self.__storage = self.__config.storage_cls(path, create=False)
             self.__schema = self.__config.schema
-
-        self.__lock = PIDLockFile(os.path.join(self._path, 'writer'))
+            self.__lock = None  # Should declare in __init__ and not outside.
         self.__committed = False
         # Internal index buffers we will update when flush() is called.
         self.__new_frames = {}
@@ -302,18 +278,47 @@ class IndexWriter(object):
         """
         Acquire the write lock and begin the transaction.
 
-        If ``timeout``(int) is omitted (or None), wait forever trying to lock the file. If ``timeout`` > 0, try to
-        acquire the lock for that many seconds.  If the lock period expires and the lock hasn't been acquired raise
-        `IndexWriteLockedError`. If timeout <= 0, raise `IndexWriteLockedError` immediately if the lock can't be
-        acquired.
+        If this index has yet to be created, create it (folder and storage). If ``timeout``(int) is omitted (or None),
+        wait forever trying to lock the file. If ``timeout`` > 0, try to acquire the lock for that many seconds. If the
+        lock period expires and the lock hasn't been acquired raise :exc:`IndexWriteLockedError`. If timeout <= 0,
+        raise :exc:`IndexWriteLockedError` immediately if the lock can't be acquired.
 
         """
+        created = os.path.exists(self._path)
+        if not created:
+            os.makedirs(self._path)
+        self.__lock = PIDLockFile(os.path.join(self._path, 'writer'))
         try:
             self.__lock.acquire(timeout=timeout)
         except (AlreadyLocked, LockTimeout):
             raise IndexWriteLockedError('Index {} is locked for writing'.format(self._path))
         else:
             logger.debug("Index write lock acquired for {}".format(self._path))
+            if not created:
+                # Store config
+                with open(os.path.join(self._path, IndexWriter.CONFIG_FILE), 'w') as f:
+                    f.write(self.__config.dumps())
+                # Initialize storage
+                storage = self.__config.storage_cls(self._path, create=True)
+                # Need to create the containers
+                storage.begin()
+                storage.add_container(IndexWriter.DOCUMENTS_CONTAINER)
+                storage.add_container(IndexWriter.FRAMES_CONTAINER)
+                storage.add_container(IndexWriter.SETTINGS_CONTAINER)
+                storage.add_container(IndexWriter.INFO_CONTAINER)
+                storage.add_container(IndexWriter.POSITIONS_CONTAINER)
+                storage.add_container(IndexWriter.ASSOCIATIONS_CONTAINER)
+                storage.add_container(IndexWriter.FREQUENCIES_CONTAINER)
+                storage.add_container(IndexWriter.METADATA_CONTAINER)
+                # Index settings
+                storage.set_container_item(IndexWriter.INFO_CONTAINER, 'derived', json.dumps(False))
+                # Revision
+                storage.set_container_item(IndexWriter.INFO_CONTAINER, 'revision',
+                                           json.dumps(random.SystemRandom().randint(0, 10**10)))
+                storage.commit()
+            if not self.__storage:
+                # This is a create or the index was created after this writer was opened.
+                self.__storage = self.__config.storage_cls(self._path, create=False)
             self.__storage.begin()
 
     def flush(self):
@@ -527,9 +532,8 @@ class IndexWriter(object):
             logger.info('IndexWriter transaction wasn\'t committed, rolling back....')
             self.rollback()
         # Release the lock
-        if self.__lock.i_am_locking():
-            logger.debug("Releasing index write lock for {}....".format(self._path))
-            self.__lock.release()
+        logger.debug("Releasing index write lock for {}....".format(self._path))
+        self.__lock.release()
         # Close the storage connection
         self.__storage.close()
         self.__storage = None
@@ -546,7 +550,7 @@ class IndexWriter(object):
             Because we always store a full positional index with each index, we are still able to do document level
             searches like TF/IDF even though we have broken the text down into frames. So, don't fret!
 
-        ``encoding`` (str) and ``encoding_errors`` (bool) are passed directly to :meth:`str.decode()` to decode the data
+        ``encoding`` (str) and ``encoding_errors`` (str) are passed directly to :meth:`str.decode()` to decode the data
         for all :class:`TEXT <caterpillar.schema.TEXT>` fields. Refer to its documentation for more information.
 
         ``**fields`` is the fields and their values for this document. Calling this method will look something like
@@ -564,7 +568,7 @@ class IndexWriter(object):
         Returns the id (str) of the document added.
 
         Internally what is happening here is that a document is broken up into its fields and a mini-index of the
-        document is generated and stored with out buffers for writing out later.
+        document is generated and stored with our buffers for writing out later.
 
         """
         logger.debug('Adding document')
@@ -817,7 +821,7 @@ class IndexWriter(object):
                     self._merge_terms_into_ngram(old_term, new_term, associations_index, positions_index,
                                                  frequencies_index, frames)
                 count += 1
-            except TermNotFoundError as e:
+            except TermNotFoundError:
                 logger.exception('One of the terms doesn\'t exist in the index!')
 
         # Update indexes
@@ -1226,7 +1230,7 @@ class IndexReader(object):
         Term associations for this Index.
 
         This is used to record when two terms co-occur in a document. Be aware that only 1 co-occurrence for two terms
-        is recorded per document not matter the frequency of each term. The format is as follows::
+        is recorded per document no matter the frequency of each term. The format is as follows::
 
             {
                 term: {
@@ -1250,7 +1254,7 @@ class IndexReader(object):
         """
         Term frequencies for this index.
 
-        Be aware that a terms frequency is only incremented by 1 per frame not matter the frequency within that
+        Be aware that a terms frequency is only incremented by 1 per frame no matter the frequency within that
         frame. The format is as follows::
 
             {
@@ -1272,7 +1276,7 @@ class IndexReader(object):
         return json.loads(self.__storage.get_container_item(IndexWriter.FREQUENCIES_CONTAINER, term))
 
     def get_frame_count(self):
-        """Return the count of frames stored on this index."""
+        """Return the int count of frames stored on this index."""
         return self.__storage.get_container_len(IndexWriter.FRAMES_CONTAINER)
 
     def get_frame(self, frame_id):
@@ -1304,12 +1308,12 @@ class IndexReader(object):
         for f_id in self.__storage.get_container_keys(IndexWriter.FRAMES_CONTAINER):
             yield f_id
 
-    def get_document(self, d_id):
-        """Returns the document with the given ``d_id`` (str) as a dict."""
+    def get_document(self, document_id):
+        """Returns the document with the given ``document_id`` (str) as a dict."""
         try:
-            return json.loads(self.__storage.get_container_item(IndexWriter.DOCUMENTS_CONTAINER, d_id))
+            return json.loads(self.__storage.get_container_item(IndexWriter.DOCUMENTS_CONTAINER, document_id))
         except KeyError:
-            raise DocumentNotFoundError("No document '{}'".format(d_id))
+            raise DocumentNotFoundError("No document '{}'".format(document_id))
 
     def get_document_count(self):
         """Returns the int count of documents added to this index."""
@@ -1434,7 +1438,7 @@ def find_bi_gram_words(frames, min_bi_gram_freq=3, min_bi_gram_coverage=0.65):
     uni_gram_frequencies = nltk.probability.FreqDist()
     bi_gram_analyser = PotentialBiGramAnalyser()
     sentence_tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
-    for frame_id, frame in frames:
+    for _, frame in frames:
         for sentence in sentence_tokenizer.tokenize(frame['_text'], realign_boundaries=True):
             terms_seen = set()
             for token_list in bi_gram_analyser.analyse(sentence):

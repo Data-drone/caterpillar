@@ -57,9 +57,7 @@ class PIDLockFile(object):
     **WARNING** This is **NOT** a reentrant lock!
     """
     def __init__(self, path):
-        """
-        Create a new lock of file at ``path`` and default timeout of ``timeout``.
-        """
+        """Create a new lock of file at ``path``."""
         self.path = os.path.abspath(path) + ".lock"
         self.lock_file = os.path.abspath(path) + ".lock"
         self.hostname = socket.gethostname()
@@ -164,7 +162,7 @@ class PIDLockFile(object):
 
     @staticmethod
     def _write_pid_to_pidfile(pidfile_path):
-        """Write the current pid to the pidfile at ``pidfile_path``."""
+        """Write the current PID to the pidfile at ``pidfile_path``."""
         open_flags = (os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         open_mode = 0o644
         pidfile_fd = os.open(pidfile_path, open_flags, open_mode)

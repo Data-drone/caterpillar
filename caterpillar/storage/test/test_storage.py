@@ -1,5 +1,6 @@
 # Copyright (c) 2012-2014 Kapcihe Limited
 # Author: Ryan Stuart <ryan@kapiche.com>
+"""Test for caterpillar.storage.__init__.py"""
 from caterpillar import abstract_method_tester
 from caterpillar.storage import Storage
 

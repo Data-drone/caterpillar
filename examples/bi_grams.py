@@ -1,6 +1,8 @@
 # Copyright (c) 2012-2014 Kapiche Limited
 # Author: Ryan Stuart <ryan@kapiche.com>
+"""Print out the bi_grams present in caterpillar/test_resources/alice.txt in a pretty format."""
 import os
+import json
 import shutil
 import tempfile
 
@@ -18,6 +20,7 @@ try:
         # What are the bigrams?
         with IndexReader(index_dir) as reader:
             bi_grams = find_bi_gram_words(reader.get_frames())
+            print json.dumps(bi_grams, indent=4)
 finally:
     shutil.rmtree(path)
 

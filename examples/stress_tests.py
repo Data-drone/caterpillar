@@ -1,5 +1,9 @@
 # Copyright (c) 2012-2014 Kapiche Limited
 # Author: Kris Rogers <kris@kapiche.com>, Ryan Stuart <ryan@kapiche.com>
+"""
+Index a bunch of big data-sets plus do some case folding and merges.
+
+"""
 import csv
 import os
 import shutil

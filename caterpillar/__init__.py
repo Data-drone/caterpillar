@@ -2,6 +2,7 @@
 # Author: Ryan Stuart <ryan@kapiche.com>
 import os
 
+
 version_file = open(os.path.join(os.path.dirname(__file__), 'VERSION'), 'r')
 full_version = version_file.read().strip().split('-')
 version_file.close()

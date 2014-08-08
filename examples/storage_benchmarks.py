@@ -1,5 +1,10 @@
-# Copyright (c) Kapiche
+# Copyright (c) 2012-2014 Kapiche
 # Author: Kris Rogers <kris@kapiche.com>, Ryan Stuart <ryan@kapiche.com>
+"""
+Print the amount of time in seconds to insert 1000 documents (rows from caterpillar/test_resources/nps_medium.csv)
+then dump out profile statistics to storage_benchmarks.profile.
+
+"""
 import csv
 import os
 import shutil

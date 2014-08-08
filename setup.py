@@ -53,7 +53,7 @@ setup(
     install_requires=requires,
     tests_require=['tox', 'pytest', 'coverage', 'pep8'],
     cmdclass={'test': Tox},
-    author='Ryan Stuart',
+    author='Kapiche',
     author_email='contact@kapiche.com',
     description='Text retrieval and analytics engine.'
 )

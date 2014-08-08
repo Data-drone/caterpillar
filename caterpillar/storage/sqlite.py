@@ -1,5 +1,11 @@
 # Copyright (c) 2012-2014 Kapiche Limited
 # Author: Kris Rogers <kris@kapiche.com>, Ryan Stuart <ryan@kapiche.com>
+"""
+An sqlite implementation of :class:`caterpillar.storage.Storage`.
+
+The only class is :class:`.SqliteStorage` which uses sqlite in WAL mode to achieve reader/writer isolation.
+
+"""
 import logging
 import os
 
@@ -30,7 +36,7 @@ class SqliteStorage(Storage):
         Initialise a new instance of this storage at ``path`` (str).
 
         If ``create`` (bool) is False and path doesn't exist then a :exc:`StorageNotFoundError` is raised. Otherwise,
-        if create is True then we create the database if it doesn't already exist.
+        if ``create`` is True then we create the database if it doesn't already exist.
 
         If ``create`` is True and the DB already exist, then :exc:`DuplicateStorageError` is raised.
 

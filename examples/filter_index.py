@@ -1,6 +1,6 @@
 # Copyright (c) 2012-2014 Kapiche Limited
 # Author: Ryan Stuart<ryan@kapiche.com>
-""" Create an index then run a filter."""
+"""Create an index then run a filter, printing the number of frames that match the filter."""
 import csv
 import os
 import shutil

@@ -38,8 +38,12 @@ def test_index_open(index_dir):
         try:
             with pytest.raises(IndexNotFoundError):
                 IndexWriter(new_dir, IndexConfig(SqliteStorage, Schema(text=TEXT)))
+                IndexReader(new_dir)  # begin() was never called on the writer
+            with pytest.raises(IndexNotFoundError):
+                with IndexWriter(new_dir, IndexConfig(SqliteStorage, Schema(text=TEXT))) as writer:
+                    pass
                 os.remove(os.path.join(new_dir, "storage.db"))
-                IndexReader(new_dir)
+                IndexReader(new_dir)  # begin() was never called on the writer
         finally:
             shutil.rmtree(path)
 
@@ -261,6 +265,9 @@ def test_index_alice_merge_bigram(index_dir):
             # Verify indexes match
             with IndexReader(merge_index) as merges, IndexReader(bigram_index) as bigrams:
                 # Frequencies
+                assert bigrams.get_term_frequency('golden key') == 6
+                assert bigrams.get_term_frequency('golden') == 1
+                assert bigrams.get_term_frequency('key') == 3
                 merge_frequencies = {k: v for k, v in merges.get_frequencies()}
                 for term, frequency in bigrams.get_frequencies():
                     assert merge_frequencies[term] == frequency
@@ -478,13 +485,15 @@ def test_index_encoding(index_dir):
 
 def test_index_state(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/detractors.csv'), 'rbU') as f:
-        writer = IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT)))
+        csv_reader = csv.reader(f)
+        with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT))) as writer:
+            row = csv_reader.next()
+            writer.add_document(text=row[0])
 
         with IndexReader(index_dir) as reader:
             start_revision = reader.get_revision()
 
         with writer:
-            csv_reader = csv.reader(f)
             doc_ids = []
             for row in csv_reader:
                 doc_ids.append(writer.add_document(text=row[0]))

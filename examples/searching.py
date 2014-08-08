@@ -1,10 +1,14 @@
 # Copyright (c) 2012-2014 Kapiche Limited
 # Author: Kris Rogers <kris@kapiche.com>, Ryan Stuart<ryan@kapiche.com>
+"""
+Create an index of alice then run the query 'W*e R?bbit and (thought or little^1.5)', printing the number of matches.
+
+"""
 import os
 import shutil
 import tempfile
-from caterpillar.processing.index import IndexWriter, IndexConfig, IndexReader
 
+from caterpillar.processing.index import IndexWriter, IndexConfig, IndexReader
 from caterpillar.processing.schema import TEXT, Schema
 from caterpillar.searching.query.querystring import QueryStringQuery
 from caterpillar.storage.sqlite import SqliteStorage
