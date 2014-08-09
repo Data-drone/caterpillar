@@ -51,7 +51,7 @@ setup(
     url='http://www.kapiche.com',
     license='Commercial',
     install_requires=requires,
-    tests_require=['tox', 'pytest', 'coverage', 'pep8'],
+    tests_require=['tox', 'pytest', 'coverage', 'pep8', 'mock'],
     cmdclass={'test': Tox},
     author='Kapiche',
     author_email='contact@kapiche.com',

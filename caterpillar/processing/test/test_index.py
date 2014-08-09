@@ -7,6 +7,7 @@ import csv
 import pickle
 import tempfile
 import shutil
+import mock
 
 import pytest
 
@@ -569,6 +570,9 @@ def test_index_writer_buffer_flush(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
         data = f.read()
         with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT))) as writer:
-            writer.add_document(text=data)
+            with mock.MagicMock(name='flush') as fake_flush:
+                writer.flush = fake_flush
+                writer.add_document(text=data)
+                fake_flush.assert_called_with()
 
     IndexWriter.RAM_BUFFER_SIZE = old_buffer

@@ -30,8 +30,8 @@ Caterpillar stores a number of sub-indexes:
     }
 
 Documents can be added to an index using an :class:`.IndexWriter`. Data can be read from an index using
-:class:`.IndexReader`. There can only ever be one ``IndexWriter`` active for an one index. There can be an unlimited
-number of ``IndexReader``s active for an index.
+:class:`.IndexReader`. There can only ever be one ``IndexWriter`` active per index. There can be an unlimited number of
+``IndexReader``s active per index.
 
 The type of index stored by caterpillar is different from those stored by regular information retrieval libraries (like
 Lucene for example). Caterpillar is designed for text analytics as well as information retrieval. One side affect of
