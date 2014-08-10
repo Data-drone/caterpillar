@@ -1,7 +1,5 @@
-# caterpillar: Tools for scoring search results.
-#
-# Copyright (C) 2012-2013 Mammoth Labs
-# Author: Kris Rogers <kris@mammothlabs.com.au>
+# Copyright (c) 2012-201 Kapiche Limited
+# Author: Kris Rogers <kris@kapiche.com>, Ryan Stuart <ryan@kapiche.com>
 import abc
 import math
 
@@ -55,7 +53,7 @@ class TfidfScorer(Scorer):
     """
     def __init__(self, index):
         self.num_frames = index.get_frame_count()
-        self.term_positions = index.get_positions_index()
+        self.term_positions = {k: v for k, v in index.get_positions_index()}
         super(TfidfScorer, self).__init__(index)
 
     def score_and_rank(self, hits, term_weights):

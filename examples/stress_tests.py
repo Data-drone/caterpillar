@@ -1,43 +1,53 @@
-# caterpillar - Some index stress testing examples.
-#
-# Copyright (C) 2012-2014 Mammoth Labs
-# Author: Kris Rogers <kris@kapiche.com>
+# Copyright (c) 2012-2014 Kapiche Limited
+# Author: Kris Rogers <kris@kapiche.com>, Ryan Stuart <ryan@kapiche.com>
+"""
+Index a bunch of big data-sets plus do some case folding and merges.
+
+"""
 import csv
+import os
+import shutil
+import tempfile
 
-from caterpillar.analytics.influence import InfluenceAnalyticsPlugin
-from caterpillar.processing.index import Index
-from caterpillar.processing.schema import TEXT, Schema, NUMERIC
+from caterpillar.processing.index import IndexConfig, IndexWriter
+from caterpillar.processing.schema import TEXT, Schema
+from caterpillar.storage.sqlite import SqliteStorage
 
-# Big frames
-with open('examples/alice.txt', 'r') as file:
-    data = file.read()
-    text_index = Index.create(Schema(text=TEXT))
-    text_index.add_document(frame_size=0, fold_case=True, text=data)
 
-# Lots of frames, big vocabulary
-text_index = Index.create(Schema(text=TEXT))
-with open('caterpillar/test_resources/twitter_sentiment.csv', 'r') as file:
-    csv_reader = csv.reader(file)
-    csv_reader.next()  # Skip header
-    for row in csv_reader:
-        text_index.add_document(update_index=False, text=row[1])
-with open('caterpillar/test_resources/promoters.csv', 'r') as file:
-    csv_reader = csv.reader(file)
-    csv_reader.next()  # Skip header
-    for row in csv_reader:
-        text_index.add_document(update_index=False, text=row[0])
-with open('caterpillar/test_resources/detractors.csv', 'r') as file:
-    csv_reader = csv.reader(file)
-    csv_reader.next()  # Skip header
-    for row in csv_reader:
-        text_index.add_document(update_index=False, text=row[0])
-with open('caterpillar/test_resources/moby.txt', 'r') as file:
-    data = file.read()
-    text_index.add_document(fold_case=True, text=data)
-with open('caterpillar/test_resources/alice.txt', 'r') as file:
-    data = file.read()
-    text_index.add_document(fold_case=True, text=data)
-text_index.reindex()
-# Run the influence plugin
-text_index.run_plugin(InfluenceAnalyticsPlugin)
-influence_factors = InfluenceAnalyticsPlugin(text_index).get_influence_factors_table()
+path = tempfile.mkdtemp()
+try:
+    # Big frames
+    index_dir = os.path.join(path, "big_frames")
+    with open('caterpillar/test_resources/alice.txt', 'r') as f:
+        data = f.read()
+        with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT))) as writer:
+            writer.add_document(frame_size=0, text=data)
+
+    # Lots of frames, big vocabulary
+    index_dir = os.path.join(path, "memory")
+    with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT))) as writer:
+        with open('caterpillar/test_resources/twitter_sentiment.csv', 'r') as f:
+            csv_reader = csv.reader(f)
+            csv_reader.next()  # Skip header
+            for row in csv_reader:
+                writer.add_document(text=row[1])
+        with open('caterpillar/test_resources/promoters.csv', 'r') as f:
+            csv_reader = csv.reader(f)
+            csv_reader.next()  # Skip header
+            for row in csv_reader:
+                writer.add_document(text=row[0])
+        with open('caterpillar/test_resources/detractors.csv', 'r') as f:
+            csv_reader = csv.reader(f)
+            csv_reader.next()  # Skip header
+            for row in csv_reader:
+                writer.add_document(text=row[0])
+        with open('caterpillar/test_resources/moby.txt', 'r') as f:
+            data = f.read()
+            writer.add_document(text=data)
+        with open('caterpillar/test_resources/alice.txt', 'r') as f:
+            data = f.read()
+            writer.add_document(text=data)
+        writer.fold_term_case()
+finally:
+    shutil.rmtree(path)
+

@@ -1,4 +1,4 @@
-# Copyright (C) Kapiche
+# Copyright (c) 2012-2014 Kapiche Limited
 # Author: Kris Rogers <kris@kapiche.com>
 """
 This module supports all basic querying functionality in query string format, which is exposed through the
@@ -23,10 +23,8 @@ Field Equality:
 
 """
 import regex
+from lrparsing import Grammar, ParseError, Prio, Ref, Repeat, Token, Tokens
 
-from lrparsing import Grammar, Keyword, ParseError, Prio, Ref, Repeat, Token, Tokens
-
-from caterpillar.processing import schema
 from caterpillar.searching.query import BaseQuery, QueryError, QueryResult
 
 
@@ -41,11 +39,11 @@ class QueryStringQuery(BaseQuery):
         self.query_str = query_str
         self.text_field = text_field
 
-    def evaluate(self, index):
-        frame_ids, term_weights = _QueryStringParser(index).parse_and_evaluate(self.query_str)
+    def evaluate(self, index_reader):
+        frame_ids, term_weights = _QueryStringParser(index_reader).parse_and_evaluate(self.query_str)
         if self.text_field is not None:
             # Restrict for text field
-            metadata = index.get_metadata()
+            metadata = {k: v for k, v in index_reader.get_metadata()}
             if self.text_field not in metadata:
                 raise QueryError("Specified text field {} doesn't exist".format(self.text_field))
             frame_ids.intersection_update(set(metadata[self.text_field]['_text']))
@@ -61,8 +59,8 @@ class _QueryStringParser(object):
     def __init__(self, index):
         self.index = index
         self.schema = index.get_schema()
-        self.metadata = index.get_metadata()
-        self.terms = index.get_frequencies().keys()
+        self.metadata = {k: v for k, v in index.get_metadata()}
+        self.terms = [term for term, count in index.get_frequencies()]
 
     def __call__(self, node):
         """
@@ -129,10 +127,10 @@ class _QueryStringParser(object):
         except KeyError:
             raise QueryError("Invalid field name '{}'".format(field_name))
 
-        if not field.indexed():
+        if not field.indexed:
             raise QueryError("Non-indexed field '{}' cannot be searched".format(field_name))
 
-        if not field.categorical():
+        if not field.categorical:
             raise QueryError("Cannot use field comparison syntax for non-categorical field '{}'".format(field_name))
 
         # Categorical field

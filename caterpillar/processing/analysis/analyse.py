@@ -1,15 +1,10 @@
-# caterpillar: Tools to perform analysis of text streams (aka tokenizing and filtering)
-#
-# Copyright (C) 2012-2013 Mammoth Labs
-# Author: Ryan Stuart <ryan@mammothlabs.com.au>
-import logging
+# Copyright (c) 2012-2014 Kapiche Limited
+# Author: Ryan Stuart <ryan@kapiche.com>
+"""Tools to perform analysis of text streams (aka tokenizing and filtering)."""
 from caterpillar.processing.analysis import stopwords
 from caterpillar.processing.analysis.filter import StopFilter, PositionalLowercaseWordFilter, BiGramFilter, \
     PotentialBiGramFilter
 from caterpillar.processing.analysis.tokenize import WordTokenizer, EverythingTokenizer
-
-
-logger = logging.getLogger(__name__)
 
 
 class Analyser(object):

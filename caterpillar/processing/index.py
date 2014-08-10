@@ -1,488 +1,578 @@
-# caterpillar: Tools to create and store a text index
-#
-# Copyright (C) 2012-2013 Mammoth Labs
-# Author: Kris Rogers <kris@mammothlabs.com.au>, Ryan Stuart <ryan@mammothlabs.com.au>
+# Copyright (c) 2012-2014 Kapiche Limited
+# Author: Kris Rogers <kris@kapiche.com>, Ryan Stuart <ryan@kapiche.com>
+"""
+An index represents a collection of documents and associated information about those documents. When a document is added
+to an index using an :class:`.IndexWriter`, some or all of its fields will be analysed
+(see :mod:`caterpillar.processing.schema`) and information about those fields stored in various sub-indexes.
+Caterpillar stores a number of sub-indexes:
+
+* The frequencies index::
+    {
+        "term": count,
+        "term": count,
+        ...
+    }
+* The positions index (an inverted text index)::
+    {
+        "term": {
+            "frame_id": [(start, end), (start, end)],
+            ...
+        },
+        ...
+    }
+* The associations index::
+    {
+        term: {
+            other_term: count,
+            ...
+        },
+        ...
+    }
+
+Documents can be added to an index using an :class:`.IndexWriter`. Data can be read from an index using
+:class:`.IndexReader`. There can only ever be one ``IndexWriter`` active per index. There can be an unlimited number of
+``IndexReader``s active per index.
+
+The type of index stored by caterpillar is different from those stored by regular information retrieval libraries (like
+Lucene for example). Caterpillar is designed for text analytics as well as information retrieval. One side affect of
+this is that caterpillar breaks documents down into *frames*. Breaking documents down into smaller parts (or context
+blocks) enables users to implement their own statistical methods for analysing text. Frames are a configurable
+component. See :class:`.IndexWriter` for more information.
+
+Here is a quick example:
+
+    >>> from caterpillar.processing import index
+    >>> from caterpillar.processing import schema
+    >>> from caterpillar.storage.sqlite import SqliteStorage
+    >>> config = index.IndexConfig(SqliteStorage, schema.Schema(text=schema.TEXT))
+    >>> with index.IndexWriter('/tmp/test_index', config) as writer:
+    ...     writer.add_document(text="This is my text")...
+    '935ed96520ab44879a6e76195a9d7046'
+    >>> with index.IndexReader('/tmp/test_index') as reader:
+    ...     reader.get_document_count()
+    ...
+    1
 
 """
-All interactions with an index are handled by this module. In particular the `Index` class handles the creation and
-modification of an index including the recovery of an existing index. For combining two indexes together for the purpose
-of a statistical analysis (for example) you can use a `DerivedIndex`. This module also provides a utility method called
-`find_bi_gram_words()` for detecting a list of bi-grams from a piece of text.
 
-"""
+from __future__ import absolute_import, division
 
-from __future__ import division
-import os
-import random
-import ujson as json
 import logging
+import os
+import pickle
+import random
+import sys
+import ujson as json
 import uuid
 
 import nltk
 
-from caterpillar.data.storage import DuplicateContainerError, StorageNotFoundError
-from caterpillar.data.sqlite import SqliteMemoryStorage
+from caterpillar import VERSION
+from caterpillar.locking import PIDLockFile, LockTimeout, AlreadyLocked
 from caterpillar.processing.analysis.analyse import PotentialBiGramAnalyser
 from caterpillar.processing.analysis.tokenize import ParagraphTokenizer, Token
-from caterpillar.processing.schema import Schema
-from caterpillar.searching import IndexSearcher
-from caterpillar.searching.scoring import TfidfScorer
+from caterpillar.searching import TfidfScorer, IndexSearcher
+from caterpillar.storage import StorageNotFoundError, DuplicateContainerError
 
 
 logger = logging.getLogger(__name__)
 
 
-class DocumentNotFoundError(Exception):
+class CaterpillarIndexError(Exception):
+    """Common base class for index errors."""
+
+
+class DocumentNotFoundError(CaterpillarIndexError):
     """No document by that name exists."""
 
 
-class SettingNotFoundError(Exception):
+class SettingNotFoundError(CaterpillarIndexError):
     """No setting by that name exists."""
 
 
-class IndexNotFoundError(Exception):
+class IndexNotFoundError(CaterpillarIndexError):
     """No index exists at specified location."""
 
 
-class TermNotFoundError(Exception):
+class TermNotFoundError(CaterpillarIndexError):
     """Term doesn't exist in index."""
 
 
-class Index(object):
+class IndexWriteLockedError(CaterpillarIndexError):
+    """There is already an existing writer for this index."""
+
+
+class IndexConfig(object):
     """
-    An index of all the text within a data set; holds statistical information to be used in retrieval and analytics.
+    Stores configuration information about an index.
 
-    Required Arguments:
-    schema -- a ``schema.Schema`` instance that describes the structure of documents that reside in this index.
-    data_storage -- a ``data.storage.Storage`` instance that will be used to write and read document, frame and config
-    data.
-    results_storage -- a ``data.storage.Storage`` instance that will be used to write and read processing results.
+    This object is a core part of any index. It is serialised and stored with every index so that an index can be
+    opened. It tells an :class:`IndexWriter` and :class:`IndexReader` what type of storage class to use via
+    ``storage_cls`` (must be a subclass of :class:`Storage <caterpillar.storage.Storage>`) and structure of the index
+    via ``schema`` (an instance of :class:`Schema <caterpillar.processing.schema.Schema>`).
+
+    In the interest of future proofing this object, it will also store a ``version`` number with itself so that
+    older/new version have the best possible chance at opening indexes.
+
+    This class might be extended later to store other things.
 
     """
+    def __init__(self, storage_cls, schema):
+        self._storage_cls = storage_cls
+        self._schema = schema
+        self._version = VERSION
 
-    # Data storage
-    DATA_STORAGE = "data.db"
+    @property
+    def storage_cls(self):
+        return self._storage_cls
+
+    @property
+    def schema(self):
+        return self._schema
+
+    @schema.setter
+    def schema(self, schema):
+        self._schema = schema
+
+    @property
+    def version(self):
+        return self._version
+
+    @staticmethod
+    def loads(data):
+        """
+        Create an instance of this class from a string generated via :meth:`.dumps`.
+
+        Raises :exc:`ValueError` if the ``data`` (str) can't be parsed into an instance of ``IndexConfig``.
+
+        """
+        try:
+            instance = pickle.loads(data)
+            if not isinstance(instance, IndexConfig):
+                raise ValueError('The passed data couldn\'t be parsed.')
+        except Exception:
+            raise ValueError('The passed data couldn\'t be parsed.')
+        else:
+            return instance
+
+    def dumps(self):
+        """Dump this instance as a string for serialization."""
+        return pickle.dumps(self)
+
+
+class IndexWriter(object):
+    """
+    Write to an existing index or create a new index and write to it.
+
+    An instance of an ``IndexWriter`` represents a transaction. To begin the transaction, you need to call
+    :meth:`.begin` on this writer. There can only be one active IndexWriter transaction per index. This is enforced
+    via a write lock on the index. When you begin the write transaction the IndexWriter instance tries to acquire the
+    write lock. By default it will block indefinitely until it gets the write lock but this can be overridden using the
+    ``timeout`` argument to `begin()`. If `begin()` times-out when trying to get a lock, then
+    :exc:`IndexWriteLockedError` is raised.
+
+    Writes to an index are internally buffered until they reach :const:`IndexWriter.RAM_BUFFER_MB` when `flush()` is
+    called. Alternatively a caller is free to call flush whenever they like. Calling flush will take any in-memory
+    writes recorded by this class and write them to the underlying storage object using the methods it provides.
+
+    .. note::
+        The behaviour of `flush()` depends on the underlying :class:`Storage <chrysalis.data.storage.Storage>`
+        implementation used. Some implementations might just record the writes in memory. Consult the specific storage
+        type for more information.
+
+    Once you have performed all the writes/deletes you like you need to call :meth:`.commit` to finalise the
+    transaction. Alternatively, if there was a problem during your transaction, you can call :meth:`.rollback` instead
+    to revert any changes you made using this writer. **IMPORTANT** - Finally, you need to call :meth:`.close` to
+    release the lock.
+
+    Using IndexWriter this way should look something like this:
+
+        >>> writer = IndexWriter('/some/path/to/an/index')
+        >>> try:
+        ...     writer.begin(timeout=2)  # timeout in 2 seconds
+        ...     # Do stuff, like add_document(), flush() etc...
+        ...     writer.commit()  # Write the changes (calls flush)...
+        ... except IndexWriteLockedError:
+        ...     # Do something else, maybe try again
+        ... except SomeOtherException:
+        ...     writer.rollback()  # Error occurred, undo our changes
+        ... finally:
+        ...     writer.close()  # Release lock
+
+    This class is also a context manager and so can be used via the with statement. **HOWEVER**, be aware that using
+    this class in a context manager will block indefinitely until the lock becomes available. Using the context manager
+    has the added benefit of calling ``commit()``/``rollback()`` (if an exception breaks the context) and ``close()`` \
+    for you automatically::
+
+        >>> writer = IndexWriter('/some/path/to/a/index')
+        >>> with writer:
+        ...     add_document(field="value")
+
+    Again, be warned that this will block until the write lock becomes available!
+
+    Finally, pay particular attention to the ``frame_size`` arguments of :meth:`.add_document`. This determines the size
+    of the frames the document will be broken up into.
+
+    """
+    # Static storage names
     DOCUMENTS_CONTAINER = "documents"
     FRAMES_CONTAINER = "frames"
     SETTINGS_CONTAINER = "settings"
-    SETTINGS_SCHEMA = "schema"
     INFO_CONTAINER = "info"
-
-    # Results storage
-    RESULTS_STORAGE = "results.db"
     ASSOCIATIONS_CONTAINER = "associations"
     FREQUENCIES_CONTAINER = "frequencies"
     METADATA_CONTAINER = "metadata"
     POSITIONS_CONTAINER = "positions"
 
-    def __init__(self, schema, data_storage, results_storage):
-        self._schema = schema
-        self._data_storage = data_storage
-        self._results_storage = results_storage
+    # How much data to buffer before a flush
+    RAM_BUFFER_SIZE = 100*1024*1024  # 100 MB
 
-        # Store schema
-        self._data_storage.set_container_item(Index.SETTINGS_CONTAINER, Index.SETTINGS_SCHEMA, schema.dumps())
-        # Set state
-        self.set_clean(True)
-        self.update_revision()
-        data_storage.set_container_item(Index.INFO_CONTAINER, 'derived', json.dumps(False))
+    # Where is the config?
+    CONFIG_FILE = "index.config"
 
-    @staticmethod
-    def create(schema, path=None, storage_cls=SqliteMemoryStorage, **args):
+    def __init__(self, path, config=None):
         """
-        Create a new index object with the specified path, schema and a instance of the passed storage class.
+        Open an existing index for writing or create a new index for writing.
 
-        Required Arguments:
-        schema -- the ``Schema`` for the index.
+        If ``path`` (str) doesn't exist and ``config`` is not None, then a new index will created when :meth:`begin` is
+        called (after the lock is acquired. Otherwise, :exc:`IndexNotFoundError` is raised.
 
-        Optional Arguments:
-        path -- path to store index data under. MUST be specified if persistent storage is used.
-        storage_cls -- the class to instantiate for the storage object. Defaults to ``SqliteMemoryStorage``.
-        The create() method will be called on this instance.
-        **args -- any keyword arguments that need to be passed onto the storage instance.
-        """
-        data_storage = storage_cls.create(Index.DATA_STORAGE, path=path, acid=True, containers=[
-            Index.DOCUMENTS_CONTAINER,
-            Index.FRAMES_CONTAINER,
-            Index.SETTINGS_CONTAINER,
-            Index.INFO_CONTAINER,
-        ], **args)
-        results_storage = storage_cls.create(Index.RESULTS_STORAGE, path=path, acid=False, containers=[
-            Index.POSITIONS_CONTAINER,
-            Index.ASSOCIATIONS_CONTAINER,
-            Index.FREQUENCIES_CONTAINER,
-            Index.METADATA_CONTAINER,
-        ], **args)
-        return Index(schema, data_storage, results_storage)
-
-    @staticmethod
-    def open(path, storage_cls):
-        """
-        Open an existing Index with the given path. Only supported for persistent storage backed Index.
-
-        Required Arguments:
-        path -- path to the stored Index.
-        storage_cls -- class to instantiate for the storage object. The open() method will be called on this object.
+        If present, ``config`` (IndexConfig) must be an instance of :class:`IndexConfig`.
 
         """
-        try:
-            data_storage = storage_cls.open(Index.DATA_STORAGE, path)
-            results_storage = storage_cls.open(Index.RESULTS_STORAGE, path)
-        except StorageNotFoundError:
-            raise IndexNotFoundError("No index exists at path '{}".format(path))
-        schema = Schema.loads(data_storage.get_container_item(Index.SETTINGS_CONTAINER, Index.SETTINGS_SCHEMA))
-        return Index(schema, data_storage, results_storage)
-
-    def destroy(self):
-        """
-        Permanently destroy this index.
-
-        """
-        self._data_storage.destroy()
-        self._results_storage.destroy()
-
-    def get_positions_index(self):
-        """
-        Returns a dict of term positions for this Index.
-
-        This is what is known as an inverted text index. Structure is as follows::
-
-        {
-            term: {
-                frame_id: [(start, end), (start, end)],
-                ...
-            },
-            ...
-        }
-
-        """
-        return {
-            k: json.loads(v)
-            for k, v in self._results_storage.get_container_items(Index.POSITIONS_CONTAINER).iteritems()
-        }
-
-    def get_term_positions(self, term):
-        """
-        Returns a dict of term positions for term.
-
-        This is what is known as an inverted text index. Structure is as follows::
-
-        {
-            frame_id1: [(start, end), (start, end)],
-            frame_id2: [(start, end), (start, end)],
-            ...
-        }
-
-        """
-        return json.loads(self._results_storage.get_container_item(Index.POSITIONS_CONTAINER, term))
-
-    def get_associations_index(self):
-        """
-        Returns a dict of term associations for this Index.
-
-        This is used to record when two terms co-occur in a document. Be aware that only 1 co-occurrence for two terms
-        is recorded per document not matter the frequency of each term. The format is as follows::
-
-        {
-            term: {
-                other_term: count,
-                ...
-            },
-            ...
-        }
-
-        """
-        return {
-            k: json.loads(v)
-            for k, v in self._results_storage.get_container_items(Index.ASSOCIATIONS_CONTAINER).iteritems()
-        }
-
-    def get_term_association(self, term, assc):
-        """
-        Returns a count of term associations between term and assc.
-
-        Required Arguments:
-        term -- the str term.
-        assc -- the str associated term.
-
-        """
-        return json.loads(self._results_storage.get_container_item(Index.ASSOCIATIONS_CONTAINER, term))[assc]
-
-    def get_frequencies(self):
-        """
-        Returns a dict of term frequencies for this Index.
-
-        Be aware that a terms frequency is only incremented by 1 per document not matter the frequency within that
-        document. The format is as follows::
-
-        {
-            term: count
-        }
-
-        """
-        return {
-            k: json.loads(v)
-            for k, v in self._results_storage.get_container_items(Index.FREQUENCIES_CONTAINER).iteritems()
-        }
-
-    def get_term_frequency(self, term):
-        """
-        Return the frequency of term as an int.
-
-        Required Arguments:
-        term -- the str term.
-
-        """
-        return json.loads(self._results_storage.get_container_item(Index.FREQUENCIES_CONTAINER, term))
-
-    def get_frame_count(self):
-        """
-        Return the count of frames stored on this index.
-
-        """
-        return self._data_storage.get_container_len(Index.FRAMES_CONTAINER)
-
-    def get_frame(self, frame_id):
-        """
-        Fetch a frame by frame_id.
-
-        Required Arguments:
-        frame_id -- the str id of the frame.
-
-        """
-        return json.loads(self._data_storage.get_container_item(Index.FRAMES_CONTAINER, frame_id))
-
-    def get_frames(self, frame_ids=None):
-        """
-        Fetch frames of this index.
-
-        Optional Arguments:
-        frame_ids -- a list of ids to filter frames by.
-
-        """
-        return {
-            k: json.loads(v)
-            for k, v in self._data_storage.get_container_items(Index.FRAMES_CONTAINER, keys=frame_ids).iteritems()
-        }
-
-    def get_frame_ids(self):
-        """
-        Return a list of ids for all frames stored on this index.
-
-        """
-        return self._data_storage.get_container_keys(Index.FRAMES_CONTAINER)
-
-    def get_document(self, d_id):
-        """
-        Returns the document with the given d_id as a dict.
-
-        Required Arguments:
-        d_id -- the string id of the document.
-
-        """
-        try:
-            return json.loads(self._data_storage.get_container_item(Index.DOCUMENTS_CONTAINER, d_id))
-        except KeyError:
-            raise DocumentNotFoundError("No document '{}'".format(d_id))
-
-    def get_document_count(self):
-        """
-        Returns the count of documents added to this index.
-
-        """
-        return len(self._data_storage.get_container_items(Index.DOCUMENTS_CONTAINER))
-
-    def get_documents(self):
-        """
-        Generator that yields all documents from this index as (key, value) tuples.
-
-        """
-        for k, v in self._data_storage.yield_container_items(Index.DOCUMENTS_CONTAINER):
-            yield (k, json.loads(v))
-
-    def get_metadata(self):
-        """
-        Returns index of metadata field -> value -> [frames].
-
-        """
-        return {
-            k: json.loads(v)
-            for k, v in self._results_storage.get_container_items(Index.METADATA_CONTAINER).iteritems()
-        }
-
-    def get_schema(self):
-        """
-        Get the schema for this index.
-
-        """
-        return self._schema
-
-    def set_schema(self, schema):
-        """
-        Update the schema for this index.
-
-        """
-        self._data_storage.set_container_item(Index.SETTINGS_CONTAINER, Index.SETTINGS_SCHEMA, schema.dumps())
-        self._schema = schema
-
-    def add_fields(self, **fields):
-        """
-        Add new fields to the schema.
-
-        All keyword arguments are treated as field name, field type pairs.
-
-        """
-        for name, value in fields.iteritems():
-            self._schema.add(name, value)
-        # Save updated schema to storage
-        self._data_storage.set_container_item(Index.SETTINGS_CONTAINER, Index.SETTINGS_SCHEMA, self._schema.dumps())
-
-    def get_revision(self):
-        """
-        Return the string revision identifier for this index.
-
-        The revision identifier is a version identifier. It gets updated every time the index gets changed.
-
-        """
-        return self._data_storage.get_container_item(Index.INFO_CONTAINER, 'revision')
-
-    def update_revision(self):
-        """
-        Updates the revision identifier for this index to reflect that the index has changed.
-
-        """
-        self._data_storage.set_container_item(Index.INFO_CONTAINER,
-                                              'revision', json.dumps(random.SystemRandom().randint(0, 10**10)))
-
-    def is_clean(self):
-        """
-        Returns whether this index is clean or not.
-
-        A clean index is one that is up-to-date. That is, all frames have been added to the index data structures.
-
-        """
-        return json.loads(self._data_storage.get_container_item(Index.INFO_CONTAINER, 'clean'))
-
-    def set_clean(self, clean=False):
-        """
-        Sets whether this index is clean or not.
-
-        """
-        self._data_storage.set_container_item(Index.INFO_CONTAINER, 'clean', clean)
-
-    def get_vocab_size(self):
-        """
-        Get total number of unique terms identified for this index.
-
-        """
-        return self._results_storage.get_container_len(Index.POSITIONS_CONTAINER)
-
-    def is_derived(self):
-        """
-        Return whether this index is derived.
-
-        """
-        return json.loads(self._data_storage.get_container_item(Index.INFO_CONTAINER, 'derived'))
-
-    def searcher(self, scorer_cls=TfidfScorer):
-        """
-        Return a searcher for this Index.
-
-        """
-        return IndexSearcher(self, scorer_cls)
-
-    def __sizeof__(self):
-        """
-        Get the size of this index in bytes.
-
-        This is a compromise. It isn't possible to get the size of an SQLite in memory index. So, instead, we assume
-        each frame is 10KB big. This was arrived at by looking at the size of the DB created after adding a large
-        document and dividing by the number of frames and rounding to the nearest 10KB.
-
-        If this index is using `SqliteStorage <caterpillar.data.sqlite.SqliteStorage>` then we just measure the size of
-        its on-disk DBs.
-
-        """
-        if not isinstance(self._data_storage, SqliteMemoryStorage):
-            data = os.path.getsize(self._data_storage.get_db_path())
-            results = os.path.getsize(self._results_storage.get_db_path())
-            return data + results
+        self._path = path
+        if not config and not os.path.exists(path):
+            # Index path doesn't exist and no schema passed
+            raise IndexNotFoundError('No index exists at {}'.format(path))
+        elif config and not os.path.exists(path):
+            # Index doesn't exist. Delay creating until we have the lock in begin().
+            self.__config = config
+            self.__schema = config.schema
+            self.__storage = None
         else:
-            return 10*1024*self.get_frame_count()
+            # Fetch the config
+            with open(os.path.join(path, IndexWriter.CONFIG_FILE), 'r') as f:
+                self.__config = IndexConfig.loads(f.read())
+            self.__storage = self.__config.storage_cls(path, create=False)
+            self.__schema = self.__config.schema
+            self.__lock = None  # Should declare in __init__ and not outside.
+        self.__committed = False
+        # Internal index buffers we will update when flush() is called.
+        self.__new_frames = {}
+        self.__new_documents = {}
+        self.__rm_frames = set()
+        self.__rm_documents = set()
 
-    def get_setting(self, name):
+    def __enter__(self):
+        self.begin()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if exc_type:
+            self.rollback()
+        else:
+            self.commit()
+        self.close()
+
+    def begin(self, timeout=None):
         """
-        Get a setting identified by name.
+        Acquire the write lock and begin the transaction.
 
-        Required Arguments:
-        name -- str name identifying the setting.
+        If this index has yet to be created, create it (folder and storage). If ``timeout``(int) is omitted (or None),
+        wait forever trying to lock the file. If ``timeout`` > 0, try to acquire the lock for that many seconds. If the
+        lock period expires and the lock hasn't been acquired raise :exc:`IndexWriteLockedError`. If timeout <= 0,
+        raise :exc:`IndexWriteLockedError` immediately if the lock can't be acquired.
 
         """
+        created = os.path.exists(self._path)
+        if not created:
+            os.makedirs(self._path)
+        self.__lock = PIDLockFile(os.path.join(self._path, 'writer'))
         try:
-            return json.loads(self._data_storage.get_container_item(Index.SETTINGS_CONTAINER, name))
-        except KeyError:
-            raise SettingNotFoundError("No setting '{}'".format(name))
+            self.__lock.acquire(timeout=timeout)
+        except (AlreadyLocked, LockTimeout):
+            raise IndexWriteLockedError('Index {} is locked for writing'.format(self._path))
+        else:
+            logger.debug("Index write lock acquired for {}".format(self._path))
+            if not created:
+                # Store config
+                with open(os.path.join(self._path, IndexWriter.CONFIG_FILE), 'w') as f:
+                    f.write(self.__config.dumps())
+                # Initialize storage
+                storage = self.__config.storage_cls(self._path, create=True)
+                # Need to create the containers
+                storage.begin()
+                storage.add_container(IndexWriter.DOCUMENTS_CONTAINER)
+                storage.add_container(IndexWriter.FRAMES_CONTAINER)
+                storage.add_container(IndexWriter.SETTINGS_CONTAINER)
+                storage.add_container(IndexWriter.INFO_CONTAINER)
+                storage.add_container(IndexWriter.POSITIONS_CONTAINER)
+                storage.add_container(IndexWriter.ASSOCIATIONS_CONTAINER)
+                storage.add_container(IndexWriter.FREQUENCIES_CONTAINER)
+                storage.add_container(IndexWriter.METADATA_CONTAINER)
+                # Index settings
+                storage.set_container_item(IndexWriter.INFO_CONTAINER, 'derived', json.dumps(False))
+                # Revision
+                storage.set_container_item(IndexWriter.INFO_CONTAINER, 'revision',
+                                           json.dumps(random.SystemRandom().randint(0, 10**10)))
+                storage.commit()
+            if not self.__storage:
+                # This is a create or the index was created after this writer was opened.
+                self.__storage = self.__config.storage_cls(self._path, create=False)
+            self.__storage.begin()
 
-    def set_setting(self, name, value):
+    def flush(self):
         """
-        Set the value of setting identified by name.
+        Flush the internal buffers to the underlying storage implementation.
 
-        Required Arguments:
-        name -- str name identifying the setting.
-        value -- obj value to store. Will be converted to json by this method.
+        This method iterates through the frames that have been buffered by this writer and creates an internal index
+        of them. Then, it merges that index with the existing index already stored via storage. Finally, it also flushes
+        the internal frames and documents buffers to storage before clearing them. This includes both added documents
+        and deleted documents.
 
-        """
-        self._data_storage.set_container_item(Index.SETTINGS_CONTAINER, name, json.dumps(value))
-
-    def get_settings(self, names):
-        """
-        Return a dict of all settings listed in names. Return format is::
-            {
-                name: value,
-                name: value,
-                ...
-            }
-
-        Required Arguments:
-        names - a list of str names of settings to fetch.
+        .. warning::
+            Even thought this method flushes all internal buffers to the underlying storage implementation, this
+            does NOT constitute writing your changes! To actually have your changes persisted by the underlying storage
+            implementation, you NEED to call :meth:`.commit`! Nothing is final until commit is called.
 
         """
-        return {
+        logger.debug("Flushing the index writer.")
+
+        def index_frames(frames):
+            """Index a set of frames. This includes building the index structure for the frames."""
+            positions = {}  # Inverted term positions index:: term -> [(start, end,), (star,end,), ...]
+            associations = {}  # Inverted term co-occurrence index:: term -> other_term -> count
+            frequencies = nltk.probability.FreqDist()  # Inverted term frequency index:: term -> count
+            metadata = {}  # Inverted frame metadata:: field_name -> field_value -> [frame1, frame2]
+
+            for frame_id, frame in frames.iteritems():
+                # Positions & frequencies First
+                for term, indices in frame['_positions'].iteritems():
+                    frequencies.inc(term)
+                    try:
+                        positions[term][frame_id] = positions[term][frame_id] + indices
+                    except KeyError:
+                        try:
+                            positions[term][frame_id] = indices
+                        except KeyError:
+                            positions[term] = {frame_id: indices}
+                # Associations next
+                for term in frame['_positions']:
+                    for other_term in frame['_positions']:
+                        if term == other_term:
+                            continue
+                        try:
+                            associations[term][other_term] = associations[term].get(other_term, 0) + 1
+                        except KeyError:
+                            associations[term] = {other_term: 1}
+                # Metadata
+                if frame['_metadata']:
+                    for field_name, values in frame['_metadata'].iteritems():
+                        for value in values:
+                            if value is None:
+                                # Skip null values
+                                continue
+                            try:
+                                metadata[field_name][value].append(frame_id)
+                            except KeyError:
+                                try:
+                                    metadata[field_name][value] = [frame_id]
+                                except KeyError:
+                                    metadata[field_name] = {value: [frame_id]}
+                # Record text field metadata
+                field_name = frame['_field']
+                if field_name is not None:
+                    try:
+                        metadata[field_name]['_text'].append(frame_id)
+                    except KeyError:
+                        metadata[field_name] = {'_text': [frame_id]}
+
+            return positions, associations, frequencies, metadata
+
+        rm_frames = {
             k: json.loads(v)
-            for k, v in self._data_storage.get_container_items(Index.SETTINGS_CONTAINER, keys=names).iteritems()
-            if v
-        }
+            for k, v in self.__storage.get_container_items(IndexWriter.FRAMES_CONTAINER, keys=self.__rm_frames)
+        } if self.__rm_frames else {}
 
-    def add_document(self, frame_size=2, update_index=True, encoding='utf-8', encoding_errors='strict', **fields):
+        new_positions, new_associations, new_frequencies, new_metadata = index_frames(self.__new_frames)
+        rm_positions, rm_associations, rm_frequencies, rm_metadata = index_frames(rm_frames)
+
+        # Need to merge existing index with un-indexed frames
+        positions_index = {k: json.loads(v) if v else {} for k, v in self.__storage.get_container_items(
+            IndexWriter.POSITIONS_CONTAINER, new_positions.viewkeys() | rm_positions.viewkeys())}
+        assocs_index = {k: json.loads(v) if v else {} for k, v in self.__storage.get_container_items(
+            IndexWriter.ASSOCIATIONS_CONTAINER, new_associations.viewkeys() | rm_associations.viewkeys())}
+        frequencies_index = {k: json.loads(v) if v else 0 for k, v in self.__storage.get_container_items(
+            IndexWriter.FREQUENCIES_CONTAINER, new_frequencies.viewkeys() | rm_frequencies.viewkeys())}
+        metadata_index = {k: json.loads(v) if v else {} for k, v in self.__storage.get_container_items(
+            IndexWriter.METADATA_CONTAINER, new_metadata.viewkeys() | rm_metadata.viewkeys())}
+
+        # Keys to remove from each index
+        delete_positions_keys = set()
+        delete_assoc_keys = set()
+        delete_frequencies_keys = set()
+        delete_metadata_keys = set()
+
+        # Positions
+        for term, indices in new_positions.iteritems():
+            for frame_id, index in indices.iteritems():
+                try:
+                    positions_index[term][frame_id] = positions_index[term][frame_id] + index
+                except KeyError:
+                    positions_index[term][frame_id] = index
+        for term, indices in rm_positions.iteritems():
+            for frame_id, index in indices.iteritems():
+                for item in index:
+                    positions_index[term][frame_id].remove(item)
+                    if not positions_index[term][frame_id]:
+                        del positions_index[term][frame_id]
+                if not positions_index[term]:  # No items stored?
+                    del positions_index[term]
+                    delete_positions_keys.add(term)
+
+        # Associations
+        for term, value in new_associations.iteritems():
+            for other_term, count in value.iteritems():
+                assocs_index[term][other_term] = assocs_index[term].get(other_term, 0) + count
+        for term, value in rm_associations.iteritems():
+            for other_term, count in value.iteritems():
+                assocs_index[term][other_term] = assocs_index[term][other_term] - count
+                if assocs_index[term][other_term] == 0:
+                    del assocs_index[term][other_term]
+            if not assocs_index[term]:  # No associations recorded
+                del assocs_index[term]
+                delete_assoc_keys.add(term)
+
+        # Frequencies
+        for key, value in new_frequencies.iteritems():
+            frequencies_index[key] = frequencies_index[key] + value
+        for key, value in rm_frequencies.iteritems():
+            frequencies_index[key] = frequencies_index[key] - value
+            if not frequencies_index[key]:
+                del frequencies_index[key]
+                delete_frequencies_keys.add(key)
+
+        # Metadata
+        for name, values in new_metadata.iteritems():
+            for value, f_ids in values.iteritems():
+                try:
+                    metadata_index[name][value].extend(f_ids)
+                except KeyError:
+                    metadata_index[name][value] = f_ids
+        for name, values in rm_metadata.iteritems():
+            for value, f_ids in values.iteritems():
+                metadata_index[name][str(value)] = list(set(metadata_index[name][str(value)]) - set(f_ids))
+                if not metadata_index[name][str(value)]:
+                    del metadata_index[name][str(value)]
+            if not metadata_index[name]:
+                del metadata_index[name]
+                delete_metadata_keys.add(name)
+
+        # Now do the writing
+        # Positions
+        for key in positions_index:
+            positions_index[key] = json.dumps(positions_index[key])
+        self.__storage.set_container_items(IndexWriter.POSITIONS_CONTAINER, positions_index)
+        self.__storage.delete_container_items(IndexWriter.POSITIONS_CONTAINER, delete_positions_keys)
+        # Associations
+        for key in assocs_index:
+            assocs_index[key] = json.dumps(assocs_index[key])
+        self.__storage.set_container_items(IndexWriter.ASSOCIATIONS_CONTAINER, assocs_index)
+        self.__storage.delete_container_items(IndexWriter.ASSOCIATIONS_CONTAINER, delete_assoc_keys)
+        # Frequencies
+        for key in frequencies_index:
+            frequencies_index[key] = json.dumps(frequencies_index[key])
+        self.__storage.set_container_items(IndexWriter.FREQUENCIES_CONTAINER, frequencies_index)
+        self.__storage.delete_container_items(IndexWriter.FREQUENCIES_CONTAINER, delete_frequencies_keys)
+        # Metadata
+        for key in metadata_index:
+            metadata_index[key] = json.dumps(metadata_index[key])
+        self.__storage.set_container_items(IndexWriter.METADATA_CONTAINER, metadata_index)
+        self.__storage.delete_container_items(IndexWriter.METADATA_CONTAINER, delete_metadata_keys)
+        # Frames
+        if self.__new_frames:
+            self.__storage.set_container_items(IndexWriter.FRAMES_CONTAINER,
+                                               {k: json.dumps(v) for k, v in self.__new_frames.iteritems()})
+        if self.__rm_frames:
+            self.__storage.delete_container_items(IndexWriter.FRAMES_CONTAINER, self.__rm_frames)
+        self.__new_frames = {}
+        self.__rm_frames = set()
+        # Documents
+        if self.__new_documents:
+            self.__storage.set_container_items(IndexWriter.DOCUMENTS_CONTAINER,
+                                               {k: json.dumps(v) for k, v in self.__new_documents.iteritems()})
+        if self.__rm_documents:
+            self.__storage.delete_container_items(IndexWriter.DOCUMENTS_CONTAINER, self.__rm_documents)
+        self.__new_documents = {}
+        self.__rm_documents = set()
+
+    def commit(self):
+        """Commit changes made by this writer by calling :meth:`.flush` then ``commit()`` on the storage instance."""
+        self.flush()
+        # Update index revision
+        self.__storage.set_container_item(IndexWriter.INFO_CONTAINER, 'revision',
+                                          json.dumps(random.SystemRandom().randint(0, 10**10)))
+        self.__storage.commit()
+        self.__committed = True
+
+    def rollback(self):
+        """Rollback any changes made by this writer."""
+        self.__storage.rollback()
+        self.__committed = True
+
+    def close(self):
+        """
+        Close this writer.
+
+        Calls :meth:`.rollback` if we are in the middle of a transaction.
+
+        """
+        # Do we need to rollback?
+        if not self.__committed:
+            logger.info('IndexWriter transaction wasn\'t committed, rolling back....')
+            self.rollback()
+        # Release the lock
+        logger.debug("Releasing index write lock for {}....".format(self._path))
+        self.__lock.release()
+        # Close the storage connection
+        self.__storage.close()
+        self.__storage = None
+
+    def add_document(self, frame_size=2, encoding='utf-8', encoding_errors='strict', **fields):
         """
         Add a document to this index.
 
-        We index text breaking it into frames for analysis. The frame_size param controls the size of those frames.
-        Setting frame_size to a number < 1 will result in all text being put into one frame or, to put it another way,
-        the text not being broken up into frames.
+        We index :class:`TEXT <caterpillar.schema.TEXT>` fields by breaking them into frames for analysis. The
+        ``frame_size`` (int) param controls the size of those frames. Setting ``frame_size`` to an int < 1 will result
+        in all text being put into one frame or, to put it another way, the text not being broken up into frames.
 
-        The fields need to match the schema for this Index otherwise an InvalidDocumentStructure exception will be
-        thrown.
+        .. note::
+            Because we always store a full positional index with each index, we are still able to do document level
+            searches like TF/IDF even though we have broken the text down into frames. So, don't fret!
 
-        If you are adding a large number of documents in one hit (calling this method repeatedly) then you should
-        consider setting update_index to False for those calls and instead calling ``reindex()`` after all those calls.
-        This will deliver a significant speed boost to the index process.
+        ``encoding`` (str) and ``encoding_errors`` (str) are passed directly to :meth:`str.decode()` to decode the data
+        for all :class:`TEXT <caterpillar.schema.TEXT>` fields. Refer to its documentation for more information.
 
-        Required Arguments:
-        **fields -- the fields and their values for this document. Calling this method will look something like this:
-                    writer.add_document(field1=value1, field2=value2).
+        ``**fields`` is the fields and their values for this document. Calling this method will look something like
+        this::
 
-        Option Arguments:
-        frame_size -- the int size of the text frames to break each indexed ``TEXT`` field of this document into.
-                      Defaults to 2. A value < 1 will result in only frame being created containing all the text.
-        update_index -- A boolean flag indicating whether to update the index after adding this document or not.
-        encoding -- this str argument is passed to ``str.decode()`` to decode all text fields.
-        encoding_errors -- str argument passed as the ``errors`` argument to ``str.decode()`` when decoding text fields.
-                           Defaults to 'strict'. Other options are 'ignore', 'replace'.
+            >>> writer.add_document(field1=value1, field2=value2).
+
+        Any unrecognized fields are just ignored.
+
+        Raises :exc:`TypeError` if something other then str or bytes is given for a TEXT field and :exec:`IndexError`
+        if there are any problems decoding a field.
+
+        This method will call :meth:`.flush` if the internal buffers go over :const:`.RAM_BUFFER_SIZE`.
+
+        Returns the id (str) of the document added.
+
+        Internally what is happening here is that a document is broken up into its fields and a mini-index of the
+        document is generated and stored with our buffers for writing out later.
 
         """
-        logger.info('Adding document')
-        schema_fields = self._schema.items()
+        logger.debug('Adding document')
+        schema_fields = self.__schema.items()
         document_id = uuid.uuid4().hex
         sentence_tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
 
@@ -493,19 +583,19 @@ class Index(object):
         # Shell frame includes all non-indexed and categorical fields
         shell_frame = {}
         for field_name, field in schema_fields:
-            if (not field.indexed() or field.categorical()) and field.stored() and field_name in fields:
+            if (not field.indexed or field.categorical) and field.stored and field_name in fields:
                 shell_frame[field_name] = fields[field_name]
 
         # Tokenize fields that need it
-        logger.info('Starting tokenization')
+        logger.debug('Starting tokenization of document {}'.format(document_id))
         frame_count = 0
         for field_name, field in schema_fields:
 
-            if field_name not in fields or not field.indexed() or fields[field_name] is None:
+            if field_name not in fields or not field.indexed or fields[field_name] is None:
                 # Skip non-indexed fields or fields with no value supplied for this document
                 continue
 
-            if field.categorical():
+            if field.categorical:
                 # Record categorical values
                 for token in field.analyse(fields[field_name]):
                     try:
@@ -518,7 +608,7 @@ class Index(object):
                 expected_types = (str, bytes, unicode)
                 if isinstance(field_data, str) or isinstance(field_data, bytes):
                     try:
-                        field_data = field_data.decode(encoding, encoding_errors)
+                        field_data = fields[field_name] = field_data.decode(encoding, encoding_errors)
                     except UnicodeError as e:
                         raise IndexError("Couldn't decode the {} field - {}".format(field_name, e))
                 elif type(field_data) not in expected_types:
@@ -548,9 +638,8 @@ class Index(object):
                             '_positions': {},
                             '_sequence_number': frame_count,
                             '_doc_id': document_id,
-                            '_indexed': False,
                         }
-                        if field.stored():
+                        if field.stored:
                             frame['_text'] = " ".join(sentence_list)
                         for sentence in sentence_list:
                             # Tokenize and index
@@ -581,7 +670,6 @@ class Index(object):
                 '_positions': {},
                 '_sequence_number': frame_count,
                 '_doc_id': document_id,
-                '_indexed': False,
             }
             frame.update(shell_frame)
             frames[frame_id] = frame
@@ -590,281 +678,75 @@ class Index(object):
         for f_id in frames:
             frames[f_id]['_metadata'] = metadata
 
-        logger.info('Tokenization complete. {} frames created.'.format(len(frames)))
+        logger.debug('Tokenization of document {} complete. {} frames created.'.format(document_id, len(frames)))
 
-        # Store the frames - really easy
-        self._data_storage.set_container_items(Index.FRAMES_CONTAINER,
-                                               {k: json.dumps(v) for k, v in frames.iteritems()})
-
-        # Update the index data structures if needed.
-        if update_index:
-            logger.info('Updating index.')
-            self.update(frames=frames.values())
-        else:
-            # Updating the index will update the revision number for us but even if we don't update the index data
-            # structures we should still update the revision because we have new docs. Also make sure we set the index
-            # to be dirty.
-            self.update_revision()
-            self.set_clean(False)
+        # Store the frames - in our temporary buffer
+        self.__new_frames.update(frames)
 
         # Finally add the document to storage.
-        doc_fields = {'_id': document_id}
+        doc_fields = {
+            '_id': document_id,
+            '_frames': frames.keys()  # List of frames for this doc
+        }
         for field_name, field in schema_fields:
-            if field.stored() and field_name in fields:
+            if field.stored and field_name in fields:
                 # Only record stored fields against the document
                 doc_fields[field_name] = fields[field_name]
-        doc_data = json.dumps(doc_fields).decode(encoding, encoding_errors)
-        self._data_storage.set_container_item(Index.DOCUMENTS_CONTAINER, document_id, doc_data)
+        self.__new_documents[document_id] = doc_fields
+
+        # Flush buffers if needed
+        current_buffer_size = sys.getsizeof(self.__new_documents) + sys.getsizeof(self.__new_frames) + \
+            sys.getsizeof(self.__rm_frames) + sys.getsizeof(self.__rm_documents)
+        if current_buffer_size > IndexWriter.RAM_BUFFER_SIZE:
+            logger.debug('Flushing index writer buffers')
+            self.flush()
 
         return document_id
 
-    def update(self, frames=None):
+    def delete_document(self, d_id):
         """
-        Add any frames that have yet to be indexed to the index.
+        Delete the document with given ``d_id`` (str).
 
-        Please note, updating the index DOES NOT re-run tokenization on the frames. Tokenization is only performed once
-        on a document and the output from that tokenization stored against the frame.
-
-        This method is a proxy for `reindex()` called with `update_only` set to True.
-
-
-        Optional Arguments:
-        frames - A list of frames to iterate through checking for un-indexed frames. If None, fetches all frames off the
-        index. Defaults to None.
-
-        """
-        logger.info('Updating the index.')
-        self.reindex(frames=frames, update_only=True)
-
-    def reindex(self, fold_case=False, update_only=False, frames=None, merges=None):
-        """
-        Re-build or update the index based on the tokenization information stored on the frames. The frames were
-        previously generated by adding documents to this index.
-
-        Please note, re-indexing DOES NOT re-run tokenization on the frames. Tokenization is only performed once on a
-        document and the output from that tokenization stored against the frame.
-
-        Consider using this method when adding a lot of documents to the index at once. In that case, each call to
-        `add_document()` would set `update_index` to False when calling that method and instead call this method after
-        adding all the documents (probably with `update_only` set to True). This will deliver a significant speed boost
-        to the indexing process in that situation.
-
-        Optional Arguments:
-        fold_case -- A boolean flag indicating whether to perform case folding after re-indexing.
-        frames - A list of frames to iterate through checking for un-indexed frames. If None, fetches all frames off the
-        index. Defaults to None.
-        update_only -- A boolean flag indicating whether to perform an update only rather then a full re-index. An upate
-        won't remove all existing index structures and overwrite them. Instead, it will only use frames where _indexed
-        is set to False and will add to existing index structures.
-        merges --  A list of merges to perform after the reindex via ``merge_terms``.
-
-        """
-        logger.info('Re-building the index.')
-        positions = {}  # Inverted term positions index:: term -> [(start, end,), (star,end,), ...]
-        associations = {}  # Inverted term co-occurrence index:: term -> other_term -> count
-        frequencies = nltk.probability.FreqDist()  # Inverted term frequency index:: term -> count
-        metadata = {}  # Inverted frame metadata:: field_name -> field_value -> [frame1, frame2]
-        frames = frames or self.get_frames().values()  # All frames on the index
-        frames_to_save = []  # Frames where the indexed paramater needs to be updated
-
-        if update_only:
-            frames = filter(lambda f: not f['_indexed'], frames)
-
-        for frame in frames:
-            frame_id = frame['_id']
-
-            # Positions & frequencies First
-            for term, indices in frame['_positions'].iteritems():
-                frequencies.inc(term)
-                try:
-                    positions[term][frame_id] = positions[term][frame_id] + indices
-                except KeyError:
-                    try:
-                        positions[term][frame_id] = indices
-                    except KeyError:
-                        positions[term] = {frame_id: indices}
-            # Associations next
-            for term in frame['_positions']:
-                for other_term in frame['_positions']:
-                    if term == other_term:
-                        continue
-                    try:
-                        associations[term][other_term] = associations[term].get(other_term, 0) + 1
-                    except KeyError:
-                        associations[term] = {other_term: 1}
-            # Metadata
-            if frame['_metadata']:
-                for field_name, values in frame['_metadata'].iteritems():
-                    for value in values:
-                        if value is None:
-                            # Skip null values
-                            continue
-                        try:
-                            metadata[field_name][value].append(frame_id)
-                        except KeyError:
-                            try:
-                                metadata[field_name][value] = [frame_id]
-                            except KeyError:
-                                metadata[field_name] = {value: [frame_id]}
-            # Record text field metadata
-            field_name = frame['_field']
-            if field_name is not None:
-                try:
-                    metadata[field_name]['_text'].append(frame_id)
-                except KeyError:
-                    metadata[field_name] = {'_text': [frame_id]}
-
-            if not frame['_indexed']:
-                frame['_indexed'] = True
-                frames_to_save.append(frame)
-
-        # Save the frames that we need to
-        if frames_to_save:
-            self._data_storage.set_container_items(Index.FRAMES_CONTAINER,
-                                                   {f['_id']: json.dumps(f) for f in frames_to_save})
-
-        # Now serialise and store the various parts
-        if update_only:
-            # Need to merge existing index with un-indexed frames
-            positions_index = {k: json.loads(v) if v else {} for k, v in self._results_storage.get_container_items(
-                Index.POSITIONS_CONTAINER, positions.keys()).iteritems()}
-            assocs_index = {k: json.loads(v) if v else {} for k, v in self._results_storage.get_container_items(
-                Index.ASSOCIATIONS_CONTAINER, associations.keys()).iteritems()}
-            frequencies_index = {k: json.loads(v) if v else 0 for k, v in self._results_storage.get_container_items(
-                Index.FREQUENCIES_CONTAINER, frequencies.keys()).iteritems()}
-            metadata_index = {k: json.loads(v) if v else {} for k, v in self._results_storage.get_container_items(
-                Index.METADATA_CONTAINER, metadata.keys()).iteritems()}
-
-            # Positions
-            for term, indices in positions.iteritems():
-                for frame_id, index in indices.iteritems():
-                    try:
-                        positions_index[term][frame_id] = positions_index[term][frame_id] + index
-                    except KeyError:
-                        positions_index[term][frame_id] = index
-
-            # Associations
-            for term, value in associations.iteritems():
-                for other_term, count in value.iteritems():
-                    assocs_index[term][other_term] = assocs_index[term].get(other_term, 0) + count
-
-            # Frequencies
-            for key, value in frequencies.iteritems():
-                frequencies_index[key] = frequencies_index[key] + value
-
-            # Metadata
-            for name, values in metadata.iteritems():
-                for value, f_ids in values.iteritems():
-                    try:
-                        metadata_index[name][value].extend(f_ids)
-                    except KeyError:
-                        metadata_index[name][value] = f_ids
-        else:
-            positions_index = positions
-            assocs_index = associations
-            frequencies_index = dict(frequencies)
-            metadata_index = metadata
-            # Clear out the existing indexes
-            self._results_storage.clear_container(Index.POSITIONS_CONTAINER)
-            self._results_storage.clear_container(Index.ASSOCIATIONS_CONTAINER)
-            self._results_storage.clear_container(Index.FREQUENCIES_CONTAINER)
-            self._results_storage.clear_container(Index.METADATA_CONTAINER)
-
-        # Now do the writing
-        # Positions
-        for key in positions_index:
-            positions_index[key] = json.dumps(positions_index[key])
-        self._results_storage.set_container_items(Index.POSITIONS_CONTAINER, positions_index)
-        # Associations
-        for key in assocs_index:
-            assocs_index[key] = json.dumps(assocs_index[key])
-        self._results_storage.set_container_items(Index.ASSOCIATIONS_CONTAINER, assocs_index)
-        # Frequencies
-        for key in frequencies_index:
-            frequencies_index[key] = json.dumps(frequencies_index[key])
-        self._results_storage.set_container_items(Index.FREQUENCIES_CONTAINER, frequencies_index)
-        # Metadata
-        for key in metadata_index:
-            metadata_index[key] = json.dumps(metadata_index[key])
-        self._results_storage.set_container_items(Index.METADATA_CONTAINER, metadata_index)
-        logger.info("Re-indexed {} frames.".format(len(frames)))
-
-        if fold_case:
-            logger.info('Performing case folding.')
-            self.fold_term_case()
-
-        if merges:
-            logger.info('Performing manual merges.')
-            self.merge_terms(merges)
-
-        # Finally, update index state
-        self.update_revision()
-        self.set_clean(True)
-
-    def delete_document(self, d_id, update_index=True):
-        """
-        Delete the document with given id.
-
-        Raises a DocumentNotFound exception if the id doesn't match any document.
-
-        This method needs to update the index to reflect that the document has been deleted. This is an optional step.
-        However, if it isn't performed, you may see odd results for things like `get_frequencies()`.
-
-        Required Arguments:
-        id -- the string id of the document to delete.
-
-        Optional Arguments:
-        update_index -- a bool flag indicating whether to update the index or not. If set to ``False`` the index won't
-                        reflect the fact that the document has been deleted until `reindex()` has been run.
+        Raises a :exc:`DocumentNotFound` exception if the d_id doesn't match any document.
 
         """
         try:
-            doc = self._data_storage.get_container_item(Index.DOCUMENTS_CONTAINER, d_id)
+            doc = json.decode(self.__storage.get_container_item(IndexWriter.DOCUMENTS_CONTAINER, d_id))
         except KeyError:
             raise DocumentNotFoundError("No such document {}".format(d_id))
-        frames = {
-            k: json.loads(v)
-            for k, v in self._data_storage.get_container_items(Index.FRAMES_CONTAINER).iteritems()
-        }
-        frames_to_delete = []
-        for f_id, frame in frames.iteritems():
-            if frame['_doc_id'] == d_id:
-                frames_to_delete.append(f_id)
-        self._data_storage.delete_container_items(Index.FRAMES_CONTAINER, frames_to_delete)
-        if update_index:
-            self.reindex(fold_case=False)
-        else:
-            # We have changes!
-            self.update_revision()
-            self.set_clean(False)
-        self._data_storage.delete_container_item(Index.DOCUMENTS_CONTAINER, d_id)
+        self.__rm_frames |= set(doc['_frames'])
+        self.__rm_documents.add(d_id)
 
     def fold_term_case(self, merge_threshold=0.7):
         """
-        Perform case folding on the index, merging words into names and vice-versa depending on the specified threshold.
+        Perform case folding on this index, merging words into names (camel cased word or phrase) and vice-versa
+        depending ``merge_threshold``.
 
-        Optional Arguments:
-        merge_threshold -- A float used to test when to merge two variants. When the ratio between word and name version
-                           of term falls below this threshold the merge is carried out.
+        ``merge_threshold`` (float) is used to test when to merge two variants. When the ratio between word and name
+        version of a term falls below this threshold the merge is carried out.
+
+        .. warning::
+            This method calls flush before it runs and doesn't use the internal buffers.
 
         """
+        self.flush()
         count = 0
         # Pre-fetch indexes and pass them around to save I/O
         frequencies_index = {
             k: json.loads(v) if v else 0
-            for k, v in self._results_storage.get_container_items(Index.FREQUENCIES_CONTAINER).iteritems()
+            for k, v in self.__storage.get_container_items(IndexWriter.FREQUENCIES_CONTAINER)
         }
         associations_index = {
             k: json.loads(v) if v else {}
-            for k, v in self._results_storage.get_container_items(Index.ASSOCIATIONS_CONTAINER).iteritems()
+            for k, v in self.__storage.get_container_items(IndexWriter.ASSOCIATIONS_CONTAINER)
         }
         positions_index = {
             k: json.loads(v) if v else {}
-            for k, v in self._results_storage.get_container_items(Index.POSITIONS_CONTAINER).iteritems()
+            for k, v in self.__storage.get_container_items(IndexWriter.POSITIONS_CONTAINER)
         }
         frames = {
             k: json.loads(v)
-            for k, v in self._data_storage.get_container_items(Index.FRAMES_CONTAINER).iteritems()
+            for k, v in self.__storage.get_container_items(IndexWriter.FRAMES_CONTAINER)
         }
         for w, freq in frequencies_index.items():
             if w.islower() and w.title() in frequencies_index:
@@ -881,47 +763,53 @@ class Index(object):
                     count += 1
 
         # Update stored data structures
-        self._results_storage.clear(Index.ASSOCIATIONS_CONTAINER)
-        self._results_storage.set_container_items(Index.ASSOCIATIONS_CONTAINER,
-                                                  {k: json.dumps(v) for k, v in associations_index.iteritems()})
-        self._results_storage.clear(Index.POSITIONS_CONTAINER)
-        self._results_storage.set_container_items(Index.POSITIONS_CONTAINER,
-                                                  {k: json.dumps(v) for k, v in positions_index.iteritems()})
-        self._results_storage.clear(Index.FREQUENCIES_CONTAINER)
-        self._results_storage.set_container_items(Index.FREQUENCIES_CONTAINER,
-                                                  {k: json.dumps(v) for k, v in frequencies_index.iteritems()})
-        self._data_storage.set_container_items(Index.FRAMES_CONTAINER,
-                                               {f_id: json.dumps(d) for f_id, d in frames.iteritems()})
-        logger.info("Merged {} terms during case folding.".format(count))
+        self.__storage.clear_container(IndexWriter.ASSOCIATIONS_CONTAINER)
+        self.__storage.set_container_items(IndexWriter.ASSOCIATIONS_CONTAINER,
+                                           {k: json.dumps(v) for k, v in associations_index.iteritems()})
+        self.__storage.clear_container(IndexWriter.POSITIONS_CONTAINER)
+        self.__storage.set_container_items(IndexWriter.POSITIONS_CONTAINER,
+                                           {k: json.dumps(v) for k, v in positions_index.iteritems()})
+        self.__storage.clear_container(IndexWriter.FREQUENCIES_CONTAINER)
+        self.__storage.set_container_items(IndexWriter.FREQUENCIES_CONTAINER,
+                                           {k: json.dumps(v) for k, v in frequencies_index.iteritems()})
+        self.__storage.set_container_items(IndexWriter.FRAMES_CONTAINER,
+                                           {f_id: json.dumps(d) for f_id, d in frames.iteritems()})
+        logger.debug("Merged {} terms during case folding.".format(count))
 
     def merge_terms(self, merges):
         """
-        Merge the terms in `merges`.
+        Merge the terms in ``merges``.
 
-        Required Arguments:
-        merges - A list of str tuples of the format `(old_term, new_term,)`. If new_term is '' then old_term is removed.
-                 N-grams can be specified by suppling a str tuple instead of str for the old term. For example:
-                    (('hot', 'dog'), 'hot dog')
-                 The n-gram case does not allow empty values for new_term.
+        ``merges`` (list) should be a list of str tuples of the format ``(old_term, new_term,)``. If new_term is ``''``
+        then old_term is removed. N-grams can be specified by supplying a str tuple instead of str for the old term.
+        For example::
+
+            >>> (('hot', 'dog'), 'hot dog')
+
+        The n-gram case does not allow empty values for new_term.
+
+        .. warning::
+            This method calls flush before it runs and doesn't use the internal buffers.
 
         """
+        self.flush()
         count = 0
         # Pre-fetch indexes and pass them around to save I/O
         frequencies_index = {
             k: json.loads(v) if v else 0
-            for k, v in self._results_storage.get_container_items(Index.FREQUENCIES_CONTAINER).iteritems()
+            for k, v in self.__storage.get_container_items(IndexWriter.FREQUENCIES_CONTAINER)
         }
         associations_index = {
             k: json.loads(v) if v else {}
-            for k, v in self._results_storage.get_container_items(Index.ASSOCIATIONS_CONTAINER).iteritems()
+            for k, v in self.__storage.get_container_items(IndexWriter.ASSOCIATIONS_CONTAINER)
         }
         positions_index = {
             k: json.loads(v) if v else {}
-            for k, v in self._results_storage.get_container_items(Index.POSITIONS_CONTAINER).iteritems()
+            for k, v in self.__storage.get_container_items(IndexWriter.POSITIONS_CONTAINER)
         }
         frames = {
             k: json.loads(v)
-            for k, v in self._data_storage.get_container_items(Index.FRAMES_CONTAINER).iteritems()
+            for k, v in self.__storage.get_container_items(IndexWriter.FRAMES_CONTAINER)
         }
         for old_term, new_term in merges:
             logger.debug('Merging {} into {}'.format(old_term, new_term))
@@ -937,25 +825,27 @@ class Index(object):
                 logger.exception('One of the terms doesn\'t exist in the index!')
 
         # Update indexes
-        self._results_storage.clear(Index.ASSOCIATIONS_CONTAINER)
-        self._results_storage.set_container_items(Index.ASSOCIATIONS_CONTAINER,
-                                                  {k: json.dumps(v) for k, v in associations_index.iteritems()})
-        self._results_storage.clear(Index.POSITIONS_CONTAINER)
-        self._results_storage.set_container_items(Index.POSITIONS_CONTAINER,
-                                                  {k: json.dumps(v) for k, v in positions_index.iteritems()})
-        self._results_storage.clear(Index.FREQUENCIES_CONTAINER)
-        self._results_storage.set_container_items(Index.FREQUENCIES_CONTAINER,
-                                                  {k: json.dumps(v) for k, v in frequencies_index.iteritems()})
-        self._data_storage.set_container_items(Index.FRAMES_CONTAINER,
-                                               {f_id: json.dumps(d) for f_id, d in frames.iteritems()})
-        logger.info("Merged {} terms during manual merge.".format(count))
+        self.__storage.clear_container(IndexWriter.ASSOCIATIONS_CONTAINER)
+        self.__storage.set_container_items(IndexWriter.ASSOCIATIONS_CONTAINER,
+                                           {k: json.dumps(v) for k, v in associations_index.iteritems()})
+        self.__storage.clear_container(IndexWriter.POSITIONS_CONTAINER)
+        self.__storage.set_container_items(IndexWriter.POSITIONS_CONTAINER,
+                                           {k: json.dumps(v) for k, v in positions_index.iteritems()})
+        self.__storage.clear_container(IndexWriter.FREQUENCIES_CONTAINER)
+        self.__storage.set_container_items(IndexWriter.FREQUENCIES_CONTAINER,
+                                           {k: json.dumps(v) for k, v in frequencies_index.iteritems()})
+        self.__storage.set_container_items(IndexWriter.FRAMES_CONTAINER,
+                                           {f_id: json.dumps(d) for f_id, d in frames.iteritems()})
+        logger.debug("Merged {} terms during manual merge.".format(count))
 
     def _merge_terms(self, old_term, new_term, associations, positions, frequencies, frames):
         """
-        Merge old_term into new_term. If new_term is a falsey value, old_term is deleted. Updates all the passed index
-        structures to reflect the change.
+        Merge ``old_term`` into ``new_term``.
 
-        Raises TermNotFoundError if the term does not exist in the index.
+        If ``new_term`` is a false-y value, ``old_term`` is deleted. Updates all the passed index structures to reflect
+        the change.
+
+        Raises :exc:`TermNotFoundError` if the term does not exist in the index.
 
         """
         try:
@@ -1021,18 +911,18 @@ class Index(object):
         del positions[old_term]
         del frequencies[old_term]
 
-    def _merge_terms_into_ngram(self, ngram_terms, new_term, associations, positions, frequencies, frames, MAX_GAP=2):
+    def _merge_terms_into_ngram(self, ngram_terms, new_term, associations, positions, frequencies, frames, max_gap=2):
         """
-        Merge n-gram term sequences into new_term and update all the passed index structures to reflect the change.
+        Merge n-gram term sequences into ``new_term`` and update all the passed index structures to reflect the change.
 
-        This method cannot be used to delete terms, so a falsey value for new_term will produce an exception. Also,
-        raises TermNotFoundError if the n-gram does not exist in the index.
+        This method cannot be used to delete terms, so a falsey value for ``new_term`` will produce an exception. Also,
+        raises :exc:`TermNotFoundError` if the n-gram does not exist in the index.
 
-        MAX_GAP specifies the maximum number of characters allowed between n-gram terms.
+        ``max_gap`` (int) specifies the maximum number of characters allowed between n-gram terms.
 
         """
         if not new_term:
-            raise Exception('A non-empty value must be specified to represent the n-gram')
+            raise ValueError('A non-empty value must be specified to represent the n-gram')
 
         # First we need to find the positions of all matching n-grams in the index.
         # We start with the positions of the first term in the n-gram...
@@ -1067,7 +957,7 @@ class Index(object):
                         continue
                     # Loop over positions of the next n-gram term
                     for next_pos in f_next_positions:
-                        if curr_pos[0] < next_pos[0] and next_pos[0] - curr_pos[1] <= MAX_GAP:
+                        if curr_pos[0] < next_pos[0] and next_pos[0] - curr_pos[1] <= max_gap:
                             # Next term coincides with current partial n-gram sequence, record the match and move on
                             new_pos = [curr_pos[0], next_pos[1]]
                             try:
@@ -1151,88 +1041,405 @@ class Index(object):
 
     def run_plugin(self, cls, **args):
         """
-        Runs an ``plugin.AnalyticsPlugin`` on this index. Creates an instance of the plugin by passing it this object
-        before calling its run method and saving the result into container(s) prefixed with the plugins name.
+        Instantiates and runs the :class:`plugin.AnalyticsPlugin` type in ``cls`` on this index.
+
+        Creates an instance of the plugin by passing it the path of this index before calling its run method passing
+        ``**args`` and saving the result into container(s) prefixed with the plugins name.
 
         Any keyword arguments passed to this method in args are passed onto the run method of the plugin.
 
-        Required Arguments:
-        cls -- a python class that extends ``plugin.AnalyticsPlugin``
-
-        Optional Arguments:
-        **args -- keywords args that are passed onto the run method of an instance of cls.
+        Returns the plugin instance.
 
         """
-        plugin = cls(self)
-        logger.info('Running {} plugin.'.format(plugin.get_name()))
+        plugin = cls(self._path)
+        logger.debug('Running {} plugin.'.format(plugin.get_name()))
         result = plugin.run(**args)
 
         for container, value in result.iteritems():
             # Max sure the container exists and is clear
-            container_id = Index._plugin_container_name(plugin.get_name(), container)
+            container_id = IndexWriter._plugin_container_name(plugin.get_name(), container)
             try:
-                self._results_storage.add_container(container_id)
+                self.__storage.add_container(container_id)
             except DuplicateContainerError:
-                self._results_storage.clear_container(container_id)
+                self.__storage.clear_container(container_id)
 
             # Make sure items are seralised
             for key, data in value.items():
                 value[key] = json.dumps(value[key])
 
             # Store items
-            self._results_storage.set_container_items(container_id, value)
+            self.__storage.set_container_items(container_id, value)
 
         return plugin
 
-    def get_plugin_data(self, plugin, container, keys=None):
-        """
-        Returns a container identified by container for the plugin instance.
-
-        Required Arguments:
-        plugin -- an instance of ``plugin.AnalyticsPlugin``.
-        container -- The str name of the container.
-
-        Optional Arguments:
-        keys -- the list of keys to fetch. Defaults to None meaning all items are fetched.
-
-        """
-        return self._results_storage.get_container_items(Index._plugin_container_name(plugin.get_name(), container),
-                                                         keys)
-
     @staticmethod
     def _plugin_container_name(plugin, container):
+        """Naming convention for plugin containers."""
+        return '{}__{}'.format(plugin, container)
+
+    def add_fields(self, **fields):
         """
-        Naming convention for plugin containers.
+        Add new fields to the schema.
+
+        All keyword arguments are treated as ``(field_name, field_type)`` pairs.
 
         """
-        return '{}__{}'.format(plugin, container)
+        for name, value in fields.iteritems():
+            self.__schema.add(name, value)
+        self.__config.schema = self.__schema
+        # Save updated schema
+        with open(os.path.join(self._path, IndexWriter.CONFIG_FILE), 'w') as f:
+            f.write(self.__config.dumps())
+
+    def set_setting(self, name, value):
+        """Set the ``value`` of setting identified by ``name``."""
+        self.__storage.set_container_item(IndexWriter.SETTINGS_CONTAINER, name, json.dumps(value))
+
+    def set_schema(self, schema):
+        """Update the schema for this index."""
+        self.__schema = schema
+        self.__config.schema = schema
+        with open(os.path.join(self._path, IndexWriter.CONFIG_FILE), 'w') as f:
+            f.write(self.__config.dumps())
+
+
+class IndexReader(object):
+    """
+    Read information from an existing index.
+
+    Once an IndexReader is opened, it will **not** see any changes written to the index by an :class:`IndexWriter`. To
+    see any new changes you must open a new IndexReader.
+
+    To search an index, use :meth:`.searcher` to fetch an :class:`caterpillar.searching.IndexSearcher` instance to
+    execute the search with. A searcher will only work while this IndexReader remains open.
+
+    Access to the raw underlying associations, frequencies and positions index is provided by this class but a caller
+    needs to be aware that these may consume a **LARGE** amount of memory depending on the size of the index. As such,
+    all access to these indexes are provided by generators (see :meth:`.get_frames` for example).
+
+    Once you are finished with an IndexReader you need to call the :meth:`.close` method.
+
+    IndexReader is a context manager and can be used via the with statement to make this easier. For example::
+
+        >>> with IndexReader('/path/to/index') as r:
+        ...    # Do stuff
+        ...    doc = r.get_document(d_id)
+        >>> # Reader is closed
+
+    .. warning::
+        While opening an IndexReader is quite cheap, it definitely isn't free. If you are going to do a large amount of
+        reading over a relatively short time span, it is much better to do so using one reader.
+
+    There is no limit to the number of IndexReader objects which can be active on an index. IndexReader objects are also
+    thread-safe.
+
+    IndexReader doesn't cache any data. Every time you ask for data, the underlying :class:`caterpillar.storage.Storage`
+    instance is used to fetch that data. If you were to call :meth:`,get_associations_index` 10 times, each time the
+    data will be fetched from the storage instance and not some internal cache. The underlying storage instance may do
+    some of it's own caching but that is transparent to us.
+
+    """
+    def __init__(self, path):
+        """
+        Open a new IndexReader for the index at ``path`` (str).
+
+        This constructor only creates the instance. Before you start reading you need to call :meth:`.begin` which is
+        automatically called via :meth:`.__enter__`.
+
+        """
+        self.__path = path
+        try:
+            with open(os.path.join(path, IndexWriter.CONFIG_FILE), "r") as f:
+                self.__config = IndexConfig.loads(f.read())
+            self.__storage = self.__config.storage_cls(path, readonly=True)
+        except StorageNotFoundError:
+            logger.exception("Couldn't open storage for {}".format(path))
+            raise IndexNotFoundError("Couldn't find an index at {} (no storage)".format(path))
+        except IOError:
+            logger.exception("Couldn't read index config for {}".format(path))
+            raise IndexNotFoundError("Couldn't find an index at {} (no config)".format(path))
+        else:
+            self.__schema = self.__config.schema
+
+    def __enter__(self):
+        self.begin()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+
+    def begin(self):
+        """
+        Begin reading with this IndexReader.
+
+        From this point on, no changes to the underlying index made by an :class:`IndexWriter` will be seen.
+
+        .. warning::
+            This method **must** be called before any reading can be done.
+
+        """
+        self.__storage.begin()
+
+    def close(self):
+        """
+        Release all resources used by this IndexReader.
+
+        Calling this method renders this instance unusable.
+
+        """
+        self.__storage.commit()
+        self.__storage.close()
+
+    def get_positions_index(self):
+        """
+        Get all term positions.
+
+        This is a generator which yields a key/value pair tuple.
+
+        This is what is known as an inverted text index. Structure is as follows::
+
+            {
+                "term": {
+                    "frame_id": [(start, end), (start, end)],
+                    ...
+                },
+                ...
+            }
+
+        """
+        for k, v in self.__storage.get_container_items(IndexWriter.POSITIONS_CONTAINER):
+            yield (k, json.loads(v))
+
+    def get_term_positions(self, term):
+        """
+        Returns a dict of term positions for ``term`` (str).
+
+        Structure of returned dict is as follows::
+
+        {
+            frame_id1: [(start, end), (start, end)],
+            frame_id2: [(start, end), (start, end)],
+            ...
+        }
+
+        """
+        return json.loads(self.__storage.get_container_item(IndexWriter.POSITIONS_CONTAINER, term))
+
+    def get_associations_index(self):
+        """
+        Term associations for this Index.
+
+        This is used to record when two terms co-occur in a document. Be aware that only 1 co-occurrence for two terms
+        is recorded per document no matter the frequency of each term. The format is as follows::
+
+            {
+                term: {
+                    other_term: count,
+                    ...
+                },
+                ...
+            }
+
+        This method is a generator which yields key/value pair tuples.
+
+        """
+        for k, v in self.__storage.get_container_items(IndexWriter.ASSOCIATIONS_CONTAINER):
+            yield (k, json.loads(v))
+
+    def get_term_association(self, term, association):
+        """Returns a count of term associations between ``term`` (str) and ``association`` (str)."""
+        return json.loads(self.__storage.get_container_item(IndexWriter.ASSOCIATIONS_CONTAINER, term))[association]
+
+    def get_frequencies(self):
+        """
+        Term frequencies for this index.
+
+        Be aware that a terms frequency is only incremented by 1 per frame no matter the frequency within that
+        frame. The format is as follows::
+
+            {
+                term: count
+            }
+
+        This method is a generator that yields key/value paris of tuples (term, count).
+
+        .. note::
+            If you want to get the term frequency at a document level rather then a frame level then you should count
+            all of the terms positions returned by :meth:`.get_term_position`.
+
+        """
+        for k, v in self.__storage.get_container_items(IndexWriter.FREQUENCIES_CONTAINER):
+            yield (k, json.loads(v))
+
+    def get_term_frequency(self, term):
+        """Return the frequency of ``term`` (str) as an int."""
+        return json.loads(self.__storage.get_container_item(IndexWriter.FREQUENCIES_CONTAINER, term))
+
+    def get_frame_count(self):
+        """Return the int count of frames stored on this index."""
+        return self.__storage.get_container_len(IndexWriter.FRAMES_CONTAINER)
+
+    def get_frame(self, frame_id):
+        """Fetch frame ``frame_id`` (str)."""
+        return json.loads(self.__storage.get_container_item(IndexWriter.FRAMES_CONTAINER, frame_id))
+
+    def get_frames(self, frame_ids=None):
+        """
+        Generator across frames from this index.
+
+        If present, the returned frames will be restricted to those with ids in ``frame_ids`` (list). Format of the
+        frames index data is as follows::
+
+            {
+                frame_id: { //framed data },
+                frame_id: { //framed data },
+                frame_id: { //framed data },
+                ...
+            }
+
+        This method is a generator that yields tuples of frame_id and frame data dict.
+
+        """
+        for k, v in self.__storage.get_container_items(IndexWriter.FRAMES_CONTAINER, keys=frame_ids):
+            yield (k, json.loads(v))
+
+    def get_frame_ids(self):
+        """Generator of ids for all frames stored on this index."""
+        for f_id in self.__storage.get_container_keys(IndexWriter.FRAMES_CONTAINER):
+            yield f_id
+
+    def get_document(self, document_id):
+        """Returns the document with the given ``document_id`` (str) as a dict."""
+        try:
+            return json.loads(self.__storage.get_container_item(IndexWriter.DOCUMENTS_CONTAINER, document_id))
+        except KeyError:
+            raise DocumentNotFoundError("No document '{}'".format(document_id))
+
+    def get_document_count(self):
+        """Returns the int count of documents added to this index."""
+        return self.__storage.get_container_len(IndexWriter.DOCUMENTS_CONTAINER)
+
+    def get_documents(self, document_ids=None):
+        """
+        Generator that yields documents from this index as (id, data) tuples.
+
+        If present, the returned documents will be restricted to those with ids in ``document_ids`` (list).
+
+        """
+        for k, v in self.__storage.get_container_items(IndexWriter.DOCUMENTS_CONTAINER, keys=document_ids):
+            yield (k, json.loads(v))
+
+    def get_metadata(self):
+        """
+        Get the metadata index.
+
+        This method is a generator that yields a key, value tuple. The index is in the following format::
+
+            {
+                "field_name": {
+                    "value": ["frame_id", "frame_id"],
+                    "value": ["frame_id", "frame_id"],
+                    "value": ["frame_id", "frame_id"],
+                    ...
+                },
+                ...
+            }
+
+        """
+        for k, v in self.__storage.get_container_items(IndexWriter.METADATA_CONTAINER):
+            yield (k, json.loads(v))
+
+    def get_schema(self):
+        """Get the :class:`caterpillar.processing.schema.Schema` for this index."""
+        return self.__schema
+
+    def get_revision(self):
+        """
+        Return the str revision identifier for this index.
+
+        The revision identifier is a version identifier. It gets updated every time the index gets changed.
+
+        """
+        return self.__storage.get_container_item(IndexWriter.INFO_CONTAINER, 'revision')
+
+    def get_vocab_size(self):
+        """Get total number of unique terms identified for this index (int)."""
+        return self.__storage.get_container_len(IndexWriter.POSITIONS_CONTAINER)
+
+    def searcher(self, scorer_cls=TfidfScorer):
+        """
+        Return an :class:`IndexSearcher <caterpillar.search.IndexSearcher>` for this Index.
+
+        """
+        return IndexSearcher(self, scorer_cls)
+
+    def get_setting(self, name):
+        """Get the setting identified by ``name`` (str)."""
+        try:
+            return json.loads(self.__storage.get_container_item(IndexWriter.SETTINGS_CONTAINER, name))
+        except KeyError:
+            raise SettingNotFoundError("No setting '{}'".format(name))
+
+    def get_settings(self, names):
+        """
+        All settings listed in ``names`` (list).
+
+        This method is a generator that yields name/value pair tuples. The format of the settings index is::
+
+            {
+                name: value,
+                name: value,
+                ...
+            }
+
+        """
+        for k, v in self.__storage.get_container_items(IndexWriter.SETTINGS_CONTAINER, keys=names):
+            if v:
+                yield (k, json.loads(v))
+
+    def get_plugin_data(self, plugin, container, keys=None):
+        """
+        All data stored for ``plugin`` :class:`AnalyticsPlugin <caterpillar.processing.plugin.AnalyticsPlugin` from
+        ``container`` (str).
+
+        If not None, the key/value pairs returned will be limited to those with a key in ``keys`` (list).
+
+        This method is an generator that yields key/value tuples.
+
+        """
+        for k, v in self.__storage.get_container_items(IndexWriter._plugin_container_name(
+                plugin.get_name(), container), keys):
+            if v:
+                yield (k, v)
 
 
 def find_bi_gram_words(frames, min_bi_gram_freq=3, min_bi_gram_coverage=0.65):
     """
-    This function finds bi-gram words from the specified ``Frame``s iterable which pass certain criteria.
+    This function finds bi-gram words from the specified ``frames`` iterable.
 
-    This function uses a ``PotentialBiGramAnalyser`` to identify potential bi-grams. Names and stopwords are not
-    considered for bi-grams. Only bi-grams that have a certain frequency and coverage are considered.
+    For two terms to be considered a bi-gram it must occur at least ``min_bi_gram_freq`` (int) times across all frames
+    and the ratio of bi-gram appearances to no bi-gram appearances must be no less then ``min_bi_gram_coverage``
+    (float). For example, if ``min_bi_gram_coverage`` is 0.65 (the default) and the bi-gram is *good quality* then the
+    frequency of the bi-gram *good quality* divided by the frequency of the term *good* must be higher then 0.65. Also,
+    the frequency of the bi-gram *good quality* divided by the frequency of the term *quality* must be higher then 0.65.
+    If both of these conditions are True and the bi-gram frequency is >= ``min_bi_gram_freq`` the it will be returned as
+    a bi-gram.
 
-    Required Arguments:
-    frames -- An iterable of ``Frame`` objects for textual data
-
-    Optional Arguments:
-    min_bi_gram_freq -- A int representing the minimum frequency cutoff for each bi_gram
-    min_bi_gram_coverage -- A float representing the cutoff ratio for bi_gram frequency over individual word frequencies
+    This function uses a :class:`caterpillar.processing.analysis.analyse.PotentialBiGramAnalyser` to identify potential
+    bi-grams. Names and stopwords are not considered for bi-grams.
 
     Returns a list of bi-gram strings that pass the criteria.
 
     """
-    logger.info("Identifying n-grams")
+    logger.debug("Identifying n-grams")
 
     # Generate a table of candidate bigrams
     candidate_bi_grams = nltk.probability.FreqDist()
     uni_gram_frequencies = nltk.probability.FreqDist()
     bi_gram_analyser = PotentialBiGramAnalyser()
-    for frame in frames:
-        for sentence in frame.sentences:
+    sentence_tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
+    for _, frame in frames:
+        for sentence in sentence_tokenizer.tokenize(frame['_text'], realign_boundaries=True):
             terms_seen = set()
             for token_list in bi_gram_analyser.analyse(sentence):
                 # Using a special filter that returns list of tokens. List of 1 means no bi-grams.
@@ -1249,101 +1456,6 @@ def find_bi_gram_words(frames, min_bi_gram_freq=3, min_bi_gram_coverage=0.65):
     candidate_bi_gram_list = filter(lambda (k, v): v / uni_gram_frequencies[k.split(" ")[0]] > min_bi_gram_coverage
                                     and v / uni_gram_frequencies[k.split(" ")[1]] > min_bi_gram_coverage,
                                     candidate_bi_gram_list)
-    logger.info("Identified {} n-grams.".format(len(candidate_bi_gram_list)))
+    logger.debug("Identified {} n-grams.".format(len(candidate_bi_gram_list)))
 
     return [b[0] for b in candidate_bi_gram_list]
-
-
-class EmptyCompositeQueryError(Exception):
-    """Composite query has no results."""
-
-
-class DerivedIndex(Index):
-    """
-    Subclass of ``Index`` that allows for a derived index to be created by the filtering/composition of any number
-    of existing indices.
-
-    It does not support any methods that involve documents.
-
-    Required Arguments:
-    schema -- a ``schema.Schema`` instance that covers all fields in this index.
-    data_storage -- a ``data.storage.Storage`` instance that will be used to write and read document, frame and config
-    data.
-    results_storage -- a ``data.storage.Storage`` instance that will be used to write and read processing results.
-    frames -- a list of frames to construct the index from.
-
-    """
-    def __init__(self, schema, data_storage, results_storage, frames):
-        self._schema = schema
-        self._data_storage = data_storage
-        self._results_storage = results_storage
-
-        # Store schema
-        self._data_storage.set_container_item(Index.SETTINGS_CONTAINER, Index.SETTINGS_SCHEMA, schema.dumps())
-        # Store frames and build the index
-        self._data_storage.set_container_items(Index.FRAMES_CONTAINER,
-                                               {k: json.dumps(v) for k, v in frames.iteritems()})
-        self.reindex()
-        data_storage.set_container_item(Index.INFO_CONTAINER, 'derived', json.dumps(True))
-
-    @classmethod
-    def create_from_composite_query(cls, index_queries, path=None, storage_cls=SqliteMemoryStorage, **args):
-        """
-        Create a new ``DerivedIndex`` from an arbitrary number of index queries. Stores the fact that this index is a
-        derived index in `Index.INFO_CONTAINER`.
-
-        Required Arguments:
-        index_queries -- A list of tuples in the form of (index, query_object). Query objects must be of type
-                         ``caterpillar.searching.query.BaseQuery``.
-
-        Optional Arguments:
-        path -- path to store index data under. MUST be specified if persistent storage is used.
-        storage_cls -- the class to instantiate for the storage object. Defaults to ``SqliteMemoryStorage``.
-        The create() method will be called on this instance.
-        **args -- any keyword arguments that need to be passed onto the storage instance.
-
-        """
-        fields = {}
-        frames = {}
-        for index_query in index_queries:
-            index = index_query[0]
-            query = index_query[1]
-            frame_ids = list(index.searcher().filter(query))
-            if len(frame_ids) > 0:
-                frames.update(index.get_frames(frame_ids=frame_ids))
-                fields.update(index.get_schema().items())
-
-        if len(frames) == 0:
-            raise EmptyCompositeQueryError("Composite query did not yield any frames")
-
-        schema = Schema(**fields)
-        data_storage = storage_cls.create(Index.DATA_STORAGE, path=path, acid=True, containers=[
-            Index.DOCUMENTS_CONTAINER,
-            Index.FRAMES_CONTAINER,
-            Index.SETTINGS_CONTAINER,
-            Index.INFO_CONTAINER,
-        ], **args)
-        results_storage = storage_cls.create(Index.RESULTS_STORAGE, path=path, acid=False, containers=[
-            Index.POSITIONS_CONTAINER,
-            Index.ASSOCIATIONS_CONTAINER,
-            Index.FREQUENCIES_CONTAINER,
-            Index.METADATA_CONTAINER
-        ], **args)
-
-        return DerivedIndex(schema, data_storage, results_storage, frames)
-
-    def add_document(self, frame_size=None, fold_case=None, update_index=None, encoding=None, **fields):
-        DerivedIndex.documents_not_supported_error()
-
-    def delete_document(self, d_id, update_index=True):
-        DerivedIndex.documents_not_supported_error()
-
-    def get_document(self, d_id):
-        DerivedIndex.documents_not_supported_error()
-
-    def get_document_count(self):
-        DerivedIndex.documents_not_supported_error()
-
-    @staticmethod
-    def documents_not_supported_error():
-        raise NotImplementedError("Documents not supported by DerivedIndex")
