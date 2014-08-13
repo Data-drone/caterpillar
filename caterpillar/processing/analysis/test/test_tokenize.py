@@ -17,7 +17,7 @@ def test_tokenizer_base_class():
 
 def test_regex_tokenizer_invalid_pattern():
     with pytest.raises(ValueError):
-        RegexpTokenizer('*&&jkbbj&&')  # An invalid regex
+        ReTokenizer('*&&jkbbj&&')  # An invalid regex
 
 
 # Actually test the tokenizers #

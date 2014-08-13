@@ -13,6 +13,9 @@ class Filter(object):
     objects, and yield a series of Token objects in return.
 
     """
+    def __call__(self, tokens):
+        return self.filter(tokens)
+
     def filter(self, tokens):
         """
         Return filtered tokens from the tokens iterator.
@@ -68,7 +71,7 @@ class PositionalLowercaseWordFilter(Filter):
 
     def filter(self, tokens):
         for t in tokens:
-            if t.position == self._position and t.value.istitle() and ' ' not in t.value:
+            if t.position == self._position and ' ' not in t.value and t.value.istitle():
                 t.value = t.value.lower()
             yield t
 
@@ -91,13 +94,12 @@ class StopFilter(Filter):
 
     """
     def __init__(self, stoplist, minsize=3):
-        self._stoplist = {s: None for s in stoplist}
+        self._stoplist = set(stoplist)
         self._minsize = minsize
 
     def filter(self, tokens):
         for t in tokens:
-            if len(t.value) < self._minsize or t.value.lower() in self._stoplist:
-                t.stopped = True
+            t.stopped = len(t.value) < self._minsize or t.value.lower() in self._stoplist
             yield t
 
 

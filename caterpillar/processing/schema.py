@@ -35,7 +35,7 @@ class FieldType(object):
     # Convenience hash of operators -> methods
     FIELD_OPS = {'<': 'lt', '<=': 'lte', '>': 'gt', '>=': 'gte'}
 
-    def __init__(self, analyser=EverythingAnalyser(), indexed=False, categorical=False, stored=True):
+    def __init__(self, indexed=False, categorical=False, stored=True):
         """
         Create a new field.
 
@@ -46,15 +46,25 @@ class FieldType(object):
         stored or not.
 
         """
-        self._analyser = analyser
         self._indexed = indexed
         self._categorical = categorical
         self._stored = stored
 
     def analyse(self, value):
-        """Analyse ``value``, returning a :class:`caterpillar.processing.analysis.tokenize.Token` generator."""
-        for token in self._analyser.analyse(value):
-            yield token
+        """
+        Return a :class:`Token <caterpillar.processing.analysis.tokenizer.Token>` generator for ``value``.
+
+        """
+        raise NotImplementedError('analyse method not implemented.')
+
+    def index(self, token):
+        """
+        Return the data structure to be indexed for this field given a ``token``
+        (:class:`Token <caterpillar.processing.analysis.tokenizer.Token>`). ``token`` should be one generated from
+        :meth:`analyse`.
+
+        """
+        raise NotImplementedError('index method not implemented.')
 
     @property
     def categorical(self):
@@ -108,8 +118,8 @@ class FieldType(object):
 
 class CategoricalFieldType(FieldType):
     """Represents a categorical field type. Categorical fields can extend this class for convenience."""
-    def __init__(self, analyser=EverythingAnalyser(), indexed=False, stored=True):
-        super(CategoricalFieldType, self).__init__(analyser=analyser, indexed=indexed, categorical=True, stored=stored)
+    def __init__(self, indexed=False, stored=True):
+        super(CategoricalFieldType, self).__init__(indexed=indexed, categorical=True, stored=stored)
 
     def value_of(self, raw_value):
         """Return the value of ``raw_value`` after being processed by this field type's analyse method."""
@@ -128,6 +138,9 @@ class ID(CategoricalFieldType):
     def __init__(self, indexed=False, stored=True):
         super(ID, self).__init__(indexed=indexed, stored=stored)
 
+    def analyse(self, value):
+        yield Token(value)
+
 
 class NUMERIC(CategoricalFieldType):
     """Special field type that lets you index ints or floats."""
@@ -139,7 +152,7 @@ class NUMERIC(CategoricalFieldType):
             raise ValueError("Invalid num_type '{}'".format(num_type))
         self._num_type = num_type
         self._default_value = default_value
-        super(NUMERIC, self).__init__(analyser=None, indexed=indexed, stored=stored)
+        super(NUMERIC, self).__init__(indexed=indexed, stored=stored)
 
     def analyse(self, value):
         try:
@@ -179,13 +192,20 @@ class BOOLEAN(CategoricalFieldType):
 
 class TEXT(FieldType):
     """Configured field type for text fields."""
-    def __init__(self, analyser=DefaultAnalyser(), indexed=True, stored=True):
+    def __init__(self, analyser=None, indexed=True, stored=True):
         """
         Create a text field with ``analyser`` (:class:`caterpillar.processing.analysis.Analyser`) default to
         :class:`caterpillar.processing.analysis.DefaultAnalyzer`.
 
         """
-        super(TEXT, self).__init__(analyser=analyser, indexed=indexed, categorical=False, stored=stored)
+        super(TEXT, self).__init__(indexed=indexed, categorical=False, stored=stored)
+        if analyser is None:
+            self._analyser = DefaultAnalyser(frame_size=2)
+        else:
+            self._analyser = analyser
+
+    def analyse(self, value):
+        return self._analyser(value)
 
 
 class CATEGORICAL_TEXT(CategoricalFieldType):

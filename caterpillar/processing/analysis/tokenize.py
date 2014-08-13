@@ -1,8 +1,8 @@
 # Copyright (c) 2012-2014 Kapiche Limited
 # Author: Ryan Stuart <ryan@kapiche.com>
 """Tools to tokenize text."""
+import re
 from nltk.internals import convert_regexp_to_nongrouping
-import regex
 
 
 class Token(object):
@@ -17,13 +17,14 @@ class Token(object):
     not the object!
 
     """
-    def __init__(self, value=None, position=None, stopped=None, index=None):
+    def __init__(self, value=None, position=None, stopped=None, index=None, frame_boundary=None):
         self.value = value
         self.position = position
         self.stopped = stopped
         self.index = index
+        self.frame_boundary = frame_boundary
 
-    def update(self, value, stopped=False, position=None, index=None):
+    def update(self, value, stopped=False, position=None, index=None, frame_boundary=False):
         """
         Re-initialise this token instance with the passed values.
 
@@ -42,6 +43,7 @@ class Token(object):
         self.position = position
         self.stopped = stopped
         self.index = index
+        self.frame_boundary = frame_boundary
         return self
 
     def copy(self):
@@ -61,50 +63,34 @@ class Tokenizer(object):
     Forces all implementers to implement a tokenize() method.
 
     """
+    def __call__(self, *args, **kwargs):
+        return self.tokenize(*args, **kwargs)
+
     def tokenize(self, *args, **kwargs):
         raise NotImplementedError
 
 
-class RegexpTokenizer(Tokenizer):
+class ReTokenizer(Tokenizer):
     """
-    A ``Tokenizer`` that splits a string using a regular expression.
-
-    This class can be used to match either the tokens or the separators between tokens.
-
-        >>> tokenizer = RegexpTokenizer('\w+|\$[\d\.]+|\S+')
-
-    This class uses the new python regex module instead of the existing re module. This means unicode codepoint
-    properties are supported.
-
-        >>> tokenizer = RegexpTokenizer('\w+|\$[\p{N}\.]+|\S+')
-
-    Required Arguments
-    pattern -- A str used to build this tokenizer. This pattern may safely contain grouping parentheses.
-
-    Optional Arguments
-    gaps -- A bool indicating this tokenizer's pattern should be used to find separators between tokens; False if this
-        tokenizer's pattern should be used to find the tokens themselves. Defaults to False.
-    flags -- A int mask of regexp flags used to compile this tokenizer's pattern.  By default, the following flags are
-        used: `regex.UNICODE | regex.MULTILINE | regex.DOTALL | regex.VERSION1`.
-
+    A ``Tokenizer`` that splits a string using a regular expression executed using the re module.
     """
-    def __init__(self, pattern, gaps=False, flags=regex.UNICODE | regex.MULTILINE | regex.DOTALL | regex.VERSION1):
-        # If they gave us a regexp object, extract the pattern.
+    def __init__(self, pattern, gaps=False, flags=re.UNICODE | re.MULTILINE | re.DOTALL):
+        # If they gave us a re2 object, extract the pattern.
         pattern = getattr(pattern, 'pattern', pattern)
 
         self._pattern = pattern
         self._gaps = gaps
         self._flags = flags
-        self._regexp = None
+        self._re = None
 
-        # Remove grouping parentheses -- if the regexp contains any
+        # Remove grouping parentheses -- if the re contains any
         # grouping parentheses, then the behavior of re.findall and
         # re.split will change.
         nongrouping_pattern = convert_regexp_to_nongrouping(pattern)
 
         try:
-            self._regexp = regex.compile(nongrouping_pattern, flags)
-        except regex.error, e:
+            self._re = re.compile(pattern, flags)
+        except re.error, e:
             raise ValueError('Error in regular expression {}: {}'.format(pattern, e))
 
     def tokenize(self, value):
@@ -118,14 +104,14 @@ class RegexpTokenizer(Tokenizer):
         t = Token()  # The token instance we will reuse
         if not self._gaps:
             # The default: expression matches are used as tokens
-            for pos, match in enumerate(self._regexp.finditer(value)):
+            for pos, match in enumerate(self._re.finditer(value)):
                 yield t.update(match.group(0), index=(match.start(), match.end(),), position=pos)
         else:
             # When gaps=True, iterate through the matches and
             # yield the text between them.
             left = 0
             last_pos = 0
-            for pos, match in enumerate(regex.finditer(self._regexp, value)):
+            for pos, match in enumerate(re.finditer(self._re, value)):
                 right, next = match.span()
                 if right != 0:
                     yield t.update(value[left:right], position=pos, index=(left, right,))
@@ -135,7 +121,7 @@ class RegexpTokenizer(Tokenizer):
                 yield t.update(value[left:], position=last_pos+1, index=(left, len(value),))
 
 
-class ParagraphTokenizer(RegexpTokenizer):
+class ParagraphTokenizer(ReTokenizer):
     """
     Tokenize a string into paragraphs.
 
@@ -146,10 +132,10 @@ class ParagraphTokenizer(RegexpTokenizer):
 
     """
     def __init__(self):
-        RegexpTokenizer.__init__(self, ur'(?<=[\u002E\u2024\uFE52\uFF0E\u0021\u003F][\S]*)\s*\n+|\n\n+', gaps=True)
+        super(ParagraphTokenizer, self).__init__(ur'(?<=[\u002E\u2024\uFE52\uFF0E\u0021\u003F]\S*)\s*\n+|\n\n+', gaps=True)
 
 
-class WordTokenizer(RegexpTokenizer):
+class WordTokenizer(ReTokenizer):
     """
     Tokenize a string into words.
 
@@ -165,32 +151,50 @@ class WordTokenizer(RegexpTokenizer):
     # Match all word contractions, except possessives which we split to retain the root owner.
     # We discard possessives because the are of no use (in english anyway).
     # TODO: This won't work for languages like French!!
-    CONTRACTION = "([A-Za-z]+\'[A-RT-Za-rt-z]+)"
+    CONTRACTION = ur"[A-Za-z]+'[A-RT-Za-rt-z]+"
 
     # Email pattern, lifted from http://www.regular-expressions.info/email.html
-    EMAIL = "(\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,4}\\b)"
+    EMAIL = ur"\b[-A-Za-z0-9._%+]+@[-A-Za-z0-9.]+\.[A-Za-z]{2,4}\b"
 
     # Capture multi-term names (optionally with 'of' as the second term).
-    # We exclude [The, But] from the beggining of multi-term names.
-    NAME_COMPOUND = u"((?!(The|But))([A-Z][a-z]+|[A-Z][a-z]{0,2}\.)([^\S\n]of)?([^\S\n][A-Z]+[A-Za-z]+)+)"
+    # We exclude [The, But] from the beginning of multi-term names.
+    # NAME_COMPOUND = u"((?!(The|But))([A-Z][a-z]+|[A-Z][a-z]{0,2}\.)([^\S\n]of)?([^\S\n][A-Z]+[A-Za-z]+)+)"
+    NAME_COMPOUND = ur"(?!The|But)(?:[A-Z][a-z]+|[A-Z][a-z]{0,2}\.)(?:\sof)?(?:\s[A-Z][A-Za-z]+)+"
 
     # Capture decimal numbers with allowable punctuation that would get split up with the word pattern
-    NUM = u"(\d+(?:[\.\,]{1}\d+)+)"
+    NUM = ur"\d+(?:[.,]\d+)+"
 
     # Basic word pattern, strips all punctuation besides special leading characters
-    WORD = u"([#@]?\w+)"
+    WORD = ur"[#@]?\w+"
 
-    # URL pattern (Based on http://stackoverflow.com/questions/833469/regular-expression-for-url)
-    URL = u"((((mailto:|ftp|http(s?)){1}:(?:\/\/)?)" \
-          + "(?:[-;:&=\+\$,\w]+@)?[A-Za-z0-9.-]+|(?:www\.|[-;:&=\+\$,\w]+@)[A-Za-z0-9.-]+)" \
-          + "((?:\/[\+~%\/.\w-_]*)?\??(?:[-\+=&;%@.\w_]*)#?(?:[\w]*))?)"
+    # URL pattern - if somthing starts to look like a URL, capture everything until a space.
+    URL = u"\b(?:mailto:|ftp:|https?:|www\\.)[^\\s\x01\x02]+"
+
+    # Don't cross frames (if present)
+    FRAME_BOUNDARY = u'\x04'
 
     def __init__(self, detect_compound_names=True):
         pattern = self.URL + '|' + self.EMAIL + '|' + self.NUM + '|' + self.CONTRACTION + '|' + self.WORD
         if detect_compound_names:
             pattern = self.NAME_COMPOUND + '|' + pattern
+        pattern = self.FRAME_BOUNDARY + '|' + pattern  # don't cross frame boundaries
 
-        RegexpTokenizer.__init__(self, pattern, gaps=False)
+        super(WordTokenizer, self).__init__(pattern, gaps=False)
+
+    def tokenize(self, value):
+        """
+        Perform the tokenizing on ``value`` (a str). This tokenizer won't cross frame boundaries delimited by the
+        character :attr:`FRAME_BOUNDARY`.
+
+        """
+        t = Token()  # The token instance we will reuse
+        frame_count = 0
+        for pos, match in enumerate(self._re.finditer(value)):
+            frame_boundary = match.group(0) == self.FRAME_BOUNDARY
+            yield t.update(match.group(0), index=(match.start()-frame_count, match.end()-frame_count,), position=pos,
+                           frame_boundary=frame_boundary)
+            if frame_boundary:
+                frame_count += 1
 
 
 class EverythingTokenizer(Tokenizer):

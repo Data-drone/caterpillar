@@ -57,20 +57,19 @@ Here is a quick example:
 
 from __future__ import absolute_import, division
 
+from collections import Counter, defaultdict
 import logging
 import os
 import pickle
 import random
-import sys
 import ujson as json
 import uuid
 
-import nltk
+import nltk.data
 
 from caterpillar import VERSION
 from caterpillar.locking import PIDLockFile, LockTimeout, AlreadyLocked
 from caterpillar.processing.analysis.analyse import PotentialBiGramAnalyser
-from caterpillar.processing.analysis.tokenize import ParagraphTokenizer, Token
 from caterpillar.searching import TfidfScorer, IndexSearcher
 from caterpillar.storage import StorageNotFoundError, DuplicateContainerError
 
@@ -225,7 +224,7 @@ class IndexWriter(object):
     POSITIONS_CONTAINER = "positions"
 
     # How much data to buffer before a flush
-    RAM_BUFFER_SIZE = 100*1024*1024  # 100 MB
+    RAM_BUFFER_SIZE = 50*1024*1024  # 50 MB
 
     # Where is the config?
     CONFIG_FILE = "index.config"
@@ -258,10 +257,10 @@ class IndexWriter(object):
             self.__lock = None  # Should declare in __init__ and not outside.
         self.__committed = False
         # Internal index buffers we will update when flush() is called.
-        self.__new_frames = {}
-        self.__new_documents = {}
-        self.__rm_frames = set()
-        self.__rm_documents = set()
+        self.__positions = {}     # Inverted term positions index (per frame):: term -> frame_id -> [(star, end), ...]
+        self.__associations = {}  # Inverted term co-occurrence index (per frame):: term -> other_term -> count
+        self.__metadata = {}      # Inverted metadata index:: field_name -> field_value -> [frame_id, ...]
+        self.__frequencies = Counter()  # Term frequency per frame:: term -> frame_count
 
     def __enter__(self):
         self.begin()
@@ -338,173 +337,22 @@ class IndexWriter(object):
         """
         logger.debug("Flushing the index writer.")
 
-        def index_frames(frames):
-            """Index a set of frames. This includes building the index structure for the frames."""
-            positions = {}  # Inverted term positions index:: term -> [(start, end,), (star,end,), ...]
-            associations = {}  # Inverted term co-occurrence index:: term -> other_term -> count
-            frequencies = nltk.probability.FreqDist()  # Inverted term frequency index:: term -> count
-            metadata = {}  # Inverted frame metadata:: field_name -> field_value -> [frame1, frame2]
-
-            for frame_id, frame in frames.iteritems():
-                # Positions & frequencies First
-                for term, indices in frame['_positions'].iteritems():
-                    frequencies.inc(term)
-                    try:
-                        positions[term][frame_id] = positions[term][frame_id] + indices
-                    except KeyError:
-                        try:
-                            positions[term][frame_id] = indices
-                        except KeyError:
-                            positions[term] = {frame_id: indices}
-                # Associations next
-                for term in frame['_positions']:
-                    for other_term in frame['_positions']:
-                        if term == other_term:
-                            continue
-                        try:
-                            associations[term][other_term] = associations[term].get(other_term, 0) + 1
-                        except KeyError:
-                            associations[term] = {other_term: 1}
-                # Metadata
-                if frame['_metadata']:
-                    for field_name, values in frame['_metadata'].iteritems():
-                        for value in values:
-                            if value is None:
-                                # Skip null values
-                                continue
-                            try:
-                                metadata[field_name][value].append(frame_id)
-                            except KeyError:
-                                try:
-                                    metadata[field_name][value] = [frame_id]
-                                except KeyError:
-                                    metadata[field_name] = {value: [frame_id]}
-                # Record text field metadata
-                field_name = frame['_field']
-                if field_name is not None:
-                    try:
-                        metadata[field_name]['_text'].append(frame_id)
-                    except KeyError:
-                        metadata[field_name] = {'_text': [frame_id]}
-
-            return positions, associations, frequencies, metadata
-
-        rm_frames = {
-            k: json.loads(v)
-            for k, v in self.__storage.get_container_items(IndexWriter.FRAMES_CONTAINER, keys=self.__rm_frames)
-        } if self.__rm_frames else {}
-
-        new_positions, new_associations, new_frequencies, new_metadata = index_frames(self.__new_frames)
-        rm_positions, rm_associations, rm_frequencies, rm_metadata = index_frames(rm_frames)
-
-        # Need to merge existing index with un-indexed frames
-        positions_index = {k: json.loads(v) if v else {} for k, v in self.__storage.get_container_items(
-            IndexWriter.POSITIONS_CONTAINER, new_positions.viewkeys() | rm_positions.viewkeys())}
-        assocs_index = {k: json.loads(v) if v else {} for k, v in self.__storage.get_container_items(
-            IndexWriter.ASSOCIATIONS_CONTAINER, new_associations.viewkeys() | rm_associations.viewkeys())}
-        frequencies_index = {k: json.loads(v) if v else 0 for k, v in self.__storage.get_container_items(
-            IndexWriter.FREQUENCIES_CONTAINER, new_frequencies.viewkeys() | rm_frequencies.viewkeys())}
-        metadata_index = {k: json.loads(v) if v else {} for k, v in self.__storage.get_container_items(
-            IndexWriter.METADATA_CONTAINER, new_metadata.viewkeys() | rm_metadata.viewkeys())}
-
-        # Keys to remove from each index
-        delete_positions_keys = set()
-        delete_assoc_keys = set()
-        delete_frequencies_keys = set()
-        delete_metadata_keys = set()
-
         # Positions
-        for term, indices in new_positions.iteritems():
-            for frame_id, index in indices.iteritems():
-                try:
-                    positions_index[term][frame_id] = positions_index[term][frame_id] + index
-                except KeyError:
-                    positions_index[term][frame_id] = index
-        for term, indices in rm_positions.iteritems():
-            for frame_id, index in indices.iteritems():
-                for item in index:
-                    positions_index[term][frame_id].remove(item)
-                    if not positions_index[term][frame_id]:
-                        del positions_index[term][frame_id]
-                if not positions_index[term]:  # No items stored?
-                    del positions_index[term]
-                    delete_positions_keys.add(term)
-
+        self.__storage.set_container_items(IndexWriter.POSITIONS_CONTAINER,
+                                           {k: json.dumps(v) for k, v in self.__positions.iteritems()})
+        self.__positions = {}
         # Associations
-        for term, value in new_associations.iteritems():
-            for other_term, count in value.iteritems():
-                assocs_index[term][other_term] = assocs_index[term].get(other_term, 0) + count
-        for term, value in rm_associations.iteritems():
-            for other_term, count in value.iteritems():
-                assocs_index[term][other_term] = assocs_index[term][other_term] - count
-                if assocs_index[term][other_term] == 0:
-                    del assocs_index[term][other_term]
-            if not assocs_index[term]:  # No associations recorded
-                del assocs_index[term]
-                delete_assoc_keys.add(term)
-
+        self.__storage.set_container_items(IndexWriter.ASSOCIATIONS_CONTAINER,
+                                           {k: json.dumps(v) for k, v in self.__associations.iteritems()})
+        self.__associations = {}
         # Frequencies
-        for key, value in new_frequencies.iteritems():
-            frequencies_index[key] = frequencies_index[key] + value
-        for key, value in rm_frequencies.iteritems():
-            frequencies_index[key] = frequencies_index[key] - value
-            if not frequencies_index[key]:
-                del frequencies_index[key]
-                delete_frequencies_keys.add(key)
-
+        self.__storage.set_container_items(IndexWriter.FREQUENCIES_CONTAINER,
+                                           {k: json.dumps(v) for k, v in self.__frequencies.iteritems()})
+        self.__frequencies = Counter()
         # Metadata
-        for name, values in new_metadata.iteritems():
-            for value, f_ids in values.iteritems():
-                try:
-                    metadata_index[name][value].extend(f_ids)
-                except KeyError:
-                    metadata_index[name][value] = f_ids
-        for name, values in rm_metadata.iteritems():
-            for value, f_ids in values.iteritems():
-                metadata_index[name][str(value)] = list(set(metadata_index[name][str(value)]) - set(f_ids))
-                if not metadata_index[name][str(value)]:
-                    del metadata_index[name][str(value)]
-            if not metadata_index[name]:
-                del metadata_index[name]
-                delete_metadata_keys.add(name)
-
-        # Now do the writing
-        # Positions
-        for key in positions_index:
-            positions_index[key] = json.dumps(positions_index[key])
-        self.__storage.set_container_items(IndexWriter.POSITIONS_CONTAINER, positions_index)
-        self.__storage.delete_container_items(IndexWriter.POSITIONS_CONTAINER, delete_positions_keys)
-        # Associations
-        for key in assocs_index:
-            assocs_index[key] = json.dumps(assocs_index[key])
-        self.__storage.set_container_items(IndexWriter.ASSOCIATIONS_CONTAINER, assocs_index)
-        self.__storage.delete_container_items(IndexWriter.ASSOCIATIONS_CONTAINER, delete_assoc_keys)
-        # Frequencies
-        for key in frequencies_index:
-            frequencies_index[key] = json.dumps(frequencies_index[key])
-        self.__storage.set_container_items(IndexWriter.FREQUENCIES_CONTAINER, frequencies_index)
-        self.__storage.delete_container_items(IndexWriter.FREQUENCIES_CONTAINER, delete_frequencies_keys)
-        # Metadata
-        for key in metadata_index:
-            metadata_index[key] = json.dumps(metadata_index[key])
-        self.__storage.set_container_items(IndexWriter.METADATA_CONTAINER, metadata_index)
-        self.__storage.delete_container_items(IndexWriter.METADATA_CONTAINER, delete_metadata_keys)
-        # Frames
-        if self.__new_frames:
-            self.__storage.set_container_items(IndexWriter.FRAMES_CONTAINER,
-                                               {k: json.dumps(v) for k, v in self.__new_frames.iteritems()})
-        if self.__rm_frames:
-            self.__storage.delete_container_items(IndexWriter.FRAMES_CONTAINER, self.__rm_frames)
-        self.__new_frames = {}
-        self.__rm_frames = set()
-        # Documents
-        if self.__new_documents:
-            self.__storage.set_container_items(IndexWriter.DOCUMENTS_CONTAINER,
-                                               {k: json.dumps(v) for k, v in self.__new_documents.iteritems()})
-        if self.__rm_documents:
-            self.__storage.delete_container_items(IndexWriter.DOCUMENTS_CONTAINER, self.__rm_documents)
-        self.__new_documents = {}
-        self.__rm_documents = set()
+        self.__storage.set_container_items(IndexWriter.METADATA_CONTAINER,
+                                           {k: json.dumps(v) for k, v in self.__metadata.iteritems()})
+        self.__metadata = {}
 
     def commit(self):
         """Commit changes made by this writer by calling :meth:`.flush` then ``commit()`` on the storage instance."""
@@ -538,7 +386,7 @@ class IndexWriter(object):
         self.__storage.close()
         self.__storage = None
 
-    def add_document(self, frame_size=2, encoding='utf-8', encoding_errors='strict', **fields):
+    def add_document(self, encoding='utf-8', encoding_errors='strict', **fields):
         """
         Add a document to this index.
 
@@ -574,7 +422,9 @@ class IndexWriter(object):
         logger.debug('Adding document')
         schema_fields = self.__schema.items()
         document_id = uuid.uuid4().hex
-        sentence_tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
+
+        # for field_name, field in schema_fields:
+        #     print "{}: {}".format(field_name, sys.getsizeof(fields[field_name]))
 
         # Build the frames by performing required analysis.
         frames = {}  # Frame data:: frame_id -> {key: value}
@@ -588,7 +438,6 @@ class IndexWriter(object):
 
         # Tokenize fields that need it
         logger.debug('Starting tokenization of document {}'.format(document_id))
-        frame_count = 0
         for field_name, field in schema_fields:
 
             if field_name not in fields or not field.indexed or fields[field_name] is None:
@@ -605,59 +454,70 @@ class IndexWriter(object):
             else:
                 # Index non-categorical fields
                 field_data = fields[field_name]
-                expected_types = (str, bytes, unicode)
                 if isinstance(field_data, str) or isinstance(field_data, bytes):
                     try:
                         field_data = fields[field_name] = field_data.decode(encoding, encoding_errors)
                     except UnicodeError as e:
                         raise IndexError("Couldn't decode the {} field - {}".format(field_name, e))
-                elif type(field_data) not in expected_types:
-                    raise TypeError("Expected str or bytes or unicode for text field {} but got {}".
+                elif not isinstance(field_data, basestring):
+                    raise TypeError("Expected basestring for text field {} but got {}".
                                     format(field_name, type(field_data)))
-                if frame_size > 0:
-                    # Break up into paragraphs
-                    paragraphs = ParagraphTokenizer().tokenize(field_data)
-                else:
-                    # Otherwise, the whole document is considered as one paragraph
-                    paragraphs = [Token(field_data)]
 
-                for paragraph in paragraphs:
-                    # Next we need the sentences grouped by frame
-                    if frame_size > 0:
-                        sentences = sentence_tokenizer.tokenize(paragraph.value, realign_boundaries=True)
-                        sentences_by_frames = [sentences[i:i+frame_size] for i in xrange(0, len(sentences), frame_size)]
+                # We have a text frame, lets tokenize that bad boy
+                last_boundary = 0  # index of last frame boundary marker seen
+                frame_count = 1  # number of frame boundaries we have seen
+                frame_id = "{}-{}".format(document_id, frame_count)  # 1 indexed, unlike our count
+                frame = {
+                    '_id': frame_id,
+                    '_field': field_name,
+                    '_sequence_number': frame_count,
+                    '_doc_id': document_id,
+                }
+                terms = set()
+                for token in field.analyse(field_data):
+                    if not token.frame_boundary:
+                        # Record term and position
+                        if not token.stopped:
+                            # Record term
+                            terms.add(token.value)
+                            # Record word positions
+                            try:
+                                self.__positions[token.value][frame_id].append(token.index)
+                            except KeyError:
+                                self.__positions[token.value] = defaultdict(list)
+                                self.__positions[token.value][frame_id].append(token.index)
                     else:
-                        sentences_by_frames = [[paragraph.value]]
-                    for sentence_list in sentences_by_frames:
-                        # Build our frames
-                        frame_id = "{}-{}".format(document_id, frame_count)
+                        # Record frequency and association info
+                        for term in terms:
+                            self.__frequencies[term] += 1
+                            # for other_term in terms:
+                            #     if term == other_term:
+                            #         continue
+                            #     try:
+                            #         self.__associations[term][other_term] = \
+                            #             self.__associations[term].get(other_term, 0) + 1
+                            #     except KeyError:
+                            #         self.__associations[term] = {other_term: 1}
+                        # Record the fact we are a text frame
+                        try:
+                            self.__metadata[field_name]['_text'].append(frame_id)
+                        except KeyError:
+                            self.__metadata[field_name] = {'_text': [frame_id]}
+                        # Finish this frame off, save it to our buffer.
+                        frame['_text'] = field_data[last_boundary:token.index[0]]
+                        last_boundary = token.index[0]
+                        frame.update(shell_frame)
+                        frames[frame_id] = frame
+                        # Create a new frame
                         frame_count += 1
+                        frame_id = "{}-{}".format(document_id, frame_count)
                         frame = {
                             '_id': frame_id,
                             '_field': field_name,
-                            '_positions': {},
                             '_sequence_number': frame_count,
                             '_doc_id': document_id,
                         }
-                        if field.stored:
-                            frame['_text'] = " ".join(sentence_list)
-                        for sentence in sentence_list:
-                            # Tokenize and index
-                            tokens = field.analyse(sentence)
-
-                            # Record positional information
-                            for token in tokens:
-                                # Add to the list of terms we have seen if it isn't already there.
-                                if not token.stopped:
-                                    # Record word positions
-                                    try:
-                                        frame['_positions'][token.value].append(token.index)
-                                    except KeyError:
-                                        frame['_positions'][token.value] = [token.index]
-
-                        # Build the final frame
-                        frame.update(shell_frame)
-                        frames[frame_id] = frame
+                        terms = set()
 
         # If someone wants to store something besides text we need to handle it if we want to be a storage engine.
         # This only applies if we had at least 1 indexed field otherwise the frame can't be retrieved.
@@ -667,7 +527,6 @@ class IndexWriter(object):
             frame = {
                 '_id': frame_id,
                 '_field': None,  # There is no text field
-                '_positions': {},
                 '_sequence_number': frame_count,
                 '_doc_id': document_id,
             }
@@ -675,13 +534,25 @@ class IndexWriter(object):
             frames[frame_id] = frame
 
         # Make sure we store the meta-data on the frame
-        for f_id in frames:
-            frames[f_id]['_metadata'] = metadata
+        frame_ids = frames.keys()
+        for field_name, values in metadata.iteritems():
+                for value in values:
+                    if value is None:
+                        # Skip null values
+                        continue
+                try:
+                    self.__metadata[field_name][value] += frame_ids
+                except KeyError:
+                    try:
+                        self.__metadata[field_name][value] = frame_ids
+                    except KeyError:
+                        self.__metadata[field_name] = {value: frame_ids}
 
         logger.debug('Tokenization of document {} complete. {} frames created.'.format(document_id, len(frames)))
 
-        # Store the frames - in our temporary buffer
-        self.__new_frames.update(frames)
+        # Store the frames
+        self.__storage.set_container_items(IndexWriter.FRAMES_CONTAINER,
+                                           {k: json.dumps(v) for k, v in frames.iteritems()})
 
         # Finally add the document to storage.
         doc_fields = {
@@ -692,14 +563,14 @@ class IndexWriter(object):
             if field.stored and field_name in fields:
                 # Only record stored fields against the document
                 doc_fields[field_name] = fields[field_name]
-        self.__new_documents[document_id] = doc_fields
+        self.__storage.set_container_item(IndexWriter.DOCUMENTS_CONTAINER, document_id, json.dumps(doc_fields))
 
         # Flush buffers if needed
-        current_buffer_size = sys.getsizeof(self.__new_documents) + sys.getsizeof(self.__new_frames) + \
-            sys.getsizeof(self.__rm_frames) + sys.getsizeof(self.__rm_documents)
-        if current_buffer_size > IndexWriter.RAM_BUFFER_SIZE:
-            logger.debug('Flushing index writer buffers')
-            self.flush()
+        # current_buffer_size = sys.getsizeof(self.__new_documents) + sys.getsizeof(self.__new_frames) + \
+        #     sys.getsizeof(self.__rm_frames) + sys.getsizeof(self.__rm_documents)
+        # if current_buffer_size > IndexWriter.RAM_BUFFER_SIZE:
+        #     logger.debug('Flushing index writer buffers')
+        #     self.flush()
 
         return document_id
 
@@ -1434,8 +1305,8 @@ def find_bi_gram_words(frames, min_bi_gram_freq=3, min_bi_gram_coverage=0.65):
     logger.debug("Identifying n-grams")
 
     # Generate a table of candidate bigrams
-    candidate_bi_grams = nltk.probability.FreqDist()
-    uni_gram_frequencies = nltk.probability.FreqDist()
+    candidate_bi_grams = Counter()
+    uni_gram_frequencies = Counter()
     bi_gram_analyser = PotentialBiGramAnalyser()
     sentence_tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
     for _, frame in frames:
@@ -1444,12 +1315,12 @@ def find_bi_gram_words(frames, min_bi_gram_freq=3, min_bi_gram_coverage=0.65):
             for token_list in bi_gram_analyser.analyse(sentence):
                 # Using a special filter that returns list of tokens. List of 1 means no bi-grams.
                 if len(token_list) > 1:  # We have a bi-gram people!
-                    candidate_bi_grams.inc("{} {}".format(token_list[0].value, token_list[1].value))
+                    candidate_bi_grams["{} {}".format(token_list[0].value, token_list[1].value)] += 1
                 for t in token_list:  # Keep a list of terms we have seen so we can record freqs later.
                     if not t.stopped:  # Naughty stopwords!
                         terms_seen.add(t.value)
             for term in terms_seen:
-                uni_gram_frequencies.inc(term)
+                uni_gram_frequencies[term] += 1
 
     # Filter and sort by frequency-decreasing
     candidate_bi_gram_list = filter(lambda (k, v): v > min_bi_gram_freq, candidate_bi_grams.iteritems())

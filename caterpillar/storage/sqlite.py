@@ -53,15 +53,17 @@ class SqliteStorage(Storage):
             self._db_connection = apsw.Connection(db, flags=apsw.SQLITE_OPEN_READWRITE | apsw.SQLITE_OPEN_CREATE)
             cursor = self._db_connection.cursor()
             # Enable WAL
-            cursor.execute("PRAGMA journal_mode = WAL")
+            cursor.execute("PRAGMA journal_mode = OFF")
 
             # Setup containers table
             cursor.execute("BEGIN; CREATE TABLE {} (id VARCHAR PRIMARY KEY); COMMIT;"
                            .format(SqliteStorage.CONTAINERS_TABLE))
         elif readonly:
             self._db_connection = apsw.Connection(db, flags=apsw.SQLITE_OPEN_READONLY)
+            self._db_connection.cursor().execute("PRAGMA journal_mode = OFF")
         else:
             self._db_connection = apsw.Connection(db, flags=apsw.SQLITE_OPEN_READWRITE)
+            self._db_connection.cursor().execute("PRAGMA journal_mode = OFF")
 
     def begin(self):
         """Begin a transaction."""
@@ -147,7 +149,7 @@ class SqliteStorage(Storage):
 
         """
         if keys:
-            keys = list(keys)
+            keys = dict({k: None for k in keys})
             for k in self._chunks(keys):
                 cursor = self._execute("SELECT * FROM {} WHERE key IN ({})".format(c_id, ','.join(['?']*len(k))), k)
                 while True:
@@ -155,9 +157,9 @@ class SqliteStorage(Storage):
                     if item is None:
                         break
                     yield item
-                    keys.remove(item[0])
+                    del keys[item[0]]
             # Ensure we yield an item for every key
-            for k in keys:
+            for k in keys.iterkeys():
                 yield (k, None,)
         else:
             cursor = self._execute("SELECT * FROM {}".format(c_id))
