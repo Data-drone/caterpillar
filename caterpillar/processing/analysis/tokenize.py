@@ -17,6 +17,8 @@ class Token(object):
     not the object!
 
     """
+    __slots__ = ['update', 'copy', 'value', 'position', 'stopped', 'index', 'frame_boundary']
+
     def __init__(self, value=None, position=None, stopped=None, index=None, frame_boundary=None):
         self.value = value
         self.position = position

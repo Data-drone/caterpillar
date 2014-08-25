@@ -472,24 +472,27 @@ class IndexWriter(object):
                     '_field': field_name,
                     '_sequence_number': frame_count,
                     '_doc_id': document_id,
+                    '_offset': last_boundary,
+                    '_positions': defaultdict(list)
                 }
-                terms = set()
                 for token in field.analyse(field_data):
                     if not token.frame_boundary:
                         # Record term and position
                         if not token.stopped:
                             # Record term
-                            terms.add(token.value)
+                            self.__frequencies[token.value] += 1
                             # Record word positions
                             try:
-                                self.__positions[token.value][frame_id].append(token.index)
+                                self.__positions[token.value][document_id].append(token.position)
                             except KeyError:
                                 self.__positions[token.value] = defaultdict(list)
-                                self.__positions[token.value][frame_id].append(token.index)
+                                self.__positions[token.value][document_id].append(token.position)
+                            frame['_positions'][token.value].append((token.index[0]-last_boundary,
+                                                                     token.index[1]-last_boundary))
                     else:
                         # Record frequency and association info
-                        for term in terms:
-                            self.__frequencies[term] += 1
+                        # for term in terms:
+                            # self.__frequencies[term] += 1
                             # for other_term in terms:
                             #     if term == other_term:
                             #         continue
@@ -505,6 +508,7 @@ class IndexWriter(object):
                             self.__metadata[field_name] = {'_text': [frame_id]}
                         # Finish this frame off, save it to our buffer.
                         frame['_text'] = field_data[last_boundary:token.index[0]]
+                        frame['_length'] = token.index[0] - last_boundary
                         last_boundary = token.index[0]
                         frame.update(shell_frame)
                         frames[frame_id] = frame
@@ -516,8 +520,9 @@ class IndexWriter(object):
                             '_field': field_name,
                             '_sequence_number': frame_count,
                             '_doc_id': document_id,
+                            '_offset': last_boundary,
+                            '_positions': defaultdict(list)
                         }
-                        terms = set()
 
         # If someone wants to store something besides text we need to handle it if we want to be a storage engine.
         # This only applies if we had at least 1 indexed field otherwise the frame can't be retrieved.
