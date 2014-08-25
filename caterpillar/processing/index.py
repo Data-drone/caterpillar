@@ -483,12 +483,11 @@ class IndexWriter(object):
                             self.__frequencies[token.value] += 1
                             # Record word positions
                             try:
-                                self.__positions[token.value][document_id].append(token.position)
+                                self.__positions[token.value][document_id].append(token.index)
                             except KeyError:
                                 self.__positions[token.value] = defaultdict(list)
-                                self.__positions[token.value][document_id].append(token.position)
-                            frame['_positions'][token.value].append((token.index[0]-last_boundary,
-                                                                     token.index[1]-last_boundary))
+                                self.__positions[token.value][document_id].append(token.index)
+                            frame['_positions'][token.value].append(token.index)
                     else:
                         # Record frequency and association info
                         # for term in terms:
