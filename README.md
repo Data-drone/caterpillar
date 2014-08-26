@@ -1,6 +1,8 @@
 What is Caterpillar?
 ====================
 
+[![Build Status](https://travis-ci.org/Kapiche/caterpillar.svg?branch=master)](https://travis-ci.org/Kapiche/caterpillar)
+
 Caterpillar is a pure python text indexing and analytics library. Some features include:
 
 * pluggable key/value object store for storage (currently only implementation is SQLite)
