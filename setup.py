@@ -27,7 +27,7 @@ with open(version_file) as fh:
 requires = [
     'apsw',
     'lrparsing',
-    'nltk',
+    'nltk>=2.0,<2.1',
     'numpy',
     'regex',
     'ujson',
