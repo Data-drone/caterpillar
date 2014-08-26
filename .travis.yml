@@ -9,4 +9,5 @@ install:
     - "unzip apsw-3.8.5-r1.zip"
     - "cd apsw-3.8.5-r1 && python setup.py fetch --version=3.8.5 --all build --enable-all-extensions install"
     - "cd .. && pip install -r requirements.txt"
+    - "python -m nltk.downloader punkt"
 script: py.test caterpillar
