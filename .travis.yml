@@ -10,4 +10,8 @@ install:
     - "cd apsw-3.8.5-r1 && python setup.py fetch --version=3.8.5 --all build --enable-all-extensions install"
     - "cd .. && pip install -r requirements.txt"
     - "python -m nltk.downloader punkt"
-script: py.test caterpillar
+    - "pip install coverage"
+    - "pip install coveralls"
+script: coverage run --source=caterpillar -m py.test caterpillar
+after_success:
+  coveralls
