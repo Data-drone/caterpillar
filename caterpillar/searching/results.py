@@ -1,7 +1,6 @@
-# caterpillar: Classes to store search results
-#
-# Copyright (C) 2012-2013 Mammoth Labs
-# Author: Kris Rogers <kris@mammothlabs.com.au>
+# Copyright (c) 2012-2014 Kapiche Limited
+# Author: Kris Rogers <kris@kapiche.com>, Ryan Stuart <ryan@kapiche.com>
+"""Classes to store search results."""
 
 
 class SearchHit(object):

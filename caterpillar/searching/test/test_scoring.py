@@ -1,7 +1,6 @@
-# caterpillar: Tests for scoring module
-#
-# Copyright (C) 2013 Mammoth Labs
-# Author: Kris Rogers <kris@mammothlabs.com.au>
+# Copyright (c) 2012-2014 Kapiche Limited
+# Author: Kris Rogers <kris@kapiche.com>
+"""Tests for scoring module."""
 from caterpillar import abstract_method_tester
 from caterpillar.searching.scoring import Scorer
 

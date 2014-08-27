@@ -1,4 +1,4 @@
-# Copyright (C) Kapiche
+# Copyright (C) 2012-2014 Kapiche
 # Author: Kris Rogers <kris@kapiche.com>
 """Tests for the match module."""
 from caterpillar.searching.query import BaseQuery, QueryResult

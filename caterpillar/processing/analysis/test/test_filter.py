@@ -1,7 +1,6 @@
-# caterpillar: Tests for the caterpillar.processing.analysis.filter module
-#
-# Copyright (C) 2012-2013 Mammoth Labs
-# Author: Ryan Stuart <ryan@mammothlabs.com.au>
+# Copyright (c) 2012-2014 Kapiche Limited
+# Author: Ryan Stuart <ryan@kapiche.com>
+"""Tests for the caterpillar.processing.analysis.filter module."""
 import pytest
 from caterpillar.processing.analysis.filter import *
 from caterpillar.processing.analysis.tokenize import WordTokenizer, Token
