@@ -1,4 +1,2 @@
-# caterpillar
-#
-# Copyright (C) 2012-2014 Mammoth Labs
-# Author: Ryan Stuart <ryan@mammothlabs.com.au>
+# Copyright (c) 2012-2014 Kapiche Limited
+# Author: Kris Rogers <kris@kapiche.com>, Ryan Stuart <ryan@kapiche.com>

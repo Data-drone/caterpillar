@@ -1,4 +1,4 @@
-# Copyright (C) Kapiche
+# Copyright (c) 2012-2014 Kapiche Limited
 # Author: Kris Rogers <kris@kapiche.com>
 """
 The purpose of this module is to allow the matching of arbitrary combinations of other queries when searching. This is

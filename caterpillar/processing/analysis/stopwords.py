@@ -1,3 +1,5 @@
+# Copyright (c) 2012-2014 Kapiche Limited
+# Author: Kris Rogers <kris@kapiche.com>, Ryan Stuart <ryan@kapiche.com>
 import os
 
 MIN_WORD_SIZE = 3  # length of the smallest possible word

@@ -1,7 +1,6 @@
-# caterpillar: Tools for filtering tokens
-#
-# Copyright (C) 2012-2013 Mammoth Labs
-# Author: Ryan Stuart <ryan@mammothlabs.com.au>
+# Copyright (c) 2012-2014 Kapiche Limited
+# Author: Ryan Stuart <ryan@kapiche.com>
+"""Tools for filtering tokens."""
 import regex
 
 

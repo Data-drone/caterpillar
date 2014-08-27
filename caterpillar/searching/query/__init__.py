@@ -1,4 +1,4 @@
-# Copyright (C) Kapiche
+# Copyright (c) 2012-2014 Kapiche Limited
 # Author: Kris Rogers <kris@kapiche.com>
 """
 This module implements the query framework for caterpillar.
