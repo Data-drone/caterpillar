@@ -5,16 +5,14 @@ Read in a bunch of pre-parsed csv files produced from the Wikipedia XML dump (1 
 index.
 
 """
-import cProfile
 from collections import namedtuple
 import csv
+import logging
 import os
-import pstats
 import sys
 
 import begin
 from concurrent import futures
-from memory_profiler import profile
 import time
 
 from caterpillar.processing.index import IndexWriter, IndexConfig, IndexReader
@@ -33,7 +31,7 @@ def index(f, index):
         size = 0
         index_name = 1
         index_count = 0
-        print "Hi, I'm worker {} here to do your dirty work with {}.".format(pid, f)
+        logging.info("Hi, I'm worker {} here to do your dirty work with {}.".format(pid, f))
         writer = IndexWriter("{}-{}-{}".format(index, index_name, index_name+999), config)
         writer.begin()
         for page in map(Page._make, reader):
@@ -43,55 +41,44 @@ def index(f, index):
                 count += 1
                 writer.add_document(id=page[0], title=page[1], text=page[4])
                 if count % 1000 == 0:
-                    sys.stdout.write("{}: Parsed {:,} documents so far, {:,} actual articles, {:,} bytes, writing "
-                                     "out this index ({})...".format(f, real_count, count, size,
-                                                                     "{}-{}-{}".format(index, index_name, index_name+1000)))
-                    sys.stdout.flush()
+                    logging.debug("Parsed {:,} documents so far, {:,} actual articles, {:,} bytes, writing out this "
+                                  "index ({})...".
+                                  format(real_count, count, size,
+                                         "{}-{}-{}".format(index, index_name, index_name+1000)))
                     writer.commit()
                     writer.close()
-                    sys.stdout.write("DONE\n")
                     index_name += 1000
                     size = 0
                     index_count += 1
                     writer = IndexWriter("{}-{}-{}".format(index, index_name, index_name+999), config)
                     writer.begin()
             if real_count % 1000 == 0:
-                print "{}: Parsed {:,} documents so far, {:,} actual articles, {:,} bytes, {:,}, indexes, " \
-                      "continuing...".format(f, real_count, count, size, index_count)
-        sys.stdout.write("{}: Parsed all {:,} documents, {:,} actual articles, {:,} bytes, writing final index "
-                         "({})...". format(f, real_count, count, size,
-                                           "{}-{}-{}".format(index, index_name, index_name+999)))
-        sys.stdout.flush()
+                logging.debug("Parsed {:,} documents so far, {:,} actual articles, {:,} bytes, {:,}, indexes, "
+                              "continuing...".format(real_count, count, size, index_count))
+        logging.info("Parsed all {:,} documents, {:,} actual articles, {:,} bytes, writing final index ({})...".
+                     format(real_count, count, size, "{}-{}-{}".format(index, index_name, index_name+999)))
         writer.commit()
         writer.close()
-        sys.stdout.write("DONE\n")
-        print "We created {:,} indexes.".format(index_count+1)
+        logging.info("Finished file {}. Created {:,} indexes.".format(f, index_count+1))
+        return index_count+1
 
 @begin.start
 @begin.convert(num_of_docs=int, step_size=int, profile=bool)
-def run(index_path="/tmp/wiki-index", profile_dump=False, *files):
+def run(index_path="/tmp/wiki-index", profile_dump=False, log_lvl='INFO', *files):
     """
     Parse the Wikipedia csv dumps in ``files`` and save in an index per csv file at ``index_path``.
 
     """
-    print "Adding all documents from the {:,} Wikipedia csv dumps...Wew!".format(len(files))
+    logging.basicConfig(level=log_lvl, format='%(asctime)s - %(levelname)s - %(processName)s: %(message)s')
+    logging.info("Adding all documents from the {:,} Wikipedia csv dumps...Wew!".format(len(files)))
     csv.field_size_limit(100000000000000)
 
-
-    # def work():
     now = time.time()
     paths = [os.path.join(index_path, os.path.basename(f)[:-4]) for f in files]
-    pool = futures.ProcessPoolExecutor()
-    futures.wait(pool.map(index, files, paths))
-    print "All done. We processed {:,} files in {:,.02f} seconds.".format(len(files), time.time()-now)
-
-    # if profile_dump:
-    #     pr = cProfile.Profile()
-    #     pr.runcall(work)
-    #     ps = pstats.Stats(pr)
-    #     ps.dump_stats("storage_benchmark.profile")
-    # else:
-    # work()
-
-
+    indexes = 0
+    with futures.ProcessPoolExecutor() as pool:
+        for index_count in pool.map(index, files, paths):
+            indexes += index_count
+    logging.info("All done. We processed {:,} files in {:,.02f} seconds and created {:,} indexes.".\
+        format(len(files), time.time()-now, indexes))
 
