@@ -1,17 +1,20 @@
 language: python
 python:
-    - "2.7"
+- '2.7'
 before_install:
-    - sudo apt-get update -qq
-    - sudo apt-get install -y unzip wget
-install: 
-    - "wget https://github.com/rogerbinns/apsw/releases/download/3.8.5-r1/apsw-3.8.5-r1.zip"
-    - "unzip apsw-3.8.5-r1.zip"
-    - "cd apsw-3.8.5-r1 && python setup.py fetch --version=3.8.5 --all build --enable-all-extensions install"
-    - "cd .. && pip install -r requirements.txt"
-    - "python -m nltk.downloader punkt"
-    - "pip install coverage"
-    - "pip install coveralls"
+- sudo apt-get update -qq
+- sudo apt-get install -y unzip wget
+install:
+- wget https://github.com/rogerbinns/apsw/releases/download/3.8.5-r1/apsw-3.8.5-r1.zip
+- unzip apsw-3.8.5-r1.zip
+- cd apsw-3.8.5-r1 && python setup.py fetch --version=3.8.5 --all build --enable-all-extensions
+  install
+- cd .. && pip install -r requirements.txt
+- python -m nltk.downloader punkt
+- pip install coverage
+- pip install coveralls
 script: coverage run --source=caterpillar -m py.test caterpillar
-after_success:
-  coveralls
+after_success: coveralls
+notifications:
+  slack:
+    secure: SxnVL4AOA8eNbDbVo3kgjicZu95SsH9ReO2A7n1AWlAWdm2vhDKA+igZt0UZUZmW+H6ssjAZl4tO1P9GcdBEe0YrviAsx+dh/ldmhdxMmFHtjFVe/luHn6V0PB9dD1FUDBq2fwLAtzbyoP0dGedkD1hIKJ27Qf5e7jULJbAcW/0=
