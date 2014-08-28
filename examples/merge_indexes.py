@@ -23,6 +23,8 @@ def work(indexes):
     for reader in readers:
         # terms.union(set([k for k, c in reader.get_frequencies()]))
         docs += reader.get_document_count()
+    # Don't forget to close our readers!
+    map(lambda r: r.close(), readers)
     return docs
 
 
@@ -36,8 +38,11 @@ def run(step_size=10, *indexes):
     print len(indexes)
     args = [iter(indexes)] * step_size
     documents = 0
+    pool = ProcessPoolExecutor()
 
-    with ProcessPoolExecutor() as pool:
+    try:
         for docs in pool.map(work, izip_longest(*args)):
             documents += docs
-    print "{:,} documents".format(documents)
+        print "{:,} documents".format(documents)
+    finally:
+        pool.shutdown()
