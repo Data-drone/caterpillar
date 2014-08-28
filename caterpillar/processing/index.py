@@ -58,9 +58,9 @@ Here is a quick example:
 from __future__ import absolute_import, division
 
 from collections import Counter, defaultdict
+import cPickle
 import logging
 import os
-import pickle
 import random
 import ujson as json
 import uuid
@@ -146,7 +146,7 @@ class IndexConfig(object):
 
         """
         try:
-            instance = pickle.loads(data)
+            instance = cPickle.loads(data)
             if not isinstance(instance, IndexConfig):
                 raise ValueError('The passed data couldn\'t be parsed.')
         except Exception:
@@ -156,7 +156,7 @@ class IndexConfig(object):
 
     def dumps(self):
         """Dump this instance as a string for serialization."""
-        return pickle.dumps(self)
+        return cPickle.dumps(self)
 
 
 class IndexWriter(object):
