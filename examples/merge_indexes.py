@@ -13,7 +13,9 @@ def work(indexes):
     docs = 0
     terms = set()
     readers = [IndexReader(index) for index in ifilter(lambda x: x, indexes)]
-    map(lambda r: r.begin(), readers)
+
+    for reader in readers:
+        reader.begin()
 
     # def merge_term(terms):
     #     merge = {k: dict() for k in terms}
@@ -21,10 +23,13 @@ def work(indexes):
     #         for term in reader.get_positions_index()
 
     for reader in readers:
-        # terms.union(set([k for k, c in reader.get_frequencies()]))
+        terms.union(set([k for k, c in reader.get_frequencies()]))
         docs += reader.get_document_count()
+
     # Don't forget to close our readers!
-    map(lambda r: r.close(), readers)
+    for reader in readers:
+        reader.close()
+
     return docs
 
 
