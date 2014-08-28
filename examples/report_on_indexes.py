@@ -25,10 +25,13 @@ def run(*indexes):
     total_term_freq = 0
     documents = 0
     num_indexes = len(indexes)
-    with ProcessPoolExecutor() as pool:
+    pool = ProcessPoolExecutor()
+    try:
         for vocab, freq, doc_count in pool.map(work, indexes):
             vocab_size.union(vocab)
             total_term_freq += freq
             documents += doc_count
-    print "{:,} indexes; {:,} terms; {:,} term freq; {:,} docs.".\
-        format(num_indexes, len(vocab_size), total_term_freq, documents)
+        print "{:,} indexes; {:,} terms; {:,} term freq; {:,} docs.".\
+            format(num_indexes, len(vocab_size), total_term_freq, documents)
+    finally:
+        pool.shutdown()

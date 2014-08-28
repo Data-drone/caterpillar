@@ -2,7 +2,7 @@
 #
 # Copyright (C) 2012-2013 Mammoth Labs
 # Author: Ryan Stuart <ryan@mammothlabs.com.au>
-import regex
+import re
 
 
 class Filter(object):
@@ -190,7 +190,7 @@ class SubstitutionFilter(Filter):
 
     """
     def __init__(self, pattern, replacement):
-        self.pattern = regex.compile(pattern)
+        self.pattern = re.compile(pattern)
         self.replacement = replacement
 
     def filter(self, tokens):

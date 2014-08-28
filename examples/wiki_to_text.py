@@ -16,7 +16,7 @@ def run(xml_dump, output_file, num_of_articles=0, step_size=10000):
     real_count = 0
     try:
         while True:
-            path = "{}-{:,}-{:,}.csv".format(output_file, step_size*(file_count - 1), step_size*file_count-1)
+            path = "{}-{:,}-{:,}.csv".format(output_file, step_size*(file_count - 1) + 1, step_size*file_count)
             with open(path, 'w') as f:
                 for _ in xrange(step_size):
                     writer = csv.writer(f)

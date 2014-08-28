@@ -11,8 +11,6 @@ import csv
 import re
 import sys
 
-import regex
-
 from caterpillar.processing.analysis.analyse import BiGramAnalyser, EverythingAnalyser, DefaultAnalyser
 from caterpillar.processing.analysis.tokenize import Token
 
@@ -462,7 +460,7 @@ def generate_csv_schema(csv_file, delimiter=',', encoding='utf8'):
             col = row[j]
             if j not in column_stats:
                 column_stats[j] = {'total_words': 0}
-            column_stats[j]['total_words'] += len(regex.findall(r'\w+', col))
+            column_stats[j]['total_words'] += len(re.findall(r'\w+', col))
 
     # Define columns and generate schema
     columns = []
