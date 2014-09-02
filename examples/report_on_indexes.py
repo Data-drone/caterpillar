@@ -9,13 +9,12 @@ from caterpillar.processing.index import IndexReader
 
 
 def work(index):
-    vocab_size = set()
-    total_term_freq = 0
     with IndexReader(index) as reader:
-        for term, count in reader.get_frequencies():
-            vocab_size.add(term)
-            total_term_freq += count
-        return vocab_size, total_term_freq, reader.get_document_count()
+        freqs = reader.get_frequencies()
+        vocab_size = freqs.viewkeys()
+        total_term_freq = sum(freqs.values())
+        docs = reader.get_document_count()
+    return vocab_size, total_term_freq, docs
 
 
 @begin.start
@@ -24,14 +23,14 @@ def run(*indexes):
     vocab_size = set()
     total_term_freq = 0
     documents = 0
-    num_indexes = len(indexes)
-    pool = ProcessPoolExecutor()
-    try:
-        for vocab, freq, doc_count in pool.map(work, indexes):
-            vocab_size.union(vocab)
-            total_term_freq += freq
-            documents += doc_count
-        print "{:,} indexes; {:,} terms; {:,} term freq; {:,} docs.".\
-            format(num_indexes, len(vocab_size), total_term_freq, documents)
-    finally:
-        pool.shutdown()
+    num_indexes = len(indexes[:2])
+    # pool = ProcessPoolExecutor()
+    # try:
+    for vocab, freq, doc_count in map(work, indexes[:2]):
+        vocab_size.update(vocab)
+        total_term_freq += freq
+        documents += doc_count
+    print "{:,} indexes; {:,} unique terms; {:,} total terms; {:,} docs.".\
+        format(num_indexes, len(vocab_size), total_term_freq, documents)
+    # finally:
+    #     pool.shutdown()

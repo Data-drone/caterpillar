@@ -101,6 +101,10 @@ class IndexWriteLockedError(CaterpillarIndexError):
     """There is already an existing writer for this index."""
 
 
+class DuplicateIndexError(CaterpillarIndexError):
+    """There is already an existing index at this path."""
+
+
 class IndexConfig(object):
     """
     Stores configuration information about an index.
@@ -1043,6 +1047,14 @@ class IndexReader(object):
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
 
+    @property
+    def config(self):
+        return self.__config
+
+    @property
+    def storage(self):
+        return self.__storage
+
     def begin(self):
         """
         Begin reading with this IndexReader.
@@ -1065,9 +1077,12 @@ class IndexReader(object):
         self.__storage.commit()
         self.__storage.close()
 
-    def get_positions_index(self):
+    def get_positions_index(self, keys=None):
         """
-        Get all term positions.
+        Get term positions.
+
+        If ``keys`` is ``None`` then fetch all positions. Otherwise, only fetch the positions for the terms in the
+        ``keys`` list.
 
         This is a generator which yields a key/value pair tuple.
 
@@ -1082,8 +1097,10 @@ class IndexReader(object):
             }
 
         """
-        for k, v in self.__storage.get_container_items(IndexWriter.POSITIONS_CONTAINER):
-            yield (k, json.loads(v))
+        return {k: json.loads(v) for k, v in self.__storage.get_container_items(IndexWriter.POSITIONS_CONTAINER, keys=keys).iteritems() if v}
+        # for k, v in self.__storage.get_container_items(IndexWriter.POSITIONS_CONTAINER, keys=keys):
+        #     if v:
+        #         yield (k, json.loads(v))
 
     def get_term_positions(self, term):
         """
@@ -1143,8 +1160,9 @@ class IndexReader(object):
             all of the terms positions returned by :meth:`.get_term_position`.
 
         """
-        for k, v in self.__storage.get_container_items(IndexWriter.FREQUENCIES_CONTAINER):
-            yield (k, json.loads(v))
+        return {k: json.loads(v) for k, v in self.__storage.get_container_items(IndexWriter.FREQUENCIES_CONTAINER).iteritems()}
+        # for k, v in self.__storage.get_container_items(IndexWriter.FREQUENCIES_CONTAINER).iteritems():
+        #     yield (k, json.loads(v))
 
     def get_term_frequency(self, term):
         """Return the frequency of ``term`` (str) as an int."""
