@@ -96,16 +96,17 @@ def run(out_dir, log_lvl="INFO", step_size=10, *indexes):
     logging.basicConfig(level=log_lvl, format='%(asctime)s - %(levelname)s - %(processName)s: %(message)s')
     start = time.time()
     count = 0
-    indexes = indexes[:step_size]
-    # pool = futures.ProcessPoolExecutor()
+    indexes = indexes
+    pool = futures.ProcessPoolExecutor()
 
-    # try:
-    for _ in map(merge_indexes, [out_dir for _ in xrange(0, len(indexes), step_size)],
-                 [indexes[i:i+step_size] for i in xrange(0, len(indexes), step_size)]):
-        # for _ in pool.map(merge_indexes, [out_dir for _ in xrange(step_size)], izip_longest(*args)):
-        count += 1
-        if not count % 10:
-            print "Processed {:,} indexes...".format(count*10)
-    print "Processed all indexes in {:,.02f} seconds.".format(time.time()-start)
-    # finally:
-    #     pool.shutdown()
+    try:
+    #for _ in map(merge_indexes, [out_dir for _ in xrange(0, len(indexes), step_size)],
+                 #[indexes[i:i+step_size] for i in xrange(0, len(indexes), step_size)]):
+        for _ in pool.map(merge_indexes, [out_dir for _ in xrange(0, len(indexes), step_size)],
+                          [indexes[i:i+step_size] for i in xrange(0, len(indexes), step_size)]):
+            count += 1
+            if not count % 10:
+                print "Processed {:,} indexes...".format(count*10)
+        print "Processed all indexes in {:,.02f} seconds.".format(time.time()-start)
+    finally:
+        pool.shutdown()
