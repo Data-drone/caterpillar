@@ -13,7 +13,6 @@ import time
 from caterpillar.processing.index import IndexReader, IndexWriter, DuplicateIndexError
 
 
-@profile
 def merge_indexes(path, sub_index_paths):
     start = time.time()
     logging.info("Merging {:,} indexes into {}".format(len(sub_index_paths), path))
@@ -72,14 +71,13 @@ def merge_indexes(path, sub_index_paths):
     # Merge terms, 1000 at a time to save memory
     logging.info("Merging positions...")
     terms = list(terms)
-    for term_chunk in [terms[i: i+10000] for i in xrange(0, len(terms), 10000)]:
-        merge = dict.fromkeys(ifilter(lambda t: t, term_chunk), dict())
+    for term_chunk in [terms[i: i+500000] for i in xrange(0, len(terms), 500000)]:
+        merge = dict.fromkeys(ifilter(lambda t: t, term_chunk), "")
         for reader in readers:
-            # for term, pos in filter(lambda item: item[1], reader.get_positions_index(keys=term_chunk).items()):
             for term, pos in reader.get_positions_index(keys=term_chunk).iteritems():
-                merge[term].update(pos)
-        for k in merge.iterkeys():
-            merge[k] = json.dumps(merge[k])
+                merge[term] += pos
+        # for k in merge.iterkeys():
+        #     merge[k] = json.dumps(merge[k])
         storage.set_container_items(IndexWriter.POSITIONS_CONTAINER, merge)
     logging.info("Merged positions.")
 
@@ -93,7 +91,7 @@ def merge_indexes(path, sub_index_paths):
 
 @begin.start
 @begin.convert(_automatic=True)
-def run(out_dir, log_lvl="INFO", step_size=2, *indexes):
+def run(out_dir, log_lvl="INFO", step_size=10, *indexes):
     """Merge all ``indexes`` together into a single index written into ``output_dir``."""
     logging.basicConfig(level=log_lvl, format='%(asctime)s - %(levelname)s - %(processName)s: %(message)s')
     start = time.time()

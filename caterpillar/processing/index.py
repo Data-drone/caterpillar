@@ -1097,7 +1097,8 @@ class IndexReader(object):
             }
 
         """
-        return {k: json.loads(v) for k, v in self.__storage.get_container_items(IndexWriter.POSITIONS_CONTAINER, keys=keys).iteritems() if v}
+        # return {k: json.loads(v) for k, v in self.__storage.get_container_items(IndexWriter.POSITIONS_CONTAINER, keys=keys).iteritems() if v}
+        return {k: v for k, v in self.__storage.get_container_items(IndexWriter.POSITIONS_CONTAINER, keys=keys).iteritems() if v}
         # for k, v in self.__storage.get_container_items(IndexWriter.POSITIONS_CONTAINER, keys=keys):
         #     if v:
         #         yield (k, json.loads(v))
