@@ -64,7 +64,7 @@ def merge_indexes(path, sub_index_paths):
                                     reader.storage.get_container_items(IndexWriter.DOCUMENTS_CONTAINER))
         storage.set_container_items(IndexWriter.FRAMES_CONTAINER,
                                     reader.storage.get_container_items(IndexWriter.FRAMES_CONTAINER))
-        terms.update(reader.get_frequencies().viewkeys())
+        terms.update(reader.get_terms())
     logging.info("Merged {:,} documents and {:,} frames, recorded {:,} terms in {:,}s.".
                  format(docs, frames, len(terms), time.time() - start))
 
@@ -72,12 +72,10 @@ def merge_indexes(path, sub_index_paths):
     logging.info("Merging positions...")
     terms = list(terms)
     for term_chunk in [terms[i: i+500000] for i in xrange(0, len(terms), 500000)]:
-        merge = dict.fromkeys(ifilter(lambda t: t, term_chunk), "")
+        merge = dict.fromkeys(ifilter(lambda t: t, term_chunk), '')
         for reader in readers:
             for term, pos in reader.get_positions_index(keys=term_chunk).iteritems():
-                merge[term] += pos
-        # for k in merge.iterkeys():
-        #     merge[k] = json.dumps(merge[k])
+                merge[term] += pos[:]
         storage.set_container_items(IndexWriter.POSITIONS_CONTAINER, merge)
     logging.info("Merged positions.")
 
@@ -96,12 +94,12 @@ def run(out_dir, log_lvl="INFO", step_size=10, *indexes):
     logging.basicConfig(level=log_lvl, format='%(asctime)s - %(levelname)s - %(processName)s: %(message)s')
     start = time.time()
     count = 0
-    indexes = indexes
+    # indexes = indexes[:10]
     pool = futures.ProcessPoolExecutor()
 
     try:
-    #for _ in map(merge_indexes, [out_dir for _ in xrange(0, len(indexes), step_size)],
-                 #[indexes[i:i+step_size] for i in xrange(0, len(indexes), step_size)]):
+    # for _ in map(merge_indexes, [out_dir for _ in xrange(0, len(indexes), step_size)],
+    #              [indexes[i:i+step_size] for i in xrange(0, len(indexes), step_size)]):
         for _ in pool.map(merge_indexes, [out_dir for _ in xrange(0, len(indexes), step_size)],
                           [indexes[i:i+step_size] for i in xrange(0, len(indexes), step_size)]):
             count += 1

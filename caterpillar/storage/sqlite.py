@@ -92,7 +92,7 @@ class SqliteStorage(Storage):
         containers = self._get_containers()
         if c_id in containers:
             raise DuplicateContainerError('\'{}\' container already exists'.format(c_id))
-        self._execute("CREATE TABLE {} (key VARCHAR PRIMARY KEY, value TEXT NOT NULL)".format(c_id))
+        self._execute("CREATE TABLE {} (key VARCHAR PRIMARY KEY, value BLOB NOT NULL)".format(c_id))
         self._execute("INSERT INTO {} VALUES (?)".format(SqliteStorage.CONTAINERS_TABLE), (c_id,))
 
     def clear(self):
@@ -127,11 +127,12 @@ class SqliteStorage(Storage):
     def get_container_keys(self, c_id):
         """Generator of keys from container ``c_id`` (str)."""
         cursor = self._execute("SELECT key FROM {}".format(c_id))
-        while True:
-            item = cursor.fetchone()
-            if item is None:
-                break
-            yield item[0]
+        # while True:
+        #     item = cursor.fetchone()
+        #     if item is None:
+        #         break
+        #     yield item[0]
+        return [item[0] for item in cursor.fetchall()]
 
     def get_container_item(self, c_id, key):
         """Get item at ``key`` (str) from container ``c_id`` (str)."""
@@ -190,11 +191,11 @@ class SqliteStorage(Storage):
 
     def set_container_item(self, c_id, key, value):
         """Add ``key``/``value`` pair to container ``c_id`` (str)."""
-        self._execute("INSERT OR REPLACE INTO {} VALUES (?, ?)".format(c_id), (key, value))
+        self._execute("INSERT OR REPLACE INTO {} VALUES (?, ?)".format(c_id), (key, buffer(value)))
 
     def set_container_items(self, c_id, items):
         """Add the dict of key/value tuples to container ``c_id`` (str)."""
-        self._executemany("INSERT OR REPLACE INTO {} VALUES (?,?)".format(c_id), (items.items()))
+        self._executemany("INSERT OR REPLACE INTO {} VALUES (?,?)".format(c_id), (((k, buffer(v)) for k, v in items.iteritems())))
 
     def _get_containers(self):
         """Return list of all containers regardless of storage type."""

@@ -66,6 +66,7 @@ import ujson as json
 import uuid
 
 import nltk.data
+import struct
 
 from caterpillar import VERSION
 from caterpillar.locking import PIDLockFile, LockTimeout, AlreadyLocked
@@ -261,7 +262,7 @@ class IndexWriter(object):
             self.__lock = None  # Should declare in __init__ and not outside.
         self.__committed = False
         # Internal index buffers we will update when flush() is called.
-        self.__positions = {}     # Inverted term positions index (per frame):: term -> frame_id -> [(star, end), ...]
+        self.__positions = defaultdict(str)  # Inverted term positions index (per doc):: term -> doc_id -> freq
         self.__associations = {}  # Inverted term co-occurrence index (per frame):: term -> other_term -> count
         self.__metadata = {}      # Inverted metadata index:: field_name -> field_value -> [frame_id, ...]
         self.__frequencies = Counter()  # Term frequency per frame:: term -> frame_count
@@ -340,19 +341,19 @@ class IndexWriter(object):
 
         """
         logger.debug("Flushing the index writer.")
+        data_format = '>16sl'  # Positions format (big endian, standard size) - 16 bytes for uuid then long term freq.
 
         # Positions
-        self.__storage.set_container_items(IndexWriter.POSITIONS_CONTAINER,
-                                           {k: json.dumps(v) for k, v in self.__positions.iteritems()})
-        self.__positions = {}
+        self.__storage.set_container_items(IndexWriter.POSITIONS_CONTAINER, self.__positions)
+        self.__positions = defaultdict(str)
         # Associations
-        self.__storage.set_container_items(IndexWriter.ASSOCIATIONS_CONTAINER,
-                                           {k: json.dumps(v) for k, v in self.__associations.iteritems()})
-        self.__associations = {}
+        # self.__storage.set_container_items(IndexWriter.ASSOCIATIONS_CONTAINER,
+        #                                    {k: json.dumps(v) for k, v in self.__associations.iteritems()})
+        # self.__associations = {}
         # Frequencies
-        self.__storage.set_container_items(IndexWriter.FREQUENCIES_CONTAINER,
-                                           {k: json.dumps(v) for k, v in self.__frequencies.iteritems()})
-        self.__frequencies = Counter()
+        # self.__storage.set_container_items(IndexWriter.FREQUENCIES_CONTAINER,
+        #                                    {k: json.dumps(v) for k, v in self.__frequencies.iteritems()})
+        # self.__frequencies = Counter()
         # Metadata
         self.__storage.set_container_items(IndexWriter.METADATA_CONTAINER,
                                            {k: json.dumps(v) for k, v in self.__metadata.iteritems()})
@@ -390,6 +391,7 @@ class IndexWriter(object):
         self.__storage.close()
         self.__storage = None
 
+    # @profile
     def add_document(self, encoding='utf-8', encoding_errors='strict', **fields):
         """
         Add a document to this index.
@@ -425,10 +427,9 @@ class IndexWriter(object):
         """
         logger.debug('Adding document')
         schema_fields = self.__schema.items()
-        document_id = uuid.uuid4().hex
-
-        # for field_name, field in schema_fields:
-        #     print "{}: {}".format(field_name, sys.getsizeof(fields[field_name]))
+        document_raw_id = uuid.uuid4()
+        document_id = document_raw_id.hex
+        positions = Counter()
 
         # Build the frames by performing required analysis.
         frames = {}  # Frame data:: frame_id -> {key: value}
@@ -484,13 +485,9 @@ class IndexWriter(object):
                         # Record term and position
                         if not token.stopped:
                             # Record term
-                            self.__frequencies[token.value] += 1
+                            # self.__frequencies[token.value] += 1
                             # Record word positions
-                            try:
-                                self.__positions[token.value][document_id].append(token.index)
-                            except KeyError:
-                                self.__positions[token.value] = defaultdict(list)
-                                self.__positions[token.value][document_id].append(token.index)
+                            positions[token.value] += 1
                             frame['_positions'][token.value].append(token.index)
                     else:
                         # Record frequency and association info
@@ -510,7 +507,8 @@ class IndexWriter(object):
                         except KeyError:
                             self.__metadata[field_name] = {'_text': [frame_id]}
                         # Finish this frame off, save it to our buffer.
-                        frame['_text'] = field_data[last_boundary:token.index[0]]
+                        if field.stored:
+                            frame['_text'] = field_data[last_boundary:token.index[0]]
                         frame['_length'] = token.index[0] - last_boundary
                         last_boundary = token.index[0]
                         frame.update(shell_frame)
@@ -526,7 +524,9 @@ class IndexWriter(object):
                             '_offset': last_boundary,
                             '_positions': defaultdict(list)
                         }
-
+                # Write out positions in the format needed
+                for term, count in positions.iteritems():
+                    self.__positions[term] += struct.pack('>16sl', document_raw_id.bytes, count)
         # If someone wants to store something besides text we need to handle it if we want to be a storage engine.
         # This only applies if we had at least 1 indexed field otherwise the frame can't be retrieved.
         # If there was at least 1 indexed field then there must be metadata!
@@ -559,8 +559,9 @@ class IndexWriter(object):
         logger.debug('Tokenization of document {} complete. {} frames created.'.format(document_id, len(frames)))
 
         # Store the frames
-        self.__storage.set_container_items(IndexWriter.FRAMES_CONTAINER,
-                                           {k: json.dumps(v) for k, v in frames.iteritems()})
+        for f_id, data in frames.iteritems():
+            frames[f_id] = json.dumps(data)
+        self.__storage.set_container_items(IndexWriter.FRAMES_CONTAINER, frames)
 
         # Finally add the document to storage.
         doc_fields = {
@@ -1169,6 +1170,10 @@ class IndexReader(object):
         """Return the frequency of ``term`` (str) as an int."""
         return json.loads(self.__storage.get_container_item(IndexWriter.FREQUENCIES_CONTAINER, term))
 
+    def get_terms(self):
+        """Return the list of terms."""
+        return self.__storage.get_container_keys(IndexWriter.POSITIONS_CONTAINER)
+
     def get_frame_count(self):
         """Return the int count of frames stored on this index."""
         return self.__storage.get_container_len(IndexWriter.FRAMES_CONTAINER)
@@ -1195,7 +1200,7 @@ class IndexReader(object):
 
         """
         for k, v in self.__storage.get_container_items(IndexWriter.FRAMES_CONTAINER, keys=frame_ids):
-            yield (k, json.loads(v))
+            yield (k, json.loads(v[:]))
 
     def get_frame_ids(self):
         """Generator of ids for all frames stored on this index."""
@@ -1205,7 +1210,7 @@ class IndexReader(object):
     def get_document(self, document_id):
         """Returns the document with the given ``document_id`` (str) as a dict."""
         try:
-            return json.loads(self.__storage.get_container_item(IndexWriter.DOCUMENTS_CONTAINER, document_id))
+            return json.loads(self.__storage.get_container_item(IndexWriter.DOCUMENTS_CONTAINER, document_id)[:])
         except KeyError:
             raise DocumentNotFoundError("No document '{}'".format(document_id))
 
@@ -1221,7 +1226,7 @@ class IndexReader(object):
 
         """
         for k, v in self.__storage.get_container_items(IndexWriter.DOCUMENTS_CONTAINER, keys=document_ids):
-            yield (k, json.loads(v))
+            yield (k, json.loads(v[:]))
 
     def get_metadata(self):
         """

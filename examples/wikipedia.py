@@ -16,12 +16,13 @@ from concurrent import futures
 import time
 
 from caterpillar.processing.index import IndexWriter, IndexConfig, IndexReader
-from caterpillar.processing.schema import Schema, ID, TEXT
+from caterpillar.processing.schema import Schema, ID, TEXT, CATEGORICAL_TEXT
 from caterpillar.storage.sqlite import SqliteStorage
 
 
 def index(f, index):
-    config = IndexConfig(SqliteStorage, Schema(id=ID, title=TEXT, text=TEXT))
+    config = IndexConfig(SqliteStorage, Schema(title=TEXT(indexed=False, stored=True),
+                                               text=TEXT(indexed=True, stored=False), snippet=CATEGORICAL_TEXT))
     Page = namedtuple('Page', 'p_id, title, redirect, revision, text')
     with open(f, 'rU') as csf_file:
         pid = os.getpid()
@@ -37,38 +38,42 @@ def index(f, index):
         for page in map(Page._make, reader):
             real_count += 1
             if not int(page[2]):
+                if not writer:
+                    writer = IndexWriter("{}-{}-{}".format(index, index_name, index_name+999), config)
+                    writer.begin()
                 size += sys.getsizeof(page[4])
                 count += 1
-                writer.add_document(id=page[0], title=page[1], text=page[4])
+                writer.add_document(title=page[1], text=page[4])
                 if count % 1000 == 0:
-                    logging.debug("Parsed {:,} documents so far, {:,} actual articles, {:,} bytes, writing out this "
+                    logging.info("Parsed {:,} documents so far, {:,} actual articles, {:,} bytes, writing out this "
                                   "index ({})...".
                                   format(real_count, count, size,
                                          "{}-{}-{}".format(index, index_name, index_name+1000)))
                     writer.commit()
                     writer.close()
+                    writer = None
                     index_name += 1000
                     size = 0
                     index_count += 1
-                    writer = IndexWriter("{}-{}-{}".format(index, index_name, index_name+999), config)
-                    writer.begin()
             if real_count % 1000 == 0:
-                logging.debug("Parsed {:,} documents so far, {:,} actual articles, {:,} bytes, {:,}, indexes, "
+                logging.info("Parsed {:,} documents so far, {:,} actual articles, {:,} bytes, {:,} indexes, "
                               "continuing...".format(real_count, count, size, index_count))
-        logging.info("Parsed all {:,} documents, {:,} actual articles, {:,} bytes, writing final index ({})...".
-                     format(real_count, count, size, "{}-{}-{}".format(index, index_name, index_name+999)))
-        writer.commit()
-        writer.close()
+        if writer:
+            logging.info("Parsed all {:,} documents, {:,} actual articles, {:,} bytes, writing final index ({})...".
+                         format(real_count, count, size, "{}-{}-{}".format(index, index_name, index_name+999)))
+            writer.commit()
+            writer.close()
+            index_count += 1
+        else:
+            logging.info("Parsed all {:,} documents, {:,} actual articles, {:,} bytes...".
+                         format(real_count, count, size))
         logging.info("Finished file {}. Created {:,} indexes.".format(f, index_count+1))
-        return index_count+1
+        return index_count
 
 @begin.start
 @begin.convert(num_of_docs=int, step_size=int, profile=bool)
 def run(index_path="/tmp/wiki-index", profile_dump=False, log_lvl='INFO', *files):
-    """
-    Parse the Wikipedia csv dumps in ``files`` and save in an index per csv file at ``index_path``.
-
-    """
+    """Parse the Wikipedia csv dumps in ``files`` and save in an index per csv file at ``index_path``."""
     logging.basicConfig(level=log_lvl, format='%(asctime)s - %(levelname)s - %(processName)s: %(message)s')
     logging.info("Adding all documents from the {:,} Wikipedia csv dumps...Wew!".format(len(files)))
     csv.field_size_limit(100000000000000)
@@ -78,6 +83,7 @@ def run(index_path="/tmp/wiki-index", profile_dump=False, log_lvl='INFO', *files
     indexes = 0
     with futures.ProcessPoolExecutor() as pool:
         for index_count in pool.map(index, files, paths):
+    # for index_count in map(index, files, paths):
             indexes += index_count
     logging.info("All done. We processed {:,} files in {:,.02f} seconds and created {:,} indexes.".\
         format(len(files), time.time()-now, indexes))
