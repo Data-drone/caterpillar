@@ -2,6 +2,7 @@
 # Author: Ryan Stuart <ryan@kapiche.com>
 import bz2
 import csv
+import itertools
 import multiprocessing
 import os
 import string
@@ -10,7 +11,6 @@ import re
 from xml.etree.cElementTree import iterparse
 
 import begin
-import itertools
 
 try:
     from html.entities import name2codepoint as n2cp
@@ -354,7 +354,6 @@ def work(data):
     ignore_namespaces = 'Wikipedia Category File Portal Template MediaWiki User Help Book Draft'.split()
     real_count = 0
     count = 0
-    print path, len(pages)
     with open(path, 'w') as f:
         writer = csv.writer(f)
         for page in pages:
