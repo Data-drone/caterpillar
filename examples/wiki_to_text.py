@@ -247,7 +247,8 @@ def extract_pages(f, filter_namespaces=False):
 def run(wiki_dump, output_file, num_of_articles=0, step_size=10000):
     filter_namespaces = ('0',)
     ignore_namespaces = 'Wikipedia Category File Portal Template MediaWiki User Help Book Draft'.split()
-    texts = ((text, title, pageid) for title, text, pageid in extract_pages(bz2.BZ2File(wiki_dump), filter_namespaces))
+    texts = ((text, title, pageid) for title, text, pageid in extract_pages(bz2.BZ2File(wiki_dump),
+                                                                                         filter_namespaces))
     file_count = 1
     count = 0
     real_count = 0
@@ -259,9 +260,11 @@ def run(wiki_dump, output_file, num_of_articles=0, step_size=10000):
                     writer = csv.writer(f)
                     page = next(texts)
                     real_count += 1
-                    if len(page[0]) > 400 or not any(page[1].startswith(ignore + ':') for ignore in ignore_namespaces):
+                    if len(page[0]) > 400 or not any(page[1].startswith(ignore + ':') for ignore in ignore_namespaces)\
+                            and not page[1].startswith("#REDIRECT"):
                         count += 1
-                        writer.writerow(page[2], page[1], page[0])
+                        writer.writerow([page[2].encode('utf-8'), page[1].encode('utf-8'),
+                                         filter_wiki(page[0]).encode('utf-8')])
                     if real_count % step_size == 0:
                         print "Written out {:,} articles so far, {:,} real ({}).".format(real_count, count, path)
             if num_of_articles and real_count >= num_of_articles:
