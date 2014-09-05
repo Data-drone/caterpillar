@@ -349,18 +349,21 @@ else:
                 yield chunk
 
 
-def work(page, path):
+def work(data):
+    path, pages = data
     ignore_namespaces = 'Wikipedia Category File Portal Template MediaWiki User Help Book Draft'.split()
     real_count = 0
     count = 0
+    print path, len(pages)
     with open(path, 'w') as f:
         writer = csv.writer(f)
-        real_count += 1
-        if len(page[0]) > 400 and not any(page[1].startswith(ignore + ':') for ignore in ignore_namespaces) \
-                and not page[1].startswith("#REDIRECT"):
-            count += 1
-            writer.writerow([page[2].encode('utf-8'), page[1].encode('utf-8'),
-                             filter_wiki(page[0]).encode('utf-8')])
+        for page in pages:
+            real_count += 1
+            if len(page[0]) > 400 and not page[1].startswith("#REDIRECT") and \
+                    not any(page[1].startswith(ignore + ':') for ignore in ignore_namespaces):
+                count += 1
+                writer.writerow([page[2].encode('utf-8'), page[1].encode('utf-8'),
+                                 filter_wiki(page[0]).strip().encode('utf-8')])
     print "Wrote out {:,} articles ({:,} actual) to {}.".format(real_count, count, path)
     return real_count, count
 
@@ -375,12 +378,15 @@ def run(wiki_dump, output_file, num_of_articles=0, step_size=10000):
     count = 0
     real_count = 0
     pool = multiprocessing.Pool()
-    for group in chunkize(texts, chunksize=step_size, maxsize=1):
-        for article_count, doc_count in pool.imap(work, group, ["{}-10,000-{}.csv".format(output_file, ''.join(
-                random.choice(string.ascii_uppercase + string.digits) for _ in range(8)))]):
-            real_count += article_count
-            count += doc_count
-            file_count += 1
+
+    def gen_id():
+        return ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(8))
+
+    for article_count, doc_count in pool.imap(work, (("{}-10,000-{}.csv".format(output_file, gen_id()), chunk)
+                                                     for chunk in chunkize(texts, chunksize=step_size, maxsize=1))):
+        real_count += article_count
+        count += doc_count
+        file_count += 1
     print "Wrote out {:,} articles, {:,} real and {:,} redirects.".format(real_count, count, real_count-count)
 
 
