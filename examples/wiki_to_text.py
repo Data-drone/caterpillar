@@ -2,10 +2,15 @@
 # Author: Ryan Stuart <ryan@kapiche.com>
 import bz2
 import csv
+import multiprocessing
+import os
+import string
+import random
 import re
 from xml.etree.cElementTree import iterparse
 
 import begin
+import itertools
 
 try:
     from html.entities import name2codepoint as n2cp
@@ -242,35 +247,140 @@ def extract_pages(f, filter_namespaces=False):
             elem.clear()
 
 
+def chunkize_serial(iterable, chunksize, as_numpy=False):
+    """
+    Return elements from the iterable in `chunksize`-ed lists. The last returned
+    element may be smaller (if length of collection is not divisible by `chunksize`).
+
+    >>> print(list(grouper(range(10), 3)))
+    [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9]]
+
+    """
+    import numpy
+    it = iter(iterable)
+    while True:
+        if as_numpy:
+            # convert each document to a 2d numpy array (~6x faster when transmitting
+            # chunk data over the wire, in Pyro)
+            wrapped_chunk = [[numpy.array(doc) for doc in itertools.islice(it, int(chunksize))]]
+        else:
+            wrapped_chunk = [list(itertools.islice(it, int(chunksize)))]
+        if not wrapped_chunk[0]:
+            break
+        # memory opt: wrap the chunk and then pop(), to avoid leaving behind a dangling reference
+        yield wrapped_chunk.pop()
+
+
+class InputQueue(multiprocessing.Process):
+    def __init__(self, q, corpus, chunksize, maxsize, as_numpy):
+        super(InputQueue, self).__init__()
+        self.q = q
+        self.maxsize = maxsize
+        self.corpus = corpus
+        self.chunksize = chunksize
+        self.as_numpy = as_numpy
+
+    def run(self):
+        if self.as_numpy:
+            import numpy # don't clutter the global namespace with a dependency on numpy
+        it = iter(self.corpus)
+        while True:
+            chunk = itertools.islice(it, self.chunksize)
+            if self.as_numpy:
+                # HACK XXX convert documents to numpy arrays, to save memory.
+                # This also gives a scipy warning at runtime:
+                # "UserWarning: indices array has non-integer dtype (float64)"
+                wrapped_chunk = [[numpy.asarray(doc) for doc in chunk]]
+            else:
+                wrapped_chunk = [list(chunk)]
+
+            if not wrapped_chunk[0]:
+                self.q.put(None, block=True)
+                break
+
+            try:
+                qsize = self.q.qsize()
+            except NotImplementedError:
+                qsize = '?'
+            self.q.put(wrapped_chunk.pop(), block=True)
+
+
+if os.name == 'nt':
+    def chunkize(corpus, chunksize, maxsize=0, as_numpy=False):
+        for chunk in chunkize_serial(corpus, chunksize, as_numpy=as_numpy):
+            yield chunk
+else:
+    def chunkize(corpus, chunksize, maxsize=0, as_numpy=False):
+        """
+        Split a stream of values into smaller chunks.
+        Each chunk is of length `chunksize`, except the last one which may be smaller.
+        A once-only input stream (`corpus` from a generator) is ok, chunking is done
+        efficiently via itertools.
+
+        If `maxsize > 1`, don't wait idly in between successive chunk `yields`, but
+        rather keep filling a short queue (of size at most `maxsize`) with forthcoming
+        chunks in advance. This is realized by starting a separate process, and is
+        meant to reduce I/O delays, which can be significant when `corpus` comes
+        from a slow medium (like harddisk).
+
+        If `maxsize==0`, don't fool around with parallelism and simply yield the chunksize
+        via `chunkize_serial()` (no I/O optimizations).
+
+        >>> for chunk in chunkize(range(10), 4): print(chunk)
+        [0, 1, 2, 3]
+        [4, 5, 6, 7]
+        [8, 9]
+
+        """
+        assert chunksize > 0
+
+        if maxsize > 0:
+            q = multiprocessing.Queue(maxsize=maxsize)
+            worker = InputQueue(q, corpus, chunksize, maxsize=maxsize, as_numpy=as_numpy)
+            worker.daemon = True
+            worker.start()
+            while True:
+                chunk = [q.get(block=True)]
+                if chunk[0] is None:
+                    break
+                yield chunk.pop()
+        else:
+            for chunk in chunkize_serial(corpus, chunksize, as_numpy=as_numpy):
+                yield chunk
+
+
+def work(page, path):
+    ignore_namespaces = 'Wikipedia Category File Portal Template MediaWiki User Help Book Draft'.split()
+    real_count = 0
+    count = 0
+    with open(path, 'w') as f:
+        writer = csv.writer(f)
+        real_count += 1
+        if len(page[0]) > 400 and not any(page[1].startswith(ignore + ':') for ignore in ignore_namespaces) \
+                and not page[1].startswith("#REDIRECT"):
+            count += 1
+            writer.writerow([page[2].encode('utf-8'), page[1].encode('utf-8'),
+                             filter_wiki(page[0]).encode('utf-8')])
+    print "Wrote out {:,} articles ({:,} actual) to {}.".format(real_count, count, path)
+    return real_count, count
+
+
 @begin.start
 @begin.convert(num_of_articles=int, step_size=int)
 def run(wiki_dump, output_file, num_of_articles=0, step_size=10000):
     filter_namespaces = ('0',)
-    ignore_namespaces = 'Wikipedia Category File Portal Template MediaWiki User Help Book Draft'.split()
     texts = ((text, title, pageid) for title, text, pageid in extract_pages(bz2.BZ2File(wiki_dump),
                                                                                          filter_namespaces))
-    file_count = 1
+    file_count = 0
     count = 0
     real_count = 0
-    try:
-        while True:
-            path = "{}-{:,}-{:,}.csv".format(output_file, step_size*(file_count - 1) + 1, step_size*file_count)
-            with open(path, 'w') as f:
-                for _ in xrange(step_size):
-                    writer = csv.writer(f)
-                    page = next(texts)
-                    real_count += 1
-                    if len(page[0]) > 400 or not any(page[1].startswith(ignore + ':') for ignore in ignore_namespaces)\
-                            and not page[1].startswith("#REDIRECT"):
-                        count += 1
-                        writer.writerow([page[2].encode('utf-8'), page[1].encode('utf-8'),
-                                         filter_wiki(page[0]).encode('utf-8')])
-                    if real_count % step_size == 0:
-                        print "Written out {:,} articles so far, {:,} real ({}).".format(real_count, count, path)
-            if num_of_articles and real_count >= num_of_articles:
-                break
+    pool = multiprocessing.Pool()
+    for group in chunkize(texts, chunksize=step_size, maxsize=1):
+        for article_count, doc_count in pool.imap(work, group, ["{}-10,000-{}.csv".format(output_file, ''.join(
+                random.choice(string.ascii_uppercase + string.digits) for _ in range(8)))]):
+            real_count += article_count
+            count += doc_count
             file_count += 1
-    except StopIteration:
-        pass
-    finally:
-        print "Wrote out {:,} articles, {:,} real and {:,} redirects.".format(real_count, count, real_count-count)
+    print "Wrote out {:,} articles, {:,} real and {:,} redirects.".format(real_count, count, real_count-count)
+
+
