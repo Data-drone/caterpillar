@@ -14,7 +14,7 @@ import time
 from caterpillar.processing.index import IndexReader, IndexWriter, DuplicateIndexError
 
 
-def merge_indexes(path, sub_index_paths):
+def merge_indexes(path, sub_index_paths, buffer_size):
     start = time.time()
     logging.info("Merging {:,} indexes into {}".format(len(sub_index_paths), path))
     path = os.path.join(path, "{}".format(random.SystemRandom().randint(0, 10**10)))
@@ -79,7 +79,7 @@ def merge_indexes(path, sub_index_paths):
             for term, pos in reader.get_positions_index(keys=term_chunk).iteritems():
                 merge[term] += pos[:]
                 size += len(pos)
-        if size > 1024*1024*1024:  # 1 GB
+        if size > buffer_size*1024*1024:  # Buffer size is in MiB.
             storage.set_container_items(IndexWriter.POSITIONS_CONTAINER, merge)
             size = 0
     logging.info("Merged positions.")
@@ -94,7 +94,7 @@ def merge_indexes(path, sub_index_paths):
 
 @begin.start
 @begin.convert(_automatic=True)
-def run(out_dir, log_lvl="INFO", step_size=10, *indexes):
+def run(out_dir, log_lvl="INFO", step_size=10, buffer_size=1024, *indexes):
     """Merge all ``indexes`` together into a single index written into ``output_dir``."""
     logging.basicConfig(level=log_lvl, format='%(asctime)s - %(levelname)s - %(processName)s: %(message)s')
     start = time.time()
@@ -106,7 +106,8 @@ def run(out_dir, log_lvl="INFO", step_size=10, *indexes):
     # for _ in map(merge_indexes, [out_dir for _ in xrange(0, len(indexes), step_size)],
     #              [indexes[i:i+step_size] for i in xrange(0, len(indexes), step_size)]):
         for _ in pool.map(merge_indexes, [out_dir for _ in xrange(0, len(indexes), step_size)],
-                          [indexes[i:i+step_size] for i in xrange(0, len(indexes), step_size)]):
+                          [indexes[i:i+step_size] for i in xrange(0, len(indexes), step_size)],
+                          [buffer_size for _ in xrange(0, len(indexes), step_size)]):
             count += 1
             if not count % 10:
                 print "Processed {:,} indexes...".format(count*10)
