@@ -11,6 +11,7 @@ import ujson as json
 import begin
 from concurrent import futures
 import time
+import sys
 from caterpillar.processing.index import IndexReader, IndexWriter, DuplicateIndexError
 
 
@@ -70,6 +71,7 @@ def merge_indexes(path, sub_index_paths, buffer_size):
         logging.info("Merged frames for reader {}".format(count))
         terms.update(reader.get_terms())
         logging.info("Merged terms for reader {}".format(count))
+        count += 1
     logging.info("Merged {:,} documents and {:,} frames, recorded {:,} terms in {:,}s.".
                  format(docs, frames, len(terms), time.time() - start))
 
@@ -78,14 +80,20 @@ def merge_indexes(path, sub_index_paths, buffer_size):
     terms = list(terms)
     merge = defaultdict(str)
     size = 0
-    for term_chunk in [terms[i: i+10000] for i in xrange(0, len(terms), 500000)]:
+    for term_chunk in [terms[i: i+10000] for i in xrange(0, len(terms), 10000)]:
         for reader in readers:
             for term, pos in reader.get_positions_index(keys=term_chunk).iteritems():
                 merge[term] += pos[:]
-                size += len(pos)
+                size += len(pos) * 8
         if size > buffer_size*1024*1024:  # Buffer size is in MiB.
+            logging.info("Flushing merge buffer, it has {:,} terms.".format(len(merge)))
             storage.set_container_items(IndexWriter.POSITIONS_CONTAINER, merge)
             size = 0
+            merge = defaultdict(str)
+    if len(merge):
+        logging.info("Flushing merge buffer, it has {:,} terms.".format(len(merge)))
+        storage.set_container_items(IndexWriter.POSITIONS_CONTAINER, merge)
+        merge = defaultdict(str)
     logging.info("Merged positions.")
 
     # Don't forget to close our readers and storage!
