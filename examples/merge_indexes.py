@@ -1,6 +1,7 @@
 # Copyright (c) 2012-2014 Kapiche Limited
 # Author: Ryan Stuart <ryan@kapiche.com>
 """Merge indexes together."""
+from collections import defaultdict
 from itertools import izip_longest, ifilter
 import logging
 import os
@@ -16,7 +17,7 @@ from caterpillar.processing.index import IndexReader, IndexWriter, DuplicateInde
 def merge_indexes(path, sub_index_paths):
     start = time.time()
     logging.info("Merging {:,} indexes into {}".format(len(sub_index_paths), path))
-    path = os.path.join(path, "{}".format(random.SystemRandom().randint(0, 10**5)))
+    path = os.path.join(path, "{}".format(random.SystemRandom().randint(0, 10**10)))
     if os.path.exists(path):
         raise DuplicateIndexError('Index already exists at {}'.format(path))
     readers = [IndexReader(index) for index in ifilter(lambda x: x, sub_index_paths)]
@@ -61,9 +62,9 @@ def merge_indexes(path, sub_index_paths):
         docs += reader.get_document_count()
         frames += reader.get_frame_count()
         storage.set_container_items(IndexWriter.DOCUMENTS_CONTAINER,
-                                    reader.storage.get_container_items(IndexWriter.DOCUMENTS_CONTAINER))
+                                    reader.storage.iter_container_items(IndexWriter.DOCUMENTS_CONTAINER))
         storage.set_container_items(IndexWriter.FRAMES_CONTAINER,
-                                    reader.storage.get_container_items(IndexWriter.FRAMES_CONTAINER))
+                                    reader.storage.iter_container_items(IndexWriter.FRAMES_CONTAINER))
         terms.update(reader.get_terms())
     logging.info("Merged {:,} documents and {:,} frames, recorded {:,} terms in {:,}s.".
                  format(docs, frames, len(terms), time.time() - start))
@@ -71,12 +72,16 @@ def merge_indexes(path, sub_index_paths):
     # Merge terms, 1000 at a time to save memory
     logging.info("Merging positions...")
     terms = list(terms)
-    for term_chunk in [terms[i: i+500000] for i in xrange(0, len(terms), 500000)]:
-        merge = dict.fromkeys(ifilter(lambda t: t, term_chunk), '')
+    merge = defaultdict(str)
+    size = 0
+    for term_chunk in [terms[i: i+10000] for i in xrange(0, len(terms), 500000)]:
         for reader in readers:
             for term, pos in reader.get_positions_index(keys=term_chunk).iteritems():
                 merge[term] += pos[:]
-        storage.set_container_items(IndexWriter.POSITIONS_CONTAINER, merge)
+                size += len(pos)
+        if size > 1024*1024*1024:  # 1 GB
+            storage.set_container_items(IndexWriter.POSITIONS_CONTAINER, merge)
+            size = 0
     logging.info("Merged positions.")
 
     # Don't forget to close our readers and storage!

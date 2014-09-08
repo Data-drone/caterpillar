@@ -142,33 +142,34 @@ class SqliteStorage(Storage):
             raise KeyError("Key '{}' not found for container '{}'".format(key, c_id))
         return item[0]
 
-    # def get_container_items(self, c_id, keys=None):
-    #     """
-    #     Generator of items at ``keys`` (list) in container ``c_id`` (str).
-    #
-    #     If ``keys`` is None, iterates all items.
-    #
-    #     """
-    #     if keys:
-    #         keys = dict({k: None for k in keys})
-    #         for k in self._chunks(keys):
-    #             cursor = self._execute("SELECT * FROM {} WHERE key IN ({})".format(c_id, ','.join(['?']*len(k))), k)
-    #             while True:
-    #                 item = cursor.fetchone()
-    #                 if item is None:
-    #                     break
-    #                 yield item
-    #                 del keys[item[0]]
-    #         # Ensure we yield an item for every key
-    #         for k in keys.iterkeys():
-    #             yield (k, None,)
-    #     else:
-    #         cursor = self._execute("SELECT * FROM {}".format(c_id))
-    #         while True:
-    #             item = cursor.fetchone()
-    #             if item is None:
-    #                 break
-    #             yield item
+    def iter_container_items(self, c_id, keys=None):
+        """
+        Generator of items at ``keys`` (list) in container ``c_id`` (str).
+
+        If ``keys`` is None, iterates all items.
+
+        """
+        if keys:
+            keys = dict({k: None for k in keys})
+            for k in self._chunks(keys):
+                cursor = self._execute("SELECT * FROM {} WHERE key IN ({})".format(c_id, ','.join(['?']*len(k))), k)
+                while True:
+                    item = cursor.fetchone()
+                    if item is None:
+                        break
+                    yield item
+                    del keys[item[0]]
+            # Ensure we yield an item for every key
+            for k in keys.iterkeys():
+                yield (k, None,)
+        else:
+            cursor = self._execute("SELECT * FROM {}".format(c_id))
+            while True:
+                item = cursor.fetchone()
+                if item is None:
+                    break
+                yield item
+
     def get_container_items(self, c_id, keys=None):
         if keys:
             keys_seen = set()
