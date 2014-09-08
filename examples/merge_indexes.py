@@ -61,9 +61,9 @@ def merge_indexes(path, sub_index_paths):
     for reader in readers:
         docs += reader.get_document_count()
         frames += reader.get_frame_count()
-        storage.set_container_items(IndexWriter.DOCUMENTS_CONTAINER,
+        storage.set_container_iter(IndexWriter.DOCUMENTS_CONTAINER,
                                     reader.storage.iter_container_items(IndexWriter.DOCUMENTS_CONTAINER))
-        storage.set_container_items(IndexWriter.FRAMES_CONTAINER,
+        storage.set_container_iter(IndexWriter.FRAMES_CONTAINER,
                                     reader.storage.iter_container_items(IndexWriter.FRAMES_CONTAINER))
         terms.update(reader.get_terms())
     logging.info("Merged {:,} documents and {:,} frames, recorded {:,} terms in {:,}s.".

@@ -198,6 +198,10 @@ class SqliteStorage(Storage):
         """Add the dict of key/value tuples to container ``c_id`` (str)."""
         self._executemany("INSERT OR REPLACE INTO {} VALUES (?,?)".format(c_id), (((k, buffer(v)) for k, v in items.iteritems())))
 
+    def set_container_iter(self, c_id, items):
+        """Add the dict of key/value tuples to container ``c_id`` (str)."""
+        self._executemany("INSERT OR REPLACE INTO {} VALUES (?,?)".format(c_id), (((k, buffer(v)) for k, v in items)))
+
     def _get_containers(self):
         """Return list of all containers regardless of storage type."""
         cursor = self._db_connection.cursor()
