@@ -58,14 +58,18 @@ def merge_indexes(path, sub_index_paths, buffer_size):
     docs = 0
     frames = 0
     terms = set()
+    count = 1
     for reader in readers:
         docs += reader.get_document_count()
         frames += reader.get_frame_count()
         storage.set_container_iter(IndexWriter.DOCUMENTS_CONTAINER,
                                     reader.storage.iter_container_items(IndexWriter.DOCUMENTS_CONTAINER))
+        logging.info("Merged docs for reader {}".format(count))
         storage.set_container_iter(IndexWriter.FRAMES_CONTAINER,
                                     reader.storage.iter_container_items(IndexWriter.FRAMES_CONTAINER))
+        logging.info("Merged frames for reader {}".format(count))
         terms.update(reader.get_terms())
+        logging.info("Merged terms for reader {}".format(count))
     logging.info("Merged {:,} documents and {:,} frames, recorded {:,} terms in {:,}s.".
                  format(docs, frames, len(terms), time.time() - start))
 
