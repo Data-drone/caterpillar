@@ -11,7 +11,6 @@ import ujson as json
 import begin
 from concurrent import futures
 import time
-import sys
 from caterpillar.processing.index import IndexReader, IndexWriter, DuplicateIndexError
 
 

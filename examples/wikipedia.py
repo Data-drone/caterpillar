@@ -69,7 +69,7 @@ def index(f, index):
         return index_count
 
 @begin.start
-@begin.convert(num_of_docs=int, step_size=int, profile=bool)
+@begin.convert(profile=bool)
 def run(index_path="/tmp/wiki-index", profile_dump=False, log_lvl='INFO', *files):
     """Parse the Wikipedia csv dumps in ``files`` and save in an index per csv file at ``index_path``."""
     logging.basicConfig(level=log_lvl, format='%(asctime)s - %(levelname)s - %(processName)s: %(message)s')
@@ -79,10 +79,10 @@ def run(index_path="/tmp/wiki-index", profile_dump=False, log_lvl='INFO', *files
     now = time.time()
     paths = [os.path.join(index_path, os.path.basename(f)[:-4]) for f in files]
     indexes = 0
-    with futures.ProcessPoolExecutor() as pool:
-        for index_count in pool.map(index, files, paths):
-    # for index_count in map(index, files, paths):
-            indexes += index_count
+    # with futures.ProcessPoolExecutor() as pool:
+        # for index_count in pool.map(index, files, paths):
+    for index_count in map(index, files, paths):
+        indexes += index_count
     logging.info("All done. We processed {:,} files in {:,.02f} seconds and created {:,} indexes.".\
         format(len(files), time.time()-now, indexes))
 
