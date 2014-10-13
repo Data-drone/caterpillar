@@ -43,7 +43,7 @@ class SimpleScorer(Scorer):
                 score += term_weights[term]
             hit.score = score
 
-        return sorted(hits, key=lambda h: h.score, reverse=True)
+        return sorted(hits, key=lambda h: (h.score, len(h.frame_terms), h.frame_id), reverse=True)
 
 
 class TfidfScorer(Scorer):
@@ -68,7 +68,7 @@ class TfidfScorer(Scorer):
                 score += len(self.term_positions[term][hit.frame_id]) * idfs[term] * term_weights[term]
             hit.score = score
 
-        return sorted(hits, key=lambda h: h.score, reverse=True)
+        return sorted(hits, key=lambda h: (h.score, len(h.frame_terms), h.frame_id), reverse=True)
 
     def _compute_idfs(self, terms):
         """
