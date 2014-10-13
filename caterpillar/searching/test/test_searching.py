@@ -70,6 +70,9 @@ def test_searching_alice(index_dir):
             for hit in results:
                 assert "evidence" not in hit.data['text']
                 assert "court" not in hit.data['text']
+                assert hit.data['_field'] == 'text'
+                for k in results[0].data.iterkeys():
+                    assert k in ('_id', '_doc_id', '_field') or not k.startswith('_')
 
             # Check multiple boostings; this example is totally contrived but a real case could occur when combining
             # different plugin queries.
