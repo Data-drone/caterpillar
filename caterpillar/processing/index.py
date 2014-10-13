@@ -1051,26 +1051,27 @@ class IndexWriter(object):
         Returns the plugin instance.
 
         """
-        plugin = cls(self._path)
-        logger.debug('Running {} plugin.'.format(plugin.get_name()))
-        result = plugin.run(**args)
+        with IndexReader(self._path) as reader:
+            plugin = cls(reader)
+            logger.debug('Running {} plugin.'.format(plugin.get_name()))
+            result = plugin.run(**args)
 
-        for container, value in result.iteritems():
-            # Max sure the container exists and is clear
-            container_id = IndexWriter._plugin_container_name(plugin.get_name(), container)
-            try:
-                self.__storage.add_container(container_id)
-            except DuplicateContainerError:
-                self.__storage.clear_container(container_id)
+            for container, value in result.iteritems():
+                # Max sure the container exists and is clear
+                container_id = IndexWriter._plugin_container_name(plugin.get_name(), container)
+                try:
+                    self.__storage.add_container(container_id)
+                except DuplicateContainerError:
+                    self.__storage.clear_container(container_id)
 
-            # Make sure items are seralised
-            for key, data in value.items():
-                value[key] = json.dumps(value[key])
+                # Make sure items are seralised
+                for key, data in value.items():
+                    value[key] = json.dumps(value[key])
 
-            # Store items
-            self.__storage.set_container_items(container_id, value)
+                # Store items
+                self.__storage.set_container_items(container_id, value)
 
-        return plugin
+            return plugin
 
     @staticmethod
     def _plugin_container_name(plugin, container):
