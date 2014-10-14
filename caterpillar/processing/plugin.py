@@ -24,8 +24,8 @@ class AnalyticsPlugin(object):
         """
         An instance of an ``AnalyticsPlugin`` always needs an index to operate on.
 
-        The `index_reader` is an instance of :class:`IndexReader <caterpillar.processing.index.IndexReader>` that is
-        ready to be used (``start()`` has been called.
+        The ``index_reader`` is an instance of :class:`IndexReader <caterpillar.processing.index.IndexReader>` that is
+        ready to be used (``start()``) has been called.
 
         """
         self._index_reader = index_reader
