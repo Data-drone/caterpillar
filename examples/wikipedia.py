@@ -2,8 +2,7 @@
 # Aurthor: Ryan Stuart <ryan@kapiche.com>
 """
 Read in a bunch of pre-parsed csv files produced from the Wikipedia XML dump (1 article per row) and turn them into an
-index.
-
+caterpillar index.
 """
 from collections import namedtuple
 import csv
@@ -15,29 +14,26 @@ import begin
 from concurrent import futures
 import time
 
-from caterpillar.processing.index import IndexWriter, IndexConfig, IndexReader
-from caterpillar.processing.schema import Schema, ID, TEXT, CATEGORICAL_TEXT
+from caterpillar.processing.index import IndexWriter, IndexConfig
+from caterpillar.processing.schema import Schema, TEXT, CATEGORICAL_TEXT
 from caterpillar.storage.sqlite import SqliteStorage
 
 
 def index(f, index):
     config = IndexConfig(SqliteStorage, Schema(title=TEXT(indexed=False, stored=True),
-                                               text=TEXT(indexed=True, stored=False),
-                                               snippet=CATEGORICAL_TEXT(stored=True),
+                                               text=TEXT(indexed=True, stored=True),
                                                url=CATEGORICAL_TEXT(stored=True)))
     Page = namedtuple('Page', 'p_id, title, text')
-    with open(f, 'rU') as csf_file:
+    with open(f, 'rU') as csv_file:
         pid = os.getpid()
-        reader = csv.reader(csf_file)
+        reader = csv.reader(csv_file)
         count = 0
-        real_count = 0
         index_name = 1
         index_count = 0
         logging.info("Hi, I'm worker {} here to do your dirty work with {}.".format(pid, f))
         writer = IndexWriter("{}-{}-{}".format(index, index_name, index_name+999), config)
         writer.begin()
         for page in map(Page._make, reader):
-            real_count += 1
             if not writer:
                 writer = IndexWriter("{}-{}-{}".format(index, index_name, index_name+999), config)
                 writer.begin()
@@ -45,26 +41,23 @@ def index(f, index):
             writer.add_document(title=page[1], text=page[2], snippet=page[2].decode('utf-8')[:256],
                                 url=u"http://en.wikipedia.com/wiki/{}".format(page[1].decode('utf-8').replace(" ", "_")))
             if count % 1000 == 0:
-                logging.info("Parsed {:,} documents so far, {:,} actual articles, writing out this "
-                              "index ({})...".
-                              format(real_count, count, "{}-{}-{}".format(index, index_name, index_name+1000)))
+                logging.info("Parsed {:,} documents so far, writing out this index ({})...".
+                             format(count, "{}-{}-{}".format(index, index_name, index_name+1000)))
                 writer.commit()
                 writer.close()
                 writer = None
                 index_name += 1000
                 index_count += 1
-            if real_count % 1000 == 0:
-                logging.info("Parsed {:,} documents so far, {:,} actual articles, {:,} indexes, "
-                              "continuing...".format(real_count, count, index_count))
+            if count % 10000 == 0:
+                break
         if writer:
-            logging.info("Parsed all {:,} documents, {:,} actual articles, writing final index ({})...".
-                         format(real_count, count, "{}-{}-{}".format(index, index_name, index_name+999)))
+            logging.info("Parsed all {:,} documents, writing final index ({})...".
+                         format(count, "{}-{}-{}".format(index, index_name, index_name+999)))
             writer.commit()
             writer.close()
             index_count += 1
         else:
-            logging.info("Parsed all {:,} documents, {:,} actual articles...".
-                         format(real_count, count))
+            logging.info("Parsed all {:,} documents...".format(count))
         logging.info("Finished file {}. Created {:,} indexes.".format(f, index_count+1))
         return index_count
 
