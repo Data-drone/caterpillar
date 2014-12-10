@@ -1,0 +1,240 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>Indexes and Schemas &mdash; Caterpillar 1.0 documentation</title>
+  
+
+  
+  
+
+  
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700|Roboto+Slab:400,700|Inconsolata:400,700' rel='stylesheet' type='text/css'>
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  
+
+  
+    <link rel="top" title="Caterpillar 1.0 documentation" href="index.html"/>
+        <link rel="next" title="Caterpillar API" href="api/modules.html"/>
+        <link rel="prev" title="Getting Started" href="getting-started.html"/> 
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.6.2/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-nav-search">
+        <a href="index.html" class="fa fa-home"> Caterpillar</a>
+        <div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+        
+        
+            <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="intro.html">Introduction</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="intro.html#what-is-caterpillar">What is Caterpillar?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="intro.html#err-what-example-please">Err, What? Example Please...</a></li>
+<li class="toctree-l2"><a class="reference internal" href="intro.html#why-caterpillar">Why Caterpillar?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="intro.html#supported-platforms">Supported Platforms</a></li>
+<li class="toctree-l2"><a class="reference internal" href="intro.html#do-you-support-python-3">Do you support Python 3?</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#installation">Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#basic-concepts">Basic Concepts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#code-examples">Code Examples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#creating-and-writing-an-index">Creating and writing an Index</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#searching-an-index">Searching an Index</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#index-storage-formats">Index Storage Formats</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#querying">Querying</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="current reference internal" href="">Indexes and Schemas</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#designing-a-schema">Designing a Schema</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#field-types">Field Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#example">Example</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/modules.html">Caterpillar API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/caterpillar.html"><tt class="docutils literal"><span class="pre">caterpillar</span></tt> package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/caterpillar.processing.html"><tt class="docutils literal"><span class="pre">caterpillar.processing</span></tt> package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/caterpillar.processing.analysis.html"><tt class="docutils literal"><span class="pre">caterpillar.processing.analysis</span></tt> package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/caterpillar.searching.html"><tt class="docutils literal"><span class="pre">caterpillar.searching</span></tt> package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/caterpillar.searching.query.html"><tt class="docutils literal"><span class="pre">caterpillar.searching.query</span></tt> package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/caterpillar.storage.html"><tt class="docutils literal"><span class="pre">caterpillar.storage</span></tt> package</a></li>
+</ul>
+</li>
+</ul>
+
+        
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="index.html">Caterpillar</a>
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="index.html">Docs</a> &raquo;</li>
+      
+    <li>Indexes and Schemas</li>
+      <li class="wy-breadcrumbs-aside">
+        
+          <a href="_sources/indexes-schemas.txt" rel="nofollow"> View page source</a>
+        
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main">
+            
+  <div class="section" id="indexes-and-schemas">
+<span id="indexes-schemas"></span><h1>Indexes and Schemas<a class="headerlink" href="#indexes-and-schemas" title="Permalink to this headline">¶</a></h1>
+<p>Indexes store documents. Documents are made up of one or more fields. Each field has a type. Each index has a schema
+that specifies what fields the index accepts. Documents added to and index must have one or more field from the schema
+for that index. Any unrecognised fields are ignored. Schemas aren&#8217;t as strict as a relational database schema for
+example where you can have required fields. Rather, the only requirement for a document to be added to an index is that
+it must have one or more field from the index&#8217;s schema. There is no notion of a <em>null</em> value.</p>
+<div class="section" id="designing-a-schema">
+<h2>Designing a Schema<a class="headerlink" href="#designing-a-schema" title="Permalink to this headline">¶</a></h2>
+<p>A schema is made up of one or more fields. Fields have a type and some options. All fields share two options:</p>
+<ul class="simple">
+<li><tt class="docutils literal"><span class="pre">stored</span></tt> - Is this field&#8217;s value stored with the document? If <tt class="docutils literal"><span class="pre">True</span></tt>, when retrieving documents from an index via
+a search, this fields value will be returned with the document.</li>
+<li><tt class="docutils literal"><span class="pre">indexed</span></tt> - Is this field indexed? If <tt class="docutils literal"><span class="pre">True</span></tt>, it&#8217;s value will be analysed when it is added to the index and
+become searchable. If <tt class="docutils literal"><span class="pre">False</span></tt>, this field <strong>won&#8217;t</strong> be indexed and won&#8217;t be able to search for a document using this
+field.</li>
+</ul>
+</div>
+<div class="section" id="field-types">
+<h2>Field Types<a class="headerlink" href="#field-types" title="Permalink to this headline">¶</a></h2>
+<p>Caterpillar comes with a number of field types. Refer to their documentation for more information:</p>
+<blockquote>
+<div><ul class="simple">
+<li><a class="reference internal" href="api/caterpillar.processing.html#caterpillar.processing.schema.BOOLEAN" title="caterpillar.processing.schema.BOOLEAN"><tt class="xref py py-class docutils literal"><span class="pre">BOOLEAN</span></tt></a></li>
+<li><a class="reference internal" href="api/caterpillar.processing.html#caterpillar.processing.schema.CATEGORICAL_TEXT" title="caterpillar.processing.schema.CATEGORICAL_TEXT"><tt class="xref py py-class docutils literal"><span class="pre">CATEGORICAL_TEXT</span></tt></a></li>
+<li><a class="reference internal" href="api/caterpillar.processing.html#caterpillar.processing.schema.ID" title="caterpillar.processing.schema.ID"><tt class="xref py py-class docutils literal"><span class="pre">ID</span></tt></a></li>
+<li><a class="reference internal" href="api/caterpillar.processing.html#caterpillar.processing.schema.NUMERIC" title="caterpillar.processing.schema.NUMERIC"><tt class="xref py py-class docutils literal"><span class="pre">NUMERIC</span></tt></a></li>
+</ul>
+</div></blockquote>
+</div>
+<div class="section" id="example">
+<h2>Example<a class="headerlink" href="#example" title="Permalink to this headline">¶</a></h2>
+<p>Lets say you would like to store tweets and make them searchable by the tweet content. However, you are doing an
+analysis of tweet timelines rather then the tweet content and your server has space restrictions. In this instance,
+while you want to be able to search via the tweet content, but are only interested in the time of the tweet, you can
+construct a schema where the tweet content is searchable (indexed) but not stored.</p>
+<blockquote>
+<div><dl class="docutils">
+<dt>schema = Schema(</dt>
+<dd>time=NUMERIC(stored=True, indexed=False)  # Stored but not searchable
+content=TEXT(stored=False, indexed=True)  # Not stored but still searchable</dd>
+</dl>
+<p>)</p>
+</div></blockquote>
+</div>
+</div>
+
+
+          </div>
+          <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="api/modules.html" class="btn btn-neutral float-right" title="Caterpillar API"/>Next <span class="fa fa-arrow-circle-right"></span></a>
+      
+      
+        <a href="getting-started.html" class="btn btn-neutral" title="Getting Started"><span class="fa fa-arrow-circle-left"></span> Previous</a>
+      
+    </div>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2014, Ryan Stuart, Kris Rogers, Kapiche Limited.
+    </p>
+  </div>
+
+  <a href="https://github.com/snide/sphinx_rtd_theme">Sphinx theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'./',
+            VERSION:'1.0',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true
+        };
+    </script>
+      <script type="text/javascript" src="_static/jquery.js"></script>
+      <script type="text/javascript" src="_static/underscore.js"></script>
+      <script type="text/javascript" src="_static/doctools.js"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>

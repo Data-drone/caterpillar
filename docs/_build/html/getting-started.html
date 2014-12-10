@@ -1,0 +1,298 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>Getting Started &mdash; Caterpillar 1.0 documentation</title>
+  
+
+  
+  
+
+  
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700|Roboto+Slab:400,700|Inconsolata:400,700' rel='stylesheet' type='text/css'>
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  
+
+  
+    <link rel="top" title="Caterpillar 1.0 documentation" href="index.html"/>
+        <link rel="next" title="Indexes and Schemas" href="indexes-schemas.html"/>
+        <link rel="prev" title="Introduction" href="intro.html"/> 
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.6.2/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-nav-search">
+        <a href="index.html" class="fa fa-home"> Caterpillar</a>
+        <div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+        
+        
+            <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="intro.html">Introduction</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="intro.html#what-is-caterpillar">What is Caterpillar?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="intro.html#err-what-example-please">Err, What? Example Please...</a></li>
+<li class="toctree-l2"><a class="reference internal" href="intro.html#why-caterpillar">Why Caterpillar?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="intro.html#supported-platforms">Supported Platforms</a></li>
+<li class="toctree-l2"><a class="reference internal" href="intro.html#do-you-support-python-3">Do you support Python 3?</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="current reference internal" href="">Getting Started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#installation">Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#basic-concepts">Basic Concepts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#code-examples">Code Examples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#creating-and-writing-an-index">Creating and writing an Index</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#searching-an-index">Searching an Index</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#index-storage-formats">Index Storage Formats</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#querying">Querying</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="indexes-schemas.html">Indexes and Schemas</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="indexes-schemas.html#designing-a-schema">Designing a Schema</a></li>
+<li class="toctree-l2"><a class="reference internal" href="indexes-schemas.html#field-types">Field Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="indexes-schemas.html#example">Example</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/modules.html">Caterpillar API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/caterpillar.html"><tt class="docutils literal"><span class="pre">caterpillar</span></tt> package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/caterpillar.processing.html"><tt class="docutils literal"><span class="pre">caterpillar.processing</span></tt> package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/caterpillar.processing.analysis.html"><tt class="docutils literal"><span class="pre">caterpillar.processing.analysis</span></tt> package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/caterpillar.searching.html"><tt class="docutils literal"><span class="pre">caterpillar.searching</span></tt> package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/caterpillar.searching.query.html"><tt class="docutils literal"><span class="pre">caterpillar.searching.query</span></tt> package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/caterpillar.storage.html"><tt class="docutils literal"><span class="pre">caterpillar.storage</span></tt> package</a></li>
+</ul>
+</li>
+</ul>
+
+        
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="index.html">Caterpillar</a>
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="index.html">Docs</a> &raquo;</li>
+      
+    <li>Getting Started</li>
+      <li class="wy-breadcrumbs-aside">
+        
+          <a href="_sources/getting-started.txt" rel="nofollow"> View page source</a>
+        
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main">
+            
+  <div class="section" id="getting-started">
+<h1>Getting Started<a class="headerlink" href="#getting-started" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="installation">
+<h2>Installation<a class="headerlink" href="#installation" title="Permalink to this headline">¶</a></h2>
+<p>For now, you need to install Caterpillar <a class="reference external" href="https://github.com/Kapiche/caterpillar/">from source</a>.</p>
+<div class="highlight-python"><div class="highlight"><pre>pip install -e https://github.com/Kapiche/caterpillar/#egg=caterpillar
+</pre></div>
+</div>
+<p>We Have a space reserved on PyPi and version 0.1 will be added to PyPi shortly.</p>
+</div>
+<div class="section" id="basic-concepts">
+<h2>Basic Concepts<a class="headerlink" href="#basic-concepts" title="Permalink to this headline">¶</a></h2>
+<p>Caterpillar deals primarily in <strong>documents</strong>. A document is made up of 1 or more <strong>fields</strong>. Documents are stored in an
+<strong>index</strong>. Adding a document to an index is referred to as <strong>indexing</strong>. An index has a <strong>schema</strong> which describes the
+structure of documents stored in the index. When a document is indexed, each field of the document is <strong>analysed</strong> to
+retrieve it&#8217;s value. Each field has a <strong>type</strong>. All types besides TEXT are <strong>categorical</strong> types. A TEXT field performs
+tokenisation of its value to break it up into small blocks. A categorical field uses its whole value without any
+tokenisation.</p>
+<p>When a TEXT field is tokenised, it is broken up into <strong>frames</strong>. The size of a frame is measured in sentences.
+Once broken into frames it is then further tokenised into words. How this process occurs is down to the <strong>analyser</strong>
+used. Some common tasks performed by an analyser include removing stopwords &amp; detecting compound names (like <em>Burger
+King</em> for example).</p>
+<p>Each field has one or more attributes which control how they are treated by Caterpillar. A field which is <strong>indexed</strong>
+becomes searchable/usable in a query. A field which is <strong>stored</strong> is stored in the index. It is possible to have
+a field that is <strong>indexed</strong> but not <strong>stored</strong>. That means you can use that field in a query but the field won&#8217;t
+be in the result documents. Likewise, you can have a field that is <strong>stored</strong> but not <strong>indexed</strong>. That field isn&#8217;t
+searchable but will be returned in the result documents.</p>
+<p>Once some documents have been added to the index you can then start to request statistics from and search the index.</p>
+</div>
+<div class="section" id="code-examples">
+<h2>Code Examples<a class="headerlink" href="#code-examples" title="Permalink to this headline">¶</a></h2>
+<p>The source code has a bunch of examples included. You can
+<a class="reference external" href="https://github.com/Kapiche/caterpillar/">view them in the examples folder on github</a>.</p>
+</div>
+<div class="section" id="creating-and-writing-an-index">
+<h2>Creating and writing an Index<a class="headerlink" href="#creating-and-writing-an-index" title="Permalink to this headline">¶</a></h2>
+<p>An index is used to store documents which are comprised of one or more fields. The schema of an index controls what
+document fields are support by this index. Field don&#8217;t have to have a value. Here is some example code creating an
+index and adding a document to it.</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">shutil</span>
+<span class="kn">import</span> <span class="nn">tempfile</span>
+
+<span class="kn">from</span> <span class="nn">caterpillar.processing.index</span> <span class="kn">import</span> <span class="n">IndexWriter</span><span class="p">,</span> <span class="n">IndexConfig</span>
+<span class="kn">from</span> <span class="nn">caterpillar.processing.schema</span> <span class="kn">import</span> <span class="n">TEXT</span><span class="p">,</span> <span class="n">Schema</span><span class="p">,</span> <span class="n">NUMERIC</span>
+<span class="kn">from</span> <span class="nn">caterpillar.storage.sqlite</span> <span class="kn">import</span> <span class="n">SqliteStorage</span>
+
+<span class="n">path</span> <span class="o">=</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">()</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">index_dir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="s">&quot;examples&quot;</span><span class="p">)</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="s">&#39;caterpillar/test_resources/moby.txt&#39;</span><span class="p">,</span> <span class="s">&#39;r&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+        <span class="k">with</span> <span class="n">IndexWriter</span><span class="p">(</span><span class="n">index_dir</span><span class="p">,</span> <span class="n">IndexConfig</span><span class="p">(</span><span class="n">SqliteStorage</span><span class="p">,</span> <span class="n">Schema</span><span class="p">(</span><span class="n">text</span><span class="o">=</span><span class="n">TEXT</span><span class="p">,</span> <span class="n">some_number</span><span class="o">=</span><span class="n">NUMERIC</span><span class="p">)))</span> <span class="k">as</span> <span class="n">writer</span><span class="p">:</span>
+            <span class="n">writer</span><span class="o">.</span><span class="n">add_document</span><span class="p">(</span><span class="n">text</span><span class="o">=</span><span class="n">data</span><span class="p">,</span> <span class="n">some_number</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="k">finally</span><span class="p">:</span>
+    <span class="n">shutil</span><span class="o">.</span><span class="n">rmtree</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Read more about <a class="reference internal" href="api/caterpillar.processing.html#caterpillar.processing.index.IndexWriter" title="caterpillar.processing.index.IndexWriter"><tt class="xref py py-class docutils literal"><span class="pre">IndexWriter</span></tt></a>.</p>
+</div>
+<div class="section" id="searching-an-index">
+<h2>Searching an Index<a class="headerlink" href="#searching-an-index" title="Permalink to this headline">¶</a></h2>
+<p>Once data is stored on an index, you can then retrieve it.</p>
+<div class="highlight-python"><div class="highlight"><pre>import os
+import shutil
+import tempfile
+
+from caterpillar.processing.index import IndexWriter, IndexConfig, IndexReader
+from caterpillar.processing.schema import TEXT, Schema
+from caterpillar.searching.query.querystring import QueryStringQuery
+from caterpillar.storage.sqlite import SqliteStorage
+
+path = tempfile.mkdtemp()
+try:
+index_dir = os.path.join(path + &quot;examples&quot;)
+with open(&#39;caterpillar/test_resources/alice.txt&#39;, &#39;r&#39;) as f:
+    data = f.read()
+    with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT))) as writer:
+        writer.add_document(fold_case=True, text=data)
+
+    with IndexReader(index_dir) as reader:
+        searcher = reader.searcher()
+        results = searcher.search(QueryStringQuery(&#39;W*e R?bbit and (thought or little^1.5)&#39;))
+        print &quot;Retrieved {} of {} matches&quot;.format(len(results), results.num_matches)
+        for result in results:
+            print &quot;Doc ID: {} ; Text: {} ;\n&quot;.format(result.doc_id, result.data[&#39;text&#39;])
+finally:
+    shutil.rmtree(path)
+</pre></div>
+</div>
+<p>Read more about <a class="reference internal" href="api/caterpillar.searching.html#caterpillar.searching.IndexSearcher" title="caterpillar.searching.IndexSearcher"><tt class="xref py py-class docutils literal"><span class="pre">IndexSearcher</span></tt></a>. See also the section on
+<a class="reference internal" href="indexes-schemas.html#indexes-schemas"><em>Indexes and Schemas</em></a>.</p>
+</div>
+<div class="section" id="index-storage-formats">
+<h2>Index Storage Formats<a class="headerlink" href="#index-storage-formats" title="Permalink to this headline">¶</a></h2>
+<p>Caterpillar is designed to work with any key-value store. Interaction with those stores is abstracted via the
+<a class="reference internal" href="api/caterpillar.storage.html#caterpillar.storage.Storage" title="caterpillar.storage.Storage"><tt class="xref py py-class docutils literal"><span class="pre">Storage</span></tt></a> class. Currently the only implementation is
+<a class="reference internal" href="api/caterpillar.storage.html#caterpillar.storage.sqlite.SqliteStorage" title="caterpillar.storage.sqlite.SqliteStorage"><tt class="xref py py-class docutils literal"><span class="pre">SqliteStorage</span></tt></a>.</p>
+</div>
+<div class="section" id="querying">
+<h2>Querying<a class="headerlink" href="#querying" title="Permalink to this headline">¶</a></h2>
+<p>Caterpillar has batteries included when it comes to searching. It contains an implementation of TF-IDF</p>
+</div>
+</div>
+
+
+          </div>
+          <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="indexes-schemas.html" class="btn btn-neutral float-right" title="Indexes and Schemas"/>Next <span class="fa fa-arrow-circle-right"></span></a>
+      
+      
+        <a href="intro.html" class="btn btn-neutral" title="Introduction"><span class="fa fa-arrow-circle-left"></span> Previous</a>
+      
+    </div>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2014, Ryan Stuart, Kris Rogers, Kapiche Limited.
+    </p>
+  </div>
+
+  <a href="https://github.com/snide/sphinx_rtd_theme">Sphinx theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'./',
+            VERSION:'1.0',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true
+        };
+    </script>
+      <script type="text/javascript" src="_static/jquery.js"></script>
+      <script type="text/javascript" src="_static/underscore.js"></script>
+      <script type="text/javascript" src="_static/doctools.js"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>

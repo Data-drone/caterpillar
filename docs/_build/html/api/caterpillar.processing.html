@@ -1,0 +1,1079 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>caterpillar.processing package &mdash; Caterpillar 1.0 documentation</title>
+  
+
+  
+  
+
+  
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700|Roboto+Slab:400,700|Inconsolata:400,700' rel='stylesheet' type='text/css'>
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  
+
+  
+    <link rel="top" title="Caterpillar 1.0 documentation" href="../index.html"/>
+        <link rel="up" title="Caterpillar API" href="modules.html"/>
+        <link rel="next" title="caterpillar.processing.analysis package" href="caterpillar.processing.analysis.html"/>
+        <link rel="prev" title="caterpillar package" href="caterpillar.html"/> 
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.6.2/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-nav-search">
+        <a href="../index.html" class="fa fa-home"> Caterpillar</a>
+        <div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+        
+        
+            <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../intro.html">Introduction</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../intro.html#what-is-caterpillar">What is Caterpillar?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../intro.html#err-what-example-please">Err, What? Example Please...</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../intro.html#why-caterpillar">Why Caterpillar?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../intro.html#supported-platforms">Supported Platforms</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../intro.html#do-you-support-python-3">Do you support Python 3?</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../getting-started.html">Getting Started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started.html#installation">Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started.html#basic-concepts">Basic Concepts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started.html#code-examples">Code Examples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started.html#creating-and-writing-an-index">Creating and writing an Index</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started.html#searching-an-index">Searching an Index</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started.html#index-storage-formats">Index Storage Formats</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started.html#querying">Querying</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../indexes-schemas.html">Indexes and Schemas</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../indexes-schemas.html#designing-a-schema">Designing a Schema</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../indexes-schemas.html#field-types">Field Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../indexes-schemas.html#example">Example</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="reference internal" href="modules.html">Caterpillar API</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="caterpillar.html"><tt class="docutils literal"><span class="pre">caterpillar</span></tt> package</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href=""><tt class="docutils literal"><span class="pre">caterpillar.processing</span></tt> package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="caterpillar.processing.analysis.html"><tt class="docutils literal"><span class="pre">caterpillar.processing.analysis</span></tt> package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="caterpillar.searching.html"><tt class="docutils literal"><span class="pre">caterpillar.searching</span></tt> package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="caterpillar.searching.query.html"><tt class="docutils literal"><span class="pre">caterpillar.searching.query</span></tt> package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="caterpillar.storage.html"><tt class="docutils literal"><span class="pre">caterpillar.storage</span></tt> package</a></li>
+</ul>
+</li>
+</ul>
+
+        
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="../index.html">Caterpillar</a>
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../index.html">Docs</a> &raquo;</li>
+      
+          <li><a href="modules.html">Caterpillar API</a> &raquo;</li>
+      
+    <li><tt class="docutils literal"><span class="pre">caterpillar.processing</span></tt> package</li>
+      <li class="wy-breadcrumbs-aside">
+        
+          <a href="../_sources/api/caterpillar.processing.txt" rel="nofollow"> View page source</a>
+        
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main">
+            
+  <div class="section" id="caterpillar-processing-package">
+<h1><tt class="docutils literal"><span class="pre">caterpillar.processing</span></tt> package<a class="headerlink" href="#caterpillar-processing-package" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="module-caterpillar.processing.index">
+<span id="caterpillar-processing-index-module"></span><h2><tt class="docutils literal"><span class="pre">caterpillar.processing.index</span></tt> module<a class="headerlink" href="#module-caterpillar.processing.index" title="Permalink to this headline">¶</a></h2>
+<p>An index represents a collection of documents and associated information about those documents. When a document is added
+to an index using an <a class="reference internal" href="#caterpillar.processing.index.IndexWriter" title="caterpillar.processing.index.IndexWriter"><tt class="xref py py-class docutils literal"><span class="pre">IndexWriter</span></tt></a>, some or all of its fields will be analysed
+(see <a class="reference internal" href="#module-caterpillar.processing.schema" title="caterpillar.processing.schema"><tt class="xref py py-mod docutils literal"><span class="pre">caterpillar.processing.schema</span></tt></a>) and information about those fields stored in various sub-indexes.
+Caterpillar stores a number of sub-indexes:</p>
+<ul>
+<li><dl class="first docutils">
+<dt>The frequencies index::</dt>
+<dd><dl class="first docutils">
+<dt>{</dt>
+<dd><p class="first last">&#8220;term&#8221;: count,
+&#8220;term&#8221;: count,
+...</p>
+</dd>
+</dl>
+<p class="last">}</p>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt>The positions index (an inverted text index)::</dt>
+<dd><dl class="first docutils">
+<dt>{</dt>
+<dd><dl class="first last docutils">
+<dt>&#8220;term&#8221;: {</dt>
+<dd><p class="first last">&#8220;frame_id&#8221;: [(start, end), (start, end)],
+...</p>
+</dd>
+</dl>
+</dd>
+</dl>
+<p class="last">}</p>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt>The associations index::</dt>
+<dd><dl class="first docutils">
+<dt>{</dt>
+<dd><dl class="first last docutils">
+<dt>term: {</dt>
+<dd><p class="first last">other_term: count,
+...</p>
+</dd>
+</dl>
+</dd>
+</dl>
+<p class="last">}</p>
+</dd>
+</dl>
+</li>
+</ul>
+<p>Documents can be added to an index using an <a class="reference internal" href="#caterpillar.processing.index.IndexWriter" title="caterpillar.processing.index.IndexWriter"><tt class="xref py py-class docutils literal"><span class="pre">IndexWriter</span></tt></a>. Data can be read from an index using
+<a class="reference internal" href="#caterpillar.processing.index.IndexReader" title="caterpillar.processing.index.IndexReader"><tt class="xref py py-class docutils literal"><span class="pre">IndexReader</span></tt></a>. There can only ever be one <tt class="docutils literal"><span class="pre">IndexWriter</span></tt> active per index. There can be an unlimited number of
+<a href="#id1"><span class="problematic" id="id2">``</span></a>IndexReader``s active per index.</p>
+<p>The type of index stored by caterpillar is different from those stored by regular information retrieval libraries (like
+Lucene for example). Caterpillar is designed for text analytics as well as information retrieval. One side affect of
+this is that caterpillar breaks documents down into <em>frames</em>. Breaking documents down into smaller parts (or context
+blocks) enables users to implement their own statistical methods for analysing text. Frames are a configurable
+component. See <a class="reference internal" href="#caterpillar.processing.index.IndexWriter" title="caterpillar.processing.index.IndexWriter"><tt class="xref py py-class docutils literal"><span class="pre">IndexWriter</span></tt></a> for more information.</p>
+<p>Here is a quick example:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span> <span class="nn">caterpillar.processing</span> <span class="kn">import</span> <span class="n">index</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span> <span class="nn">caterpillar.processing</span> <span class="kn">import</span> <span class="n">schema</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span> <span class="nn">caterpillar.storage.sqlite</span> <span class="kn">import</span> <span class="n">SqliteStorage</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">config</span> <span class="o">=</span> <span class="n">index</span><span class="o">.</span><span class="n">IndexConfig</span><span class="p">(</span><span class="n">SqliteStorage</span><span class="p">,</span> <span class="n">schema</span><span class="o">.</span><span class="n">Schema</span><span class="p">(</span><span class="n">text</span><span class="o">=</span><span class="n">schema</span><span class="o">.</span><span class="n">TEXT</span><span class="p">))</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="k">with</span> <span class="n">index</span><span class="o">.</span><span class="n">IndexWriter</span><span class="p">(</span><span class="s">&#39;/tmp/test_index&#39;</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span> <span class="k">as</span> <span class="n">writer</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="n">writer</span><span class="o">.</span><span class="n">add_document</span><span class="p">(</span><span class="n">text</span><span class="o">=</span><span class="s">&quot;This is my text&quot;</span><span class="p">)</span><span class="o">...</span>
+<span class="go">&#39;935ed96520ab44879a6e76195a9d7046&#39;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="k">with</span> <span class="n">index</span><span class="o">.</span><span class="n">IndexReader</span><span class="p">(</span><span class="s">&#39;/tmp/test_index&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">reader</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="n">reader</span><span class="o">.</span><span class="n">get_document_count</span><span class="p">()</span>
+<span class="gp">...</span>
+<span class="go">1</span>
+</pre></div>
+</div>
+<dl class="exception">
+<dt id="caterpillar.processing.index.CaterpillarIndexError">
+<em class="property">exception </em><tt class="descclassname">caterpillar.processing.index.</tt><tt class="descname">CaterpillarIndexError</tt><a class="headerlink" href="#caterpillar.processing.index.CaterpillarIndexError" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference external" href="http://docs.python.org/library/exceptions.html#exceptions.Exception" title="(in Python v2.7)"><tt class="xref py py-class docutils literal"><span class="pre">exceptions.Exception</span></tt></a></p>
+<p>Common base class for index errors.</p>
+</dd></dl>
+
+<dl class="exception">
+<dt id="caterpillar.processing.index.DocumentNotFoundError">
+<em class="property">exception </em><tt class="descclassname">caterpillar.processing.index.</tt><tt class="descname">DocumentNotFoundError</tt><a class="headerlink" href="#caterpillar.processing.index.DocumentNotFoundError" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#caterpillar.processing.index.CaterpillarIndexError" title="caterpillar.processing.index.CaterpillarIndexError"><tt class="xref py py-class docutils literal"><span class="pre">caterpillar.processing.index.CaterpillarIndexError</span></tt></a></p>
+<p>No document by that name exists.</p>
+</dd></dl>
+
+<dl class="class">
+<dt id="caterpillar.processing.index.IndexConfig">
+<em class="property">class </em><tt class="descclassname">caterpillar.processing.index.</tt><tt class="descname">IndexConfig</tt><big>(</big><em>storage_cls</em>, <em>schema</em><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexConfig" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference external" href="http://docs.python.org/library/functions.html#object" title="(in Python v2.7)"><tt class="xref py py-class docutils literal"><span class="pre">object</span></tt></a></p>
+<p>Stores configuration information about an index.</p>
+<p>This object is a core part of any index. It is serialised and stored with every index so that an index can be
+opened. It tells an <a class="reference internal" href="#caterpillar.processing.index.IndexWriter" title="caterpillar.processing.index.IndexWriter"><tt class="xref py py-class docutils literal"><span class="pre">IndexWriter</span></tt></a> and <a class="reference internal" href="#caterpillar.processing.index.IndexReader" title="caterpillar.processing.index.IndexReader"><tt class="xref py py-class docutils literal"><span class="pre">IndexReader</span></tt></a> what type of storage class to use via
+<tt class="docutils literal"><span class="pre">storage_cls</span></tt> (must be a subclass of <a class="reference internal" href="caterpillar.storage.html#caterpillar.storage.Storage" title="caterpillar.storage.Storage"><tt class="xref py py-class docutils literal"><span class="pre">Storage</span></tt></a>) and structure of the index
+via <tt class="docutils literal"><span class="pre">schema</span></tt> (an instance of <a class="reference internal" href="#caterpillar.processing.schema.Schema" title="caterpillar.processing.schema.Schema"><tt class="xref py py-class docutils literal"><span class="pre">Schema</span></tt></a>).</p>
+<p>In the interest of future proofing this object, it will also store a <tt class="docutils literal"><span class="pre">version</span></tt> number with itself so that
+older/new version have the best possible chance at opening indexes.</p>
+<p>This class might be extended later to store other things.</p>
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexConfig.dumps">
+<tt class="descname">dumps</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexConfig.dumps" title="Permalink to this definition">¶</a></dt>
+<dd><p>Dump this instance as a string for serialization.</p>
+</dd></dl>
+
+<dl class="staticmethod">
+<dt id="caterpillar.processing.index.IndexConfig.loads">
+<em class="property">static </em><tt class="descname">loads</tt><big>(</big><em>data</em><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexConfig.loads" title="Permalink to this definition">¶</a></dt>
+<dd><p>Create an instance of this class from a string generated via <a class="reference internal" href="#caterpillar.processing.index.IndexConfig.dumps" title="caterpillar.processing.index.IndexConfig.dumps"><tt class="xref py py-meth docutils literal"><span class="pre">dumps()</span></tt></a>.</p>
+<p>Raises <tt class="xref py py-exc docutils literal"><span class="pre">ValueError</span></tt> if the <tt class="docutils literal"><span class="pre">data</span></tt> (str) can&#8217;t be parsed into an instance of <tt class="docutils literal"><span class="pre">IndexConfig</span></tt>.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="exception">
+<dt id="caterpillar.processing.index.IndexNotFoundError">
+<em class="property">exception </em><tt class="descclassname">caterpillar.processing.index.</tt><tt class="descname">IndexNotFoundError</tt><a class="headerlink" href="#caterpillar.processing.index.IndexNotFoundError" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#caterpillar.processing.index.CaterpillarIndexError" title="caterpillar.processing.index.CaterpillarIndexError"><tt class="xref py py-class docutils literal"><span class="pre">caterpillar.processing.index.CaterpillarIndexError</span></tt></a></p>
+<p>No index exists at specified location.</p>
+</dd></dl>
+
+<dl class="class">
+<dt id="caterpillar.processing.index.IndexReader">
+<em class="property">class </em><tt class="descclassname">caterpillar.processing.index.</tt><tt class="descname">IndexReader</tt><big>(</big><em>path</em><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexReader" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference external" href="http://docs.python.org/library/functions.html#object" title="(in Python v2.7)"><tt class="xref py py-class docutils literal"><span class="pre">object</span></tt></a></p>
+<p>Read information from an existing index.</p>
+<p>Once an IndexReader is opened, it will <strong>not</strong> see any changes written to the index by an <a class="reference internal" href="#caterpillar.processing.index.IndexWriter" title="caterpillar.processing.index.IndexWriter"><tt class="xref py py-class docutils literal"><span class="pre">IndexWriter</span></tt></a>. To
+see any new changes you must open a new IndexReader.</p>
+<p>To search an index, use <a class="reference internal" href="#caterpillar.processing.index.IndexReader.searcher" title="caterpillar.processing.index.IndexReader.searcher"><tt class="xref py py-meth docutils literal"><span class="pre">searcher()</span></tt></a> to fetch an <a class="reference internal" href="caterpillar.searching.html#caterpillar.searching.IndexSearcher" title="caterpillar.searching.IndexSearcher"><tt class="xref py py-class docutils literal"><span class="pre">caterpillar.searching.IndexSearcher</span></tt></a> instance to
+execute the search with. A searcher will only work while this IndexReader remains open.</p>
+<p>Access to the raw underlying associations, frequencies and positions index is provided by this class but a caller
+needs to be aware that these may consume a <strong>LARGE</strong> amount of memory depending on the size of the index. As such,
+all access to these indexes are provided by generators (see <a class="reference internal" href="#caterpillar.processing.index.IndexReader.get_frames" title="caterpillar.processing.index.IndexReader.get_frames"><tt class="xref py py-meth docutils literal"><span class="pre">get_frames()</span></tt></a> for example).</p>
+<p>Once you are finished with an IndexReader you need to call the <a class="reference internal" href="#caterpillar.processing.index.IndexReader.close" title="caterpillar.processing.index.IndexReader.close"><tt class="xref py py-meth docutils literal"><span class="pre">close()</span></tt></a> method.</p>
+<p>IndexReader is a context manager and can be used via the with statement to make this easier. For example:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="k">with</span> <span class="n">IndexReader</span><span class="p">(</span><span class="s">&#39;/path/to/index&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">r</span><span class="p">:</span>
+<span class="gp">... </span>   <span class="c"># Do stuff</span>
+<span class="gp">... </span>   <span class="n">doc</span> <span class="o">=</span> <span class="n">r</span><span class="o">.</span><span class="n">get_document</span><span class="p">(</span><span class="n">d_id</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c"># Reader is closed</span>
+</pre></div>
+</div>
+<div class="admonition warning">
+<p class="first admonition-title">Warning</p>
+<p class="last">While opening an IndexReader is quite cheap, it definitely isn&#8217;t free. If you are going to do a large amount of
+reading over a relatively short time span, it is much better to do so using one reader.</p>
+</div>
+<p>There is no limit to the number of IndexReader objects which can be active on an index. IndexReader objects are also
+thread-safe.</p>
+<p>IndexReader doesn&#8217;t cache any data. Every time you ask for data, the underlying <a class="reference internal" href="caterpillar.storage.html#caterpillar.storage.Storage" title="caterpillar.storage.Storage"><tt class="xref py py-class docutils literal"><span class="pre">caterpillar.storage.Storage</span></tt></a>
+instance is used to fetch that data. If you were to call <tt class="xref py py-meth docutils literal"><span class="pre">,get_associations_index()</span></tt> 10 times, each time the
+data will be fetched from the storage instance and not some internal cache. The underlying storage instance may do
+some of it&#8217;s own caching but that is transparent to us.</p>
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexReader.begin">
+<tt class="descname">begin</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexReader.begin" title="Permalink to this definition">¶</a></dt>
+<dd><p>Begin reading with this IndexReader.</p>
+<p>From this point on, no changes to the underlying index made by an <a class="reference internal" href="#caterpillar.processing.index.IndexWriter" title="caterpillar.processing.index.IndexWriter"><tt class="xref py py-class docutils literal"><span class="pre">IndexWriter</span></tt></a> will be seen.</p>
+<div class="admonition warning">
+<p class="first admonition-title">Warning</p>
+<p class="last">This method <strong>must</strong> be called before any reading can be done.</p>
+</div>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexReader.close">
+<tt class="descname">close</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexReader.close" title="Permalink to this definition">¶</a></dt>
+<dd><p>Release all resources used by this IndexReader.</p>
+<p>Calling this method renders this instance unusable.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexReader.get_associations_index">
+<tt class="descname">get_associations_index</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexReader.get_associations_index" title="Permalink to this definition">¶</a></dt>
+<dd><p>Term associations for this Index.</p>
+<p>This is used to record when two terms co-occur in a document. Be aware that only 1 co-occurrence for two terms
+is recorded per document no matter the frequency of each term. The format is as follows:</p>
+<div class="highlight-python"><div class="highlight"><pre>{
+    term: {
+        other_term: count,
+        ...
+    },
+    ...
+}
+</pre></div>
+</div>
+<p>This method is a generator which yields key/value pair tuples.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexReader.get_document">
+<tt class="descname">get_document</tt><big>(</big><em>document_id</em><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexReader.get_document" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns the document with the given <tt class="docutils literal"><span class="pre">document_id</span></tt> (str) as a dict.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexReader.get_document_count">
+<tt class="descname">get_document_count</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexReader.get_document_count" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns the int count of documents added to this index.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexReader.get_documents">
+<tt class="descname">get_documents</tt><big>(</big><em>document_ids=None</em><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexReader.get_documents" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generator that yields documents from this index as (id, data) tuples.</p>
+<p>If present, the returned documents will be restricted to those with ids in <tt class="docutils literal"><span class="pre">document_ids</span></tt> (list).</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexReader.get_frame">
+<tt class="descname">get_frame</tt><big>(</big><em>frame_id</em><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexReader.get_frame" title="Permalink to this definition">¶</a></dt>
+<dd><p>Fetch frame <tt class="docutils literal"><span class="pre">frame_id</span></tt> (str).</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexReader.get_frame_count">
+<tt class="descname">get_frame_count</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexReader.get_frame_count" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the int count of frames stored on this index.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexReader.get_frame_ids">
+<tt class="descname">get_frame_ids</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexReader.get_frame_ids" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generator of ids for all frames stored on this index.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexReader.get_frames">
+<tt class="descname">get_frames</tt><big>(</big><em>frame_ids=None</em><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexReader.get_frames" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generator across frames from this index.</p>
+<p>If present, the returned frames will be restricted to those with ids in <tt class="docutils literal"><span class="pre">frame_ids</span></tt> (list). Format of the
+frames index data is as follows:</p>
+<div class="highlight-python"><div class="highlight"><pre>{
+    frame_id: { //framed data },
+    frame_id: { //framed data },
+    frame_id: { //framed data },
+    ...
+}
+</pre></div>
+</div>
+<p>This method is a generator that yields tuples of frame_id and frame data dict.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexReader.get_frequencies">
+<tt class="descname">get_frequencies</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexReader.get_frequencies" title="Permalink to this definition">¶</a></dt>
+<dd><p>Term frequencies for this index.</p>
+<p>Be aware that a terms frequency is only incremented by 1 per frame no matter the frequency within that
+frame. The format is as follows:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="p">{</span>
+    <span class="n">term</span><span class="p">:</span> <span class="n">count</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>This method is a generator that yields key/value paris of tuples (term, count).</p>
+<div class="admonition note">
+<p class="first admonition-title">Note</p>
+<p class="last">If you want to get the term frequency at a document level rather then a frame level then you should count
+all of the terms positions returned by <tt class="xref py py-meth docutils literal"><span class="pre">get_term_position()</span></tt>.</p>
+</div>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexReader.get_metadata">
+<tt class="descname">get_metadata</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexReader.get_metadata" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get the metadata index.</p>
+<p>This method is a generator that yields a key, value tuple. The index is in the following format:</p>
+<div class="highlight-python"><div class="highlight"><pre>{
+    &quot;field_name&quot;: {
+        &quot;value&quot;: [&quot;frame_id&quot;, &quot;frame_id&quot;],
+        &quot;value&quot;: [&quot;frame_id&quot;, &quot;frame_id&quot;],
+        &quot;value&quot;: [&quot;frame_id&quot;, &quot;frame_id&quot;],
+        ...
+    },
+    ...
+}
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexReader.get_plugin_data">
+<tt class="descname">get_plugin_data</tt><big>(</big><em>plugin</em>, <em>container</em>, <em>keys=None</em><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexReader.get_plugin_data" title="Permalink to this definition">¶</a></dt>
+<dd><p>All data stored for <tt class="docutils literal"><span class="pre">plugin</span></tt> <tt class="xref py py-class docutils literal"><span class="pre">AnalyticsPlugin</span> <span class="pre">&lt;caterpillar.processing.plugin.AnalyticsPlugin</span></tt> from
+<tt class="docutils literal"><span class="pre">container</span></tt> (str).</p>
+<p>If not None, the key/value pairs returned will be limited to those with a key in <tt class="docutils literal"><span class="pre">keys</span></tt> (list).</p>
+<p>This method is an generator that yields key/value tuples.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexReader.get_positions_index">
+<tt class="descname">get_positions_index</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexReader.get_positions_index" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get all term positions.</p>
+<p>This is a generator which yields a key/value pair tuple.</p>
+<p>This is what is known as an inverted text index. Structure is as follows:</p>
+<div class="highlight-python"><div class="highlight"><pre>{
+    &quot;term&quot;: {
+        &quot;frame_id&quot;: [(start, end), (start, end)],
+        ...
+    },
+    ...
+}
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexReader.get_revision">
+<tt class="descname">get_revision</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexReader.get_revision" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the str revision identifier for this index.</p>
+<p>The revision identifier is a version identifier. It gets updated every time the index gets changed.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexReader.get_schema">
+<tt class="descname">get_schema</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexReader.get_schema" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get the <a class="reference internal" href="#caterpillar.processing.schema.Schema" title="caterpillar.processing.schema.Schema"><tt class="xref py py-class docutils literal"><span class="pre">caterpillar.processing.schema.Schema</span></tt></a> for this index.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexReader.get_setting">
+<tt class="descname">get_setting</tt><big>(</big><em>name</em><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexReader.get_setting" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get the setting identified by <tt class="docutils literal"><span class="pre">name</span></tt> (str).</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexReader.get_settings">
+<tt class="descname">get_settings</tt><big>(</big><em>names</em><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexReader.get_settings" title="Permalink to this definition">¶</a></dt>
+<dd><p>All settings listed in <tt class="docutils literal"><span class="pre">names</span></tt> (list).</p>
+<p>This method is a generator that yields name/value pair tuples. The format of the settings index is:</p>
+<div class="highlight-python"><div class="highlight"><pre>{
+    name: value,
+    name: value,
+    ...
+}
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexReader.get_term_association">
+<tt class="descname">get_term_association</tt><big>(</big><em>term</em>, <em>association</em><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexReader.get_term_association" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a count of term associations between <tt class="docutils literal"><span class="pre">term</span></tt> (str) and <tt class="docutils literal"><span class="pre">association</span></tt> (str).</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexReader.get_term_frequency">
+<tt class="descname">get_term_frequency</tt><big>(</big><em>term</em><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexReader.get_term_frequency" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the frequency of <tt class="docutils literal"><span class="pre">term</span></tt> (str) as an int.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexReader.get_term_positions">
+<tt class="descname">get_term_positions</tt><big>(</big><em>term</em><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexReader.get_term_positions" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a dict of term positions for <tt class="docutils literal"><span class="pre">term</span></tt> (str).</p>
+<p>Structure of returned dict is as follows:</p>
+<div class="highlight-python"><div class="highlight"><pre>{
+</pre></div>
+</div>
+<blockquote>
+<div>frame_id1: [(start, end), (start, end)],
+frame_id2: [(start, end), (start, end)],
+...</div></blockquote>
+<p>}</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexReader.get_vocab_size">
+<tt class="descname">get_vocab_size</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexReader.get_vocab_size" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get total number of unique terms identified for this index (int).</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexReader.searcher">
+<tt class="descname">searcher</tt><big>(</big><em>scorer_cls=&lt;class 'caterpillar.searching.scoring.TfidfScorer'&gt;</em><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexReader.searcher" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return an <tt class="xref py py-class docutils literal"><span class="pre">IndexSearcher</span></tt> for this Index.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="exception">
+<dt id="caterpillar.processing.index.IndexWriteLockedError">
+<em class="property">exception </em><tt class="descclassname">caterpillar.processing.index.</tt><tt class="descname">IndexWriteLockedError</tt><a class="headerlink" href="#caterpillar.processing.index.IndexWriteLockedError" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#caterpillar.processing.index.CaterpillarIndexError" title="caterpillar.processing.index.CaterpillarIndexError"><tt class="xref py py-class docutils literal"><span class="pre">caterpillar.processing.index.CaterpillarIndexError</span></tt></a></p>
+<p>There is already an existing writer for this index.</p>
+</dd></dl>
+
+<dl class="class">
+<dt id="caterpillar.processing.index.IndexWriter">
+<em class="property">class </em><tt class="descclassname">caterpillar.processing.index.</tt><tt class="descname">IndexWriter</tt><big>(</big><em>path</em>, <em>config=None</em><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexWriter" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference external" href="http://docs.python.org/library/functions.html#object" title="(in Python v2.7)"><tt class="xref py py-class docutils literal"><span class="pre">object</span></tt></a></p>
+<p>Write to an existing index or create a new index and write to it.</p>
+<p>An instance of an <tt class="docutils literal"><span class="pre">IndexWriter</span></tt> represents a transaction. To begin the transaction, you need to call
+<a class="reference internal" href="#caterpillar.processing.index.IndexWriter.begin" title="caterpillar.processing.index.IndexWriter.begin"><tt class="xref py py-meth docutils literal"><span class="pre">begin()</span></tt></a> on this writer. There can only be one active IndexWriter transaction per index. This is enforced
+via a write lock on the index. When you begin the write transaction the IndexWriter instance tries to acquire the
+write lock. By default it will block indefinitely until it gets the write lock but this can be overridden using the
+<tt class="docutils literal"><span class="pre">timeout</span></tt> argument to <cite>begin()</cite>. If <cite>begin()</cite> times-out when trying to get a lock, then
+<a class="reference internal" href="#caterpillar.processing.index.IndexWriteLockedError" title="caterpillar.processing.index.IndexWriteLockedError"><tt class="xref py py-exc docutils literal"><span class="pre">IndexWriteLockedError</span></tt></a> is raised.</p>
+<p>Writes to an index are internally buffered until they reach <tt class="xref py py-const docutils literal"><span class="pre">IndexWriter.RAM_BUFFER_MB</span></tt> when <cite>flush()</cite> is
+called. Alternatively a caller is free to call flush whenever they like. Calling flush will take any in-memory
+writes recorded by this class and write them to the underlying storage object using the methods it provides.</p>
+<div class="admonition note">
+<p class="first admonition-title">Note</p>
+<p class="last">The behaviour of <cite>flush()</cite> depends on the underlying <tt class="xref py py-class docutils literal"><span class="pre">Storage</span></tt>
+implementation used. Some implementations might just record the writes in memory. Consult the specific storage
+type for more information.</p>
+</div>
+<p>Once you have performed all the writes/deletes you like you need to call <a class="reference internal" href="#caterpillar.processing.index.IndexWriter.commit" title="caterpillar.processing.index.IndexWriter.commit"><tt class="xref py py-meth docutils literal"><span class="pre">commit()</span></tt></a> to finalise the
+transaction. Alternatively, if there was a problem during your transaction, you can call <a class="reference internal" href="#caterpillar.processing.index.IndexWriter.rollback" title="caterpillar.processing.index.IndexWriter.rollback"><tt class="xref py py-meth docutils literal"><span class="pre">rollback()</span></tt></a> instead
+to revert any changes you made using this writer. <strong>IMPORTANT</strong> - Finally, you need to call <a class="reference internal" href="#caterpillar.processing.index.IndexWriter.close" title="caterpillar.processing.index.IndexWriter.close"><tt class="xref py py-meth docutils literal"><span class="pre">close()</span></tt></a> to
+release the lock.</p>
+<p>Using IndexWriter this way should look something like this:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">writer</span> <span class="o">=</span> <span class="n">IndexWriter</span><span class="p">(</span><span class="s">&#39;/some/path/to/an/index&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="k">try</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="n">writer</span><span class="o">.</span><span class="n">begin</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>  <span class="c"># timeout in 2 seconds</span>
+<span class="gp">... </span>    <span class="c"># Do stuff, like add_document(), flush() etc...</span>
+<span class="gp">... </span>    <span class="n">writer</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>  <span class="c"># Write the changes (calls flush)...</span>
+<span class="gp">... </span><span class="k">except</span> <span class="n">IndexWriteLockedError</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="c"># Do something else, maybe try again</span>
+<span class="gp">... </span><span class="k">except</span> <span class="n">SomeOtherException</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="n">writer</span><span class="o">.</span><span class="n">rollback</span><span class="p">()</span>  <span class="c"># Error occurred, undo our changes</span>
+<span class="gp">... </span><span class="k">finally</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="n">writer</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>  <span class="c"># Release lock</span>
+</pre></div>
+</div>
+<p>This class is also a context manager and so can be used via the with statement. <strong>HOWEVER</strong>, be aware that using
+this class in a context manager will block indefinitely until the lock becomes available. Using the context manager
+has the added benefit of calling <tt class="docutils literal"><span class="pre">commit()</span></tt>/<tt class="docutils literal"><span class="pre">rollback()</span></tt> (if an exception breaks the context) and <tt class="docutils literal"><span class="pre">close()</span></tt>     for you automatically:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">writer</span> <span class="o">=</span> <span class="n">IndexWriter</span><span class="p">(</span><span class="s">&#39;/some/path/to/a/index&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="k">with</span> <span class="n">writer</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="n">add_document</span><span class="p">(</span><span class="n">field</span><span class="o">=</span><span class="s">&quot;value&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Again, be warned that this will block until the write lock becomes available!</p>
+<p>Finally, pay particular attention to the <tt class="docutils literal"><span class="pre">frame_size</span></tt> arguments of <a class="reference internal" href="#caterpillar.processing.index.IndexWriter.add_document" title="caterpillar.processing.index.IndexWriter.add_document"><tt class="xref py py-meth docutils literal"><span class="pre">add_document()</span></tt></a>. This determines the size
+of the frames the document will be broken up into.</p>
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexWriter.add_document">
+<tt class="descname">add_document</tt><big>(</big><em>frame_size=2</em>, <em>encoding='utf-8'</em>, <em>encoding_errors='strict'</em>, <em>**fields</em><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexWriter.add_document" title="Permalink to this definition">¶</a></dt>
+<dd><p>Add a document to this index.</p>
+<p>We index <tt class="xref py py-class docutils literal"><span class="pre">TEXT</span></tt> fields by breaking them into frames for analysis. The
+<tt class="docutils literal"><span class="pre">frame_size</span></tt> (int) param controls the size of those frames. Setting <tt class="docutils literal"><span class="pre">frame_size</span></tt> to an int &lt; 1 will result
+in all text being put into one frame or, to put it another way, the text not being broken up into frames.</p>
+<div class="admonition note">
+<p class="first admonition-title">Note</p>
+<p class="last">Because we always store a full positional index with each index, we are still able to do document level
+searches like TF/IDF even though we have broken the text down into frames. So, don&#8217;t fret!</p>
+</div>
+<p><tt class="docutils literal"><span class="pre">encoding</span></tt> (str) and <tt class="docutils literal"><span class="pre">encoding_errors</span></tt> (str) are passed directly to <a class="reference external" href="http://docs.python.org/library/stdtypes.html#str.decode" title="(in Python v2.7)"><tt class="xref py py-meth docutils literal"><span class="pre">str.decode()</span></tt></a> to decode the data
+for all <tt class="xref py py-class docutils literal"><span class="pre">TEXT</span></tt> fields. Refer to its documentation for more information.</p>
+<p><tt class="docutils literal"><span class="pre">**fields</span></tt> is the fields and their values for this document. Calling this method will look something like
+this:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">writer</span><span class="o">.</span><span class="n">add_document</span><span class="p">(</span><span class="n">field1</span><span class="o">=</span><span class="n">value1</span><span class="p">,</span> <span class="n">field2</span><span class="o">=</span><span class="n">value2</span><span class="p">)</span><span class="o">.</span>
+</pre></div>
+</div>
+<p>Any unrecognized fields are just ignored.</p>
+<p>Raises <tt class="xref py py-exc docutils literal"><span class="pre">TypeError</span></tt> if something other then str or bytes is given for a TEXT field and <a href="#id3"><span class="problematic" id="id4">:exec:`IndexError`</span></a>
+if there are any problems decoding a field.</p>
+<p>This method will call <a class="reference internal" href="#caterpillar.processing.index.IndexWriter.flush" title="caterpillar.processing.index.IndexWriter.flush"><tt class="xref py py-meth docutils literal"><span class="pre">flush()</span></tt></a> if the internal buffers go over <tt class="xref py py-const docutils literal"><span class="pre">RAM_BUFFER_SIZE</span></tt>.</p>
+<p>Returns the id (str) of the document added.</p>
+<p>Internally what is happening here is that a document is broken up into its fields and a mini-index of the
+document is generated and stored with our buffers for writing out later.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexWriter.add_fields">
+<tt class="descname">add_fields</tt><big>(</big><em>**fields</em><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexWriter.add_fields" title="Permalink to this definition">¶</a></dt>
+<dd><p>Add new fields to the schema.</p>
+<p>All keyword arguments are treated as <tt class="docutils literal"><span class="pre">(field_name,</span> <span class="pre">field_type)</span></tt> pairs.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexWriter.begin">
+<tt class="descname">begin</tt><big>(</big><em>timeout=None</em><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexWriter.begin" title="Permalink to this definition">¶</a></dt>
+<dd><p>Acquire the write lock and begin the transaction.</p>
+<p>If this index has yet to be created, create it (folder and storage). If <tt class="docutils literal"><span class="pre">timeout``(int)</span> <span class="pre">is</span> <span class="pre">omitted</span> <span class="pre">(or</span> <span class="pre">None),</span>
+<span class="pre">wait</span> <span class="pre">forever</span> <span class="pre">trying</span> <span class="pre">to</span> <span class="pre">lock</span> <span class="pre">the</span> <span class="pre">file.</span> <span class="pre">If</span> <span class="pre">``timeout</span></tt> &gt; 0, try to acquire the lock for that many seconds. If the
+lock period expires and the lock hasn&#8217;t been acquired raise <a class="reference internal" href="#caterpillar.processing.index.IndexWriteLockedError" title="caterpillar.processing.index.IndexWriteLockedError"><tt class="xref py py-exc docutils literal"><span class="pre">IndexWriteLockedError</span></tt></a>. If timeout &lt;= 0,
+raise <a class="reference internal" href="#caterpillar.processing.index.IndexWriteLockedError" title="caterpillar.processing.index.IndexWriteLockedError"><tt class="xref py py-exc docutils literal"><span class="pre">IndexWriteLockedError</span></tt></a> immediately if the lock can&#8217;t be acquired.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexWriter.close">
+<tt class="descname">close</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexWriter.close" title="Permalink to this definition">¶</a></dt>
+<dd><p>Close this writer.</p>
+<p>Calls <a class="reference internal" href="#caterpillar.processing.index.IndexWriter.rollback" title="caterpillar.processing.index.IndexWriter.rollback"><tt class="xref py py-meth docutils literal"><span class="pre">rollback()</span></tt></a> if we are in the middle of a transaction.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexWriter.commit">
+<tt class="descname">commit</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexWriter.commit" title="Permalink to this definition">¶</a></dt>
+<dd><p>Commit changes made by this writer by calling <a class="reference internal" href="#caterpillar.processing.index.IndexWriter.flush" title="caterpillar.processing.index.IndexWriter.flush"><tt class="xref py py-meth docutils literal"><span class="pre">flush()</span></tt></a> then <tt class="docutils literal"><span class="pre">commit()</span></tt> on the storage instance.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexWriter.delete_document">
+<tt class="descname">delete_document</tt><big>(</big><em>d_id</em><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexWriter.delete_document" title="Permalink to this definition">¶</a></dt>
+<dd><p>Delete the document with given <tt class="docutils literal"><span class="pre">d_id</span></tt> (str).</p>
+<p>Raises a <tt class="xref py py-exc docutils literal"><span class="pre">DocumentNotFound</span></tt> exception if the d_id doesn&#8217;t match any document.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexWriter.flush">
+<tt class="descname">flush</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexWriter.flush" title="Permalink to this definition">¶</a></dt>
+<dd><p>Flush the internal buffers to the underlying storage implementation.</p>
+<p>This method iterates through the frames that have been buffered by this writer and creates an internal index
+of them. Then, it merges that index with the existing index already stored via storage. Finally, it also flushes
+the internal frames and documents buffers to storage before clearing them. This includes both added documents
+and deleted documents.</p>
+<div class="admonition warning">
+<p class="first admonition-title">Warning</p>
+<p class="last">Even thought this method flushes all internal buffers to the underlying storage implementation, this
+does NOT constitute writing your changes! To actually have your changes persisted by the underlying storage
+implementation, you NEED to call <a class="reference internal" href="#caterpillar.processing.index.IndexWriter.commit" title="caterpillar.processing.index.IndexWriter.commit"><tt class="xref py py-meth docutils literal"><span class="pre">commit()</span></tt></a>! Nothing is final until commit is called.</p>
+</div>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexWriter.fold_term_case">
+<tt class="descname">fold_term_case</tt><big>(</big><em>merge_threshold=0.7</em><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexWriter.fold_term_case" title="Permalink to this definition">¶</a></dt>
+<dd><p>Perform case folding on this index, merging words into names (camel cased word or phrase) and vice-versa
+depending <tt class="docutils literal"><span class="pre">merge_threshold</span></tt>.</p>
+<p><tt class="docutils literal"><span class="pre">merge_threshold</span></tt> (float) is used to test when to merge two variants. When the ratio between word and name
+version of a term falls below this threshold the merge is carried out.</p>
+<div class="admonition warning">
+<p class="first admonition-title">Warning</p>
+<p class="last">This method calls flush before it runs and doesn&#8217;t use the internal buffers.</p>
+</div>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexWriter.merge_terms">
+<tt class="descname">merge_terms</tt><big>(</big><em>merges</em><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexWriter.merge_terms" title="Permalink to this definition">¶</a></dt>
+<dd><p>Merge the terms in <tt class="docutils literal"><span class="pre">merges</span></tt>.</p>
+<p><tt class="docutils literal"><span class="pre">merges</span></tt> (list) should be a list of str tuples of the format <tt class="docutils literal"><span class="pre">(old_term,</span> <span class="pre">new_term,)</span></tt>. If new_term is <tt class="docutils literal"><span class="pre">''</span></tt>
+then old_term is removed. N-grams can be specified by supplying a str tuple instead of str for the old term.
+For example:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="p">((</span><span class="s">&#39;hot&#39;</span><span class="p">,</span> <span class="s">&#39;dog&#39;</span><span class="p">),</span> <span class="s">&#39;hot dog&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The n-gram case does not allow empty values for new_term.</p>
+<div class="admonition warning">
+<p class="first admonition-title">Warning</p>
+<p class="last">This method calls flush before it runs and doesn&#8217;t use the internal buffers.</p>
+</div>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexWriter.rollback">
+<tt class="descname">rollback</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexWriter.rollback" title="Permalink to this definition">¶</a></dt>
+<dd><p>Rollback any changes made by this writer.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexWriter.run_plugin">
+<tt class="descname">run_plugin</tt><big>(</big><em>cls</em>, <em>**args</em><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexWriter.run_plugin" title="Permalink to this definition">¶</a></dt>
+<dd><p>Instantiates and runs the <tt class="xref py py-class docutils literal"><span class="pre">plugin.AnalyticsPlugin</span></tt> type in <tt class="docutils literal"><span class="pre">cls</span></tt> on this index.</p>
+<p>Creates an instance of the plugin by passing it the path of this index before calling its run method passing
+<tt class="docutils literal"><span class="pre">**args</span></tt> and saving the result into container(s) prefixed with the plugins name.</p>
+<p>Any keyword arguments passed to this method in args are passed onto the run method of the plugin.</p>
+<p>Returns the plugin instance.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexWriter.set_schema">
+<tt class="descname">set_schema</tt><big>(</big><em>schema</em><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexWriter.set_schema" title="Permalink to this definition">¶</a></dt>
+<dd><p>Update the schema for this index.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.index.IndexWriter.set_setting">
+<tt class="descname">set_setting</tt><big>(</big><em>name</em>, <em>value</em><big>)</big><a class="headerlink" href="#caterpillar.processing.index.IndexWriter.set_setting" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the <tt class="docutils literal"><span class="pre">value</span></tt> of setting identified by <tt class="docutils literal"><span class="pre">name</span></tt>.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="exception">
+<dt id="caterpillar.processing.index.SettingNotFoundError">
+<em class="property">exception </em><tt class="descclassname">caterpillar.processing.index.</tt><tt class="descname">SettingNotFoundError</tt><a class="headerlink" href="#caterpillar.processing.index.SettingNotFoundError" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#caterpillar.processing.index.CaterpillarIndexError" title="caterpillar.processing.index.CaterpillarIndexError"><tt class="xref py py-class docutils literal"><span class="pre">caterpillar.processing.index.CaterpillarIndexError</span></tt></a></p>
+<p>No setting by that name exists.</p>
+</dd></dl>
+
+<dl class="exception">
+<dt id="caterpillar.processing.index.TermNotFoundError">
+<em class="property">exception </em><tt class="descclassname">caterpillar.processing.index.</tt><tt class="descname">TermNotFoundError</tt><a class="headerlink" href="#caterpillar.processing.index.TermNotFoundError" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#caterpillar.processing.index.CaterpillarIndexError" title="caterpillar.processing.index.CaterpillarIndexError"><tt class="xref py py-class docutils literal"><span class="pre">caterpillar.processing.index.CaterpillarIndexError</span></tt></a></p>
+<p>Term doesn&#8217;t exist in index.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="caterpillar.processing.index.find_bi_gram_words">
+<tt class="descclassname">caterpillar.processing.index.</tt><tt class="descname">find_bi_gram_words</tt><big>(</big><em>frames</em>, <em>min_bi_gram_freq=3</em>, <em>min_bi_gram_coverage=0.65</em><big>)</big><a class="headerlink" href="#caterpillar.processing.index.find_bi_gram_words" title="Permalink to this definition">¶</a></dt>
+<dd><p>This function finds bi-gram words from the specified <tt class="docutils literal"><span class="pre">frames</span></tt> iterable.</p>
+<p>For two terms to be considered a bi-gram it must occur at least <tt class="docutils literal"><span class="pre">min_bi_gram_freq</span></tt> (int) times across all frames
+and the ratio of bi-gram appearances to no bi-gram appearances must be no less then <tt class="docutils literal"><span class="pre">min_bi_gram_coverage</span></tt>
+(float). For example, if <tt class="docutils literal"><span class="pre">min_bi_gram_coverage</span></tt> is 0.65 (the default) and the bi-gram is <em>good quality</em> then the
+frequency of the bi-gram <em>good quality</em> divided by the frequency of the term <em>good</em> must be higher then 0.65. Also,
+the frequency of the bi-gram <em>good quality</em> divided by the frequency of the term <em>quality</em> must be higher then 0.65.
+If both of these conditions are True and the bi-gram frequency is &gt;= <tt class="docutils literal"><span class="pre">min_bi_gram_freq</span></tt> the it will be returned as
+a bi-gram.</p>
+<p>This function uses a <a class="reference internal" href="caterpillar.processing.analysis.html#caterpillar.processing.analysis.analyse.PotentialBiGramAnalyser" title="caterpillar.processing.analysis.analyse.PotentialBiGramAnalyser"><tt class="xref py py-class docutils literal"><span class="pre">caterpillar.processing.analysis.analyse.PotentialBiGramAnalyser</span></tt></a> to identify potential
+bi-grams. Names and stopwords are not considered for bi-grams.</p>
+<p>Returns a list of bi-gram strings that pass the criteria.</p>
+</dd></dl>
+
+</div>
+<div class="section" id="module-caterpillar.processing.plugin">
+<span id="caterpillar-processing-plugin-module"></span><h2><tt class="docutils literal"><span class="pre">caterpillar.processing.plugin</span></tt> module<a class="headerlink" href="#module-caterpillar.processing.plugin" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="caterpillar.processing.plugin.AnalyticsPlugin">
+<em class="property">class </em><tt class="descclassname">caterpillar.processing.plugin.</tt><tt class="descname">AnalyticsPlugin</tt><big>(</big><em>index</em><big>)</big><a class="headerlink" href="#caterpillar.processing.plugin.AnalyticsPlugin" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference external" href="http://docs.python.org/library/functions.html#object" title="(in Python v2.7)"><tt class="xref py py-class docutils literal"><span class="pre">object</span></tt></a></p>
+<p>Plugins are registered on an index and allow external pieces of analytics to run on the index and store their
+results in a container.</p>
+<p>Plugins are run by the index and get passed an instance of the index with which to work. This allows them to access
+the underlying data structures of the index if they desire. They are expected to return a dict from
+string -&gt; dict (string -&gt; string) which will be stored on the index. Each item in the returned dict will be added as
+a container to the storage object of the index.</p>
+<p>Plugins must define a run() method by which they will be called. The method must return a dict of
+string -&gt; dict(string -&gt; string). They are also responsible for giving access to the underlying data structures they
+store on the index. How they do this is up to them.</p>
+<dl class="method">
+<dt id="caterpillar.processing.plugin.AnalyticsPlugin.get_name">
+<tt class="descname">get_name</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.processing.plugin.AnalyticsPlugin.get_name" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get the name of this plugin. Used when storing the output of a plugin on a <tt class="docutils literal"><span class="pre">Index</span></tt>.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.plugin.AnalyticsPlugin.run">
+<tt class="descname">run</tt><big>(</big><em>**fields</em><big>)</big><a class="headerlink" href="#caterpillar.processing.plugin.AnalyticsPlugin.run" title="Permalink to this definition">¶</a></dt>
+<dd><p>The run method is how an index will call the plugin passing any arguments it was called with.</p>
+<p>This method must return a dict in the following format for storage on the index:</p>
+<div class="highlight-python"><div class="highlight"><pre>{
+</pre></div>
+</div>
+<blockquote>
+<div><dl class="docutils">
+<dt>container_name: {</dt>
+<dd>key(str): value(str)</dd>
+</dl>
+<p>},
+container_name: {</p>
+<blockquote>
+<div>key(str): value(str)</div></blockquote>
+<p>}</p>
+</div></blockquote>
+<p>}</p>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-caterpillar.processing.schema">
+<span id="caterpillar-processing-schema-module"></span><h2><tt class="docutils literal"><span class="pre">caterpillar.processing.schema</span></tt> module<a class="headerlink" href="#module-caterpillar.processing.schema" title="Permalink to this headline">¶</a></h2>
+<p>Indexes (see <a class="reference internal" href="#module-caterpillar.processing.index" title="caterpillar.processing.index"><tt class="xref py py-mod docutils literal"><span class="pre">caterpillar.processing.index</span></tt></a>) in caterpillar must have a <a class="reference internal" href="#caterpillar.processing.schema.Schema" title="caterpillar.processing.schema.Schema"><tt class="xref py py-class docutils literal"><span class="pre">Schema</span></tt></a>. This module defines that
+schema and also provides a bunch of utility functions for working with schemas and csv.</p>
+<dl class="class">
+<dt id="caterpillar.processing.schema.BOOLEAN">
+<em class="property">class </em><tt class="descclassname">caterpillar.processing.schema.</tt><tt class="descname">BOOLEAN</tt><big>(</big><em>indexed=False</em>, <em>stored=True</em><big>)</big><a class="headerlink" href="#caterpillar.processing.schema.BOOLEAN" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#caterpillar.processing.schema.CategoricalFieldType" title="caterpillar.processing.schema.CategoricalFieldType"><tt class="xref py py-class docutils literal"><span class="pre">caterpillar.processing.schema.CategoricalFieldType</span></tt></a></p>
+<p>bool field type that lets you index boolean values (True and False).</p>
+<p>The field converts the bool values to text for you before indexing.</p>
+</dd></dl>
+
+<dl class="class">
+<dt id="caterpillar.processing.schema.CATEGORICAL_TEXT">
+<em class="property">class </em><tt class="descclassname">caterpillar.processing.schema.</tt><tt class="descname">CATEGORICAL_TEXT</tt><big>(</big><em>indexed=False</em>, <em>stored=True</em><big>)</big><a class="headerlink" href="#caterpillar.processing.schema.CATEGORICAL_TEXT" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#caterpillar.processing.schema.CategoricalFieldType" title="caterpillar.processing.schema.CategoricalFieldType"><tt class="xref py py-class docutils literal"><span class="pre">caterpillar.processing.schema.CategoricalFieldType</span></tt></a></p>
+<p>Configured field type for categorical text fields.</p>
+</dd></dl>
+
+<dl class="class">
+<dt id="caterpillar.processing.schema.CategoricalFieldType">
+<em class="property">class </em><tt class="descclassname">caterpillar.processing.schema.</tt><tt class="descname">CategoricalFieldType</tt><big>(</big><em>analyser=&lt;caterpillar.processing.analysis.analyse.EverythingAnalyser object at 0x10d7fe650&gt;</em>, <em>indexed=False</em>, <em>stored=True</em><big>)</big><a class="headerlink" href="#caterpillar.processing.schema.CategoricalFieldType" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#caterpillar.processing.schema.FieldType" title="caterpillar.processing.schema.FieldType"><tt class="xref py py-class docutils literal"><span class="pre">caterpillar.processing.schema.FieldType</span></tt></a></p>
+<p>Represents a categorical field type. Categorical fields can extend this class for convenience.</p>
+<dl class="method">
+<dt id="caterpillar.processing.schema.CategoricalFieldType.value_of">
+<tt class="descname">value_of</tt><big>(</big><em>raw_value</em><big>)</big><a class="headerlink" href="#caterpillar.processing.schema.CategoricalFieldType.value_of" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the value of <tt class="docutils literal"><span class="pre">raw_value</span></tt> after being processed by this field type&#8217;s analyse method.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="caterpillar.processing.schema.ColumnDataType">
+<em class="property">class </em><tt class="descclassname">caterpillar.processing.schema.</tt><tt class="descname">ColumnDataType</tt><a class="headerlink" href="#caterpillar.processing.schema.ColumnDataType" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference external" href="http://docs.python.org/library/functions.html#object" title="(in Python v2.7)"><tt class="xref py py-class docutils literal"><span class="pre">object</span></tt></a></p>
+<p>A ColumnDataType object identifies different data types in a CSV column.</p>
+<p>There are five possible data types:
+FLOAT &#8211; A floating point number. Should be a string in a format that float() can parse.
+INTEGER &#8211; A integer. Should be in a format that int() can parse.
+STRING &#8211; A string type. This type ISN&#8217;T analysed. It is just stored.
+TEXT &#8211; A string type. This is like STRING but it IS analysed and stored (it is used to generate a frame stream).
+IGNORE &#8211; Ignore this column.</p>
+</dd></dl>
+
+<dl class="class">
+<dt id="caterpillar.processing.schema.ColumnSpec">
+<em class="property">class </em><tt class="descclassname">caterpillar.processing.schema.</tt><tt class="descname">ColumnSpec</tt><big>(</big><em>name</em>, <em>type</em><big>)</big><a class="headerlink" href="#caterpillar.processing.schema.ColumnSpec" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference external" href="http://docs.python.org/library/functions.html#object" title="(in Python v2.7)"><tt class="xref py py-class docutils literal"><span class="pre">object</span></tt></a></p>
+<p>A ColumnSpec object represents information about a column in a CSV file.</p>
+<p>This includes the column&#8217;s name and its type.</p>
+</dd></dl>
+
+<dl class="class">
+<dt id="caterpillar.processing.schema.CsvSchema">
+<em class="property">class </em><tt class="descclassname">caterpillar.processing.schema.</tt><tt class="descname">CsvSchema</tt><big>(</big><em>columns</em>, <em>has_header</em>, <em>dialect</em>, <em>sample_rows=[]</em><big>)</big><a class="headerlink" href="#caterpillar.processing.schema.CsvSchema" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference external" href="http://docs.python.org/library/functions.html#object" title="(in Python v2.7)"><tt class="xref py py-class docutils literal"><span class="pre">object</span></tt></a></p>
+<p>This class represents the schema required to process a particular CSV data file.</p>
+<p>Required Arguments:
+columns &#8211; A list of <tt class="docutils literal"><span class="pre">ColumnSpec</span></tt> objects to define how the data should be processed.
+has_header &#8211; A boolean indicating whether the first row of the file contains headers.
+dialect &#8211; The dialect to use when parsing the file.</p>
+<p>Optional Arguments:
+sample_rows &#8211; A list of row data that was used to generate the schema.</p>
+<dl class="method">
+<dt id="caterpillar.processing.schema.CsvSchema.as_index_schema">
+<tt class="descname">as_index_schema</tt><big>(</big><em>bi_grams=None</em>, <em>stopword_list=None</em><big>)</big><a class="headerlink" href="#caterpillar.processing.schema.CsvSchema.as_index_schema" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return a representation of this <tt class="docutils literal"><span class="pre">CsvSchema</span></tt> in the form of a <tt class="docutils literal"><span class="pre">Schema</span></tt> instance that can be
+used for generating a text index.</p>
+<p>Optional Arguments:
+bi_grams &#8211; A list of bi-grams to use for TEXT columns.
+stopword_list &#8211; A list of stop words to use instead of default English list.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.schema.CsvSchema.map_row">
+<tt class="descname">map_row</tt><big>(</big><em>row</em><big>)</big><a class="headerlink" href="#caterpillar.processing.schema.CsvSchema.map_row" title="Permalink to this definition">¶</a></dt>
+<dd><p>Convert a row into dict form to make it easier to index.</p>
+<p>Required Arguments:
+row &#8211; A list of values for a row.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="caterpillar.processing.schema.FieldType">
+<em class="property">class </em><tt class="descclassname">caterpillar.processing.schema.</tt><tt class="descname">FieldType</tt><big>(</big><em>analyser=&lt;caterpillar.processing.analysis.analyse.EverythingAnalyser object at 0x10d7feb90&gt;</em>, <em>indexed=False</em>, <em>categorical=False</em>, <em>stored=True</em><big>)</big><a class="headerlink" href="#caterpillar.processing.schema.FieldType" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference external" href="http://docs.python.org/library/functions.html#object" title="(in Python v2.7)"><tt class="xref py py-class docutils literal"><span class="pre">object</span></tt></a></p>
+<p>Represents a field configuration. :class:<a href="#id5"><span class="problematic" id="id6">`</span></a>.Schema`s are built out of fields.</p>
+<p>The FieldType object controls how a field is analysed via the <tt class="docutils literal"><span class="pre">analyser</span></tt>
+(<tt class="xref py py-class docutils literal"><span class="pre">caterpillar.processing.analysis.Analyser</span></tt>) attribute.</p>
+<p>If you don&#8217;t provide an analyser for your field, it will default to a
+:class:<tt class="docutils literal"><span class="pre">caterpillar.processing.analysis.EverythingAnalyser</span></tt>.</p>
+<dl class="method">
+<dt id="caterpillar.processing.schema.FieldType.analyse">
+<tt class="descname">analyse</tt><big>(</big><em>value</em><big>)</big><a class="headerlink" href="#caterpillar.processing.schema.FieldType.analyse" title="Permalink to this definition">¶</a></dt>
+<dd><p>Analyse <tt class="docutils literal"><span class="pre">value</span></tt>, returning a <a class="reference internal" href="caterpillar.processing.analysis.html#caterpillar.processing.analysis.tokenize.Token" title="caterpillar.processing.analysis.tokenize.Token"><tt class="xref py py-class docutils literal"><span class="pre">caterpillar.processing.analysis.tokenize.Token</span></tt></a> generator.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.schema.FieldType.equals">
+<tt class="descname">equals</tt><big>(</big><em>value1</em>, <em>value2</em><big>)</big><a class="headerlink" href="#caterpillar.processing.schema.FieldType.equals" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns whether <tt class="docutils literal"><span class="pre">value1</span></tt> is equal to <tt class="docutils literal"><span class="pre">value2</span></tt>.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.schema.FieldType.equals_wildcard">
+<tt class="descname">equals_wildcard</tt><big>(</big><em>value</em>, <em>wildcard_value</em><big>)</big><a class="headerlink" href="#caterpillar.processing.schema.FieldType.equals_wildcard" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns whether <tt class="docutils literal"><span class="pre">value</span></tt> matches regex <tt class="docutils literal"><span class="pre">wildcard_value</span></tt>.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.schema.FieldType.evaluate_op">
+<tt class="descname">evaluate_op</tt><big>(</big><em>operator</em>, <em>value1</em>, <em>value2</em><big>)</big><a class="headerlink" href="#caterpillar.processing.schema.FieldType.evaluate_op" title="Permalink to this definition">¶</a></dt>
+<dd><p>Evaluate <tt class="docutils literal"><span class="pre">operator</span></tt> (str from <tt class="xref py py-const docutils literal"><span class="pre">FieldType.FIELD_OPS</span></tt>) on operands <tt class="docutils literal"><span class="pre">value1</span></tt> and <tt class="docutils literal"><span class="pre">value2</span></tt>.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.schema.FieldType.gt">
+<tt class="descname">gt</tt><big>(</big><em>value1</em>, <em>value2</em><big>)</big><a class="headerlink" href="#caterpillar.processing.schema.FieldType.gt" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns whether <tt class="docutils literal"><span class="pre">value1</span></tt> is greater than <tt class="docutils literal"><span class="pre">value2</span></tt>.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.schema.FieldType.gte">
+<tt class="descname">gte</tt><big>(</big><em>value1</em>, <em>value2</em><big>)</big><a class="headerlink" href="#caterpillar.processing.schema.FieldType.gte" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns whether <tt class="docutils literal"><span class="pre">value1</span></tt> is greater than or equal to <tt class="docutils literal"><span class="pre">value2</span></tt>.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.schema.FieldType.lt">
+<tt class="descname">lt</tt><big>(</big><em>value1</em>, <em>value2</em><big>)</big><a class="headerlink" href="#caterpillar.processing.schema.FieldType.lt" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns whether <tt class="docutils literal"><span class="pre">value1</span></tt> is less than <tt class="docutils literal"><span class="pre">value2</span></tt>.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.schema.FieldType.lte">
+<tt class="descname">lte</tt><big>(</big><em>value1</em>, <em>value2</em><big>)</big><a class="headerlink" href="#caterpillar.processing.schema.FieldType.lte" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns whether <tt class="docutils literal"><span class="pre">value1</span></tt> is less than or equal to <tt class="docutils literal"><span class="pre">value2</span></tt>.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="caterpillar.processing.schema.ID">
+<em class="property">class </em><tt class="descclassname">caterpillar.processing.schema.</tt><tt class="descname">ID</tt><big>(</big><em>indexed=False</em>, <em>stored=True</em><big>)</big><a class="headerlink" href="#caterpillar.processing.schema.ID" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#caterpillar.processing.schema.CategoricalFieldType" title="caterpillar.processing.schema.CategoricalFieldType"><tt class="xref py py-class docutils literal"><span class="pre">caterpillar.processing.schema.CategoricalFieldType</span></tt></a></p>
+<p>Configured field type that indexes the entire value of the field as one token. This is useful for data you don&#8217;t
+want to tokenize, such as the path of a file.</p>
+</dd></dl>
+
+<dl class="class">
+<dt id="caterpillar.processing.schema.NUMERIC">
+<em class="property">class </em><tt class="descclassname">caterpillar.processing.schema.</tt><tt class="descname">NUMERIC</tt><big>(</big><em>indexed=False</em>, <em>stored=True</em>, <em>num_type=&lt;type 'int'&gt;</em>, <em>default_value=None</em><big>)</big><a class="headerlink" href="#caterpillar.processing.schema.NUMERIC" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#caterpillar.processing.schema.CategoricalFieldType" title="caterpillar.processing.schema.CategoricalFieldType"><tt class="xref py py-class docutils literal"><span class="pre">caterpillar.processing.schema.CategoricalFieldType</span></tt></a></p>
+<p>Special field type that lets you index ints or floats.</p>
+</dd></dl>
+
+<dl class="class">
+<dt id="caterpillar.processing.schema.Schema">
+<em class="property">class </em><tt class="descclassname">caterpillar.processing.schema.</tt><tt class="descname">Schema</tt><big>(</big><em>**fields</em><big>)</big><a class="headerlink" href="#caterpillar.processing.schema.Schema" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference external" href="http://docs.python.org/library/functions.html#object" title="(in Python v2.7)"><tt class="xref py py-class docutils literal"><span class="pre">object</span></tt></a></p>
+<p>Represents the collection of fields in an index. Maps field names to FieldType objects which define the behavior of
+each field.</p>
+<p>Low-level parts of the index use field numbers instead of field names for compactness. This class has several
+methods for converting between the field name, field number, and field object itself.</p>
+<dl class="method">
+<dt id="caterpillar.processing.schema.Schema.add">
+<tt class="descname">add</tt><big>(</big><em>name</em>, <em>field_type</em><big>)</big><a class="headerlink" href="#caterpillar.processing.schema.Schema.add" title="Permalink to this definition">¶</a></dt>
+<dd><p>Adds a field to this schema.</p>
+<p><tt class="docutils literal"><span class="pre">name</span></tt> (str) is the name of the field. <tt class="docutils literal"><span class="pre">fieldtype</span></tt> (<a class="reference internal" href="#caterpillar.processing.schema.FieldType" title="caterpillar.processing.schema.FieldType"><tt class="xref py py-class docutils literal"><span class="pre">FieldType</span></tt></a>) is either
+instantiated FieldType object, or a FieldType subclass. If you pass an instantiated object, the schema will use
+that as the field configuration for this field. If you pass a FieldType subclass, the schema will automatically
+instantiate it with the default constructor.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.schema.Schema.items">
+<tt class="descname">items</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.processing.schema.Schema.items" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a list of <tt class="docutils literal"><span class="pre">(&quot;field_name&quot;,</span> <span class="pre">field_object)</span></tt> pairs for the fields in this schema.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.processing.schema.Schema.names">
+<tt class="descname">names</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.processing.schema.Schema.names" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a list of the names of the fields in this schema.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="caterpillar.processing.schema.TEXT">
+<em class="property">class </em><tt class="descclassname">caterpillar.processing.schema.</tt><tt class="descname">TEXT</tt><big>(</big><em>analyser=&lt;caterpillar.processing.analysis.analyse.DefaultAnalyser object at 0x10d807410&gt;</em>, <em>indexed=True</em>, <em>stored=True</em><big>)</big><a class="headerlink" href="#caterpillar.processing.schema.TEXT" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#caterpillar.processing.schema.FieldType" title="caterpillar.processing.schema.FieldType"><tt class="xref py py-class docutils literal"><span class="pre">caterpillar.processing.schema.FieldType</span></tt></a></p>
+<p>Configured field type for text fields.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="caterpillar.processing.schema.csv_has_header">
+<tt class="descclassname">caterpillar.processing.schema.</tt><tt class="descname">csv_has_header</tt><big>(</big><em>csv_file</em>, <em>dialect</em>, <em>num_check_rows=50</em><big>)</big><a class="headerlink" href="#caterpillar.processing.schema.csv_has_header" title="Permalink to this definition">¶</a></dt>
+<dd><p>Custom heuristic for recognising header in CSV files. Intended to be used as an alternative
+for the <tt class="docutils literal"><span class="pre">csv.Sniffer.has_header</span></tt> method which doesn&#8217;t work well for mostly-text CSV files.</p>
+<p>The heuristic we use simply checks the total size of the header row compared to the average row size for
+the following sample rows. If a large discrepancy is found, we assume that the first row contains headers.</p>
+<p>Required Arguments:
+csv_file &#8211; The csv data file to analyse.
+dialect &#8211; CSV dialect to use.</p>
+<p>Optional Arguments:
+num_check_rows &#8211; The number of rows to analyse (defaults to 50).</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="caterpillar.processing.schema.generate_csv_schema">
+<tt class="descclassname">caterpillar.processing.schema.</tt><tt class="descname">generate_csv_schema</tt><big>(</big><em>csv_file</em>, <em>delimiter='</em>, <em>'</em>, <em>encoding='utf8'</em><big>)</big><a class="headerlink" href="#caterpillar.processing.schema.generate_csv_schema" title="Permalink to this definition">¶</a></dt>
+<dd><p>Attempt to generate a schema for the csv file automatically.</p>
+<p>Required Arguments:
+csv_file &#8211; The CSV file to generate a schema for.</p>
+<p>Optional Arguments:
+delimiter &#8211; CSV delimiter character.
+encoding &#8211; Character encoding of the file.</p>
+<p>Returns a 2-tuple containing the generated schema and the sample rows used to generate the schema.</p>
+</dd></dl>
+
+</div>
+</div>
+
+
+          </div>
+          <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="caterpillar.processing.analysis.html" class="btn btn-neutral float-right" title="caterpillar.processing.analysis package"/>Next <span class="fa fa-arrow-circle-right"></span></a>
+      
+      
+        <a href="caterpillar.html" class="btn btn-neutral" title="caterpillar package"><span class="fa fa-arrow-circle-left"></span> Previous</a>
+      
+    </div>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2014, Ryan Stuart, Kris Rogers, Kapiche Limited.
+    </p>
+  </div>
+
+  <a href="https://github.com/snide/sphinx_rtd_theme">Sphinx theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'../',
+            VERSION:'1.0',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true
+        };
+    </script>
+      <script type="text/javascript" src="../_static/jquery.js"></script>
+      <script type="text/javascript" src="../_static/underscore.js"></script>
+      <script type="text/javascript" src="../_static/doctools.js"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="../_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>

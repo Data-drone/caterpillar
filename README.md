@@ -34,6 +34,10 @@ Installation
 ============
 
     pip install caterpillar
+
+Documentation
+=============
+The documentation can be found [here](http://caterpillar.readthedocs.org/en/latest/).
     
 Roadmap
 =======

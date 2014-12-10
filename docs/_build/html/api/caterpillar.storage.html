@@ -1,0 +1,474 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>caterpillar.storage package &mdash; Caterpillar 1.0 documentation</title>
+  
+
+  
+  
+
+  
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700|Roboto+Slab:400,700|Inconsolata:400,700' rel='stylesheet' type='text/css'>
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  
+
+  
+    <link rel="top" title="Caterpillar 1.0 documentation" href="../index.html"/>
+        <link rel="up" title="Caterpillar API" href="modules.html"/>
+        <link rel="prev" title="caterpillar.searching.query package" href="caterpillar.searching.query.html"/> 
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.6.2/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-nav-search">
+        <a href="../index.html" class="fa fa-home"> Caterpillar</a>
+        <div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+        
+        
+            <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../intro.html">Introduction</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../intro.html#what-is-caterpillar">What is Caterpillar?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../intro.html#err-what-example-please">Err, What? Example Please...</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../intro.html#why-caterpillar">Why Caterpillar?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../intro.html#supported-platforms">Supported Platforms</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../intro.html#do-you-support-python-3">Do you support Python 3?</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../getting-started.html">Getting Started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started.html#installation">Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started.html#basic-concepts">Basic Concepts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started.html#code-examples">Code Examples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started.html#creating-and-writing-an-index">Creating and writing an Index</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started.html#searching-an-index">Searching an Index</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started.html#index-storage-formats">Index Storage Formats</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../getting-started.html#querying">Querying</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../indexes-schemas.html">Indexes and Schemas</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../indexes-schemas.html#designing-a-schema">Designing a Schema</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../indexes-schemas.html#field-types">Field Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../indexes-schemas.html#example">Example</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="reference internal" href="modules.html">Caterpillar API</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="caterpillar.html"><tt class="docutils literal"><span class="pre">caterpillar</span></tt> package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="caterpillar.processing.html"><tt class="docutils literal"><span class="pre">caterpillar.processing</span></tt> package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="caterpillar.processing.analysis.html"><tt class="docutils literal"><span class="pre">caterpillar.processing.analysis</span></tt> package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="caterpillar.searching.html"><tt class="docutils literal"><span class="pre">caterpillar.searching</span></tt> package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="caterpillar.searching.query.html"><tt class="docutils literal"><span class="pre">caterpillar.searching.query</span></tt> package</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href=""><tt class="docutils literal"><span class="pre">caterpillar.storage</span></tt> package</a></li>
+</ul>
+</li>
+</ul>
+
+        
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="../index.html">Caterpillar</a>
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../index.html">Docs</a> &raquo;</li>
+      
+          <li><a href="modules.html">Caterpillar API</a> &raquo;</li>
+      
+    <li><tt class="docutils literal"><span class="pre">caterpillar.storage</span></tt> package</li>
+      <li class="wy-breadcrumbs-aside">
+        
+          <a href="../_sources/api/caterpillar.storage.txt" rel="nofollow"> View page source</a>
+        
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main">
+            
+  <div class="section" id="caterpillar-storage-package">
+<h1><tt class="docutils literal"><span class="pre">caterpillar.storage</span></tt> package<a class="headerlink" href="#caterpillar-storage-package" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="module-caterpillar.storage">
+<span id="module-contents"></span><h2>Module Contents<a class="headerlink" href="#module-caterpillar.storage" title="Permalink to this headline">¶</a></h2>
+<p>All communication with persistent storage devices is done via an implementation of <a class="reference internal" href="#caterpillar.storage.Storage" title="caterpillar.storage.Storage"><tt class="xref py py-class docutils literal"><span class="pre">Storage</span></tt></a>, which provides
+a key/value object interface to the underlying persistence device and transactions so we can enforce ACID.</p>
+<p>Anyone can write an implementation of <a class="reference internal" href="#caterpillar.storage.Storage" title="caterpillar.storage.Storage"><tt class="xref py py-class docutils literal"><span class="pre">Storage</span></tt></a>, but it is envisaged for the most part that these
+implementations will usually be wrappers around other tools like SQLite or RockDB. No point re-inventing the wheel!</p>
+<dl class="exception">
+<dt id="caterpillar.storage.ContainerNotFoundError">
+<em class="property">exception </em><tt class="descclassname">caterpillar.storage.</tt><tt class="descname">ContainerNotFoundError</tt><a class="headerlink" href="#caterpillar.storage.ContainerNotFoundError" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#caterpillar.storage.StorageError" title="caterpillar.storage.StorageError"><tt class="xref py py-class docutils literal"><span class="pre">caterpillar.storage.StorageError</span></tt></a></p>
+<p>No container by that name exists.</p>
+</dd></dl>
+
+<dl class="exception">
+<dt id="caterpillar.storage.DuplicateContainerError">
+<em class="property">exception </em><tt class="descclassname">caterpillar.storage.</tt><tt class="descname">DuplicateContainerError</tt><a class="headerlink" href="#caterpillar.storage.DuplicateContainerError" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#caterpillar.storage.StorageError" title="caterpillar.storage.StorageError"><tt class="xref py py-class docutils literal"><span class="pre">caterpillar.storage.StorageError</span></tt></a></p>
+<p>A container by the same name already exists.</p>
+</dd></dl>
+
+<dl class="exception">
+<dt id="caterpillar.storage.DuplicateStorageError">
+<em class="property">exception </em><tt class="descclassname">caterpillar.storage.</tt><tt class="descname">DuplicateStorageError</tt><a class="headerlink" href="#caterpillar.storage.DuplicateStorageError" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#caterpillar.storage.StorageError" title="caterpillar.storage.StorageError"><tt class="xref py py-class docutils literal"><span class="pre">caterpillar.storage.StorageError</span></tt></a></p>
+<p>A storage object already exists at the specified location.</p>
+</dd></dl>
+
+<dl class="class">
+<dt id="caterpillar.storage.Storage">
+<em class="property">class </em><tt class="descclassname">caterpillar.storage.</tt><tt class="descname">Storage</tt><big>(</big><em>path</em>, <em>create=False</em>, <em>readonly=False</em><big>)</big><a class="headerlink" href="#caterpillar.storage.Storage" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference external" href="http://docs.python.org/library/functions.html#object" title="(in Python v2.7)"><tt class="xref py py-class docutils literal"><span class="pre">object</span></tt></a></p>
+<p>Abstract class used to store key/value data on disk.</p>
+<p>Implementations of this class handle the storage of data to disk. The view of persistent storage presented here is
+one of key/value pairs stored in any number of containers.</p>
+<p>Implementers must provide primitives for implementing atomic transactions. That is, they must provide
+<a class="reference internal" href="#caterpillar.storage.Storage.begin" title="caterpillar.storage.Storage.begin"><tt class="xref py py-meth docutils literal"><span class="pre">begin()</span></tt></a>, <a class="reference internal" href="#caterpillar.storage.Storage.commit" title="caterpillar.storage.Storage.commit"><tt class="xref py py-meth docutils literal"><span class="pre">commit()</span></tt></a>, and meth:<cite>.rollback</cite>.</p>
+<p>Storage implementations must also ensure that they provide reader/writer isolation. That is, if a storage instance
+is created and a transaction started, any write operations made in that transaction should not be visible to any
+existing or new storage instances. After the transaction is committed, the changes should not be visible to any
+existing instances that have called <a class="reference internal" href="#caterpillar.storage.Storage.begin" title="caterpillar.storage.Storage.begin"><tt class="xref py py-meth docutils literal"><span class="pre">begin()</span></tt></a> but should be visible to any new or existing storage instances
+that are yet to call <a class="reference internal" href="#caterpillar.storage.Storage.begin" title="caterpillar.storage.Storage.begin"><tt class="xref py py-meth docutils literal"><span class="pre">begin()</span></tt></a>.</p>
+<p>The <tt class="xref py py-meth docutils literal"><span class="pre">__init__()</span></tt> method of a storage implementation should take care of the required bootstrap required to open
+existing storage <strong>OR</strong> create new storage (via a <tt class="docutils literal"><span class="pre">create</span></tt> flag). It also needs to support a <tt class="docutils literal"><span class="pre">readonly</span></tt> flag.</p>
+<p>Finally, storage instances <strong>MUST</strong> be thread-safe.</p>
+<dl class="method">
+<dt id="caterpillar.storage.Storage.add_container">
+<tt class="descname">add_container</tt><big>(</big><em>c_id</em><big>)</big><a class="headerlink" href="#caterpillar.storage.Storage.add_container" title="Permalink to this definition">¶</a></dt>
+<dd><p>Add a container with <tt class="docutils literal"><span class="pre">c_id</span></tt> (str) to this Storage.</p>
+<p>Throws a <tt class="xref py py-exc docutils literal"><span class="pre">DuplicateContainer</span></tt> error if there is already a container with this <tt class="docutils literal"><span class="pre">c_id</span></tt>.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.Storage.begin">
+<tt class="descname">begin</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.storage.Storage.begin" title="Permalink to this definition">¶</a></dt>
+<dd><p>Begin a transaction.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.Storage.clear">
+<tt class="descname">clear</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.storage.Storage.clear" title="Permalink to this definition">¶</a></dt>
+<dd><p>Clears this storage object of all data.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.Storage.clear_container">
+<tt class="descname">clear_container</tt><big>(</big><em>c_id</em><big>)</big><a class="headerlink" href="#caterpillar.storage.Storage.clear_container" title="Permalink to this definition">¶</a></dt>
+<dd><p>Clear all values from container <tt class="docutils literal"><span class="pre">c_id</span></tt> (str).</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.Storage.close">
+<tt class="descname">close</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.storage.Storage.close" title="Permalink to this definition">¶</a></dt>
+<dd><p>Close this storage session and release all resources.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.Storage.commit">
+<tt class="descname">commit</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.storage.Storage.commit" title="Permalink to this definition">¶</a></dt>
+<dd><p>Commit a transaction</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.Storage.delete_container">
+<tt class="descname">delete_container</tt><big>(</big><em>c_id</em><big>)</big><a class="headerlink" href="#caterpillar.storage.Storage.delete_container" title="Permalink to this definition">¶</a></dt>
+<dd><p>Delete a container with <tt class="docutils literal"><span class="pre">c_id</span></tt> (str) from this Storage.</p>
+<p>Throws a <tt class="xref py py-exc docutils literal"><span class="pre">ContainerNotFound</span></tt> error if the <tt class="docutils literal"><span class="pre">c_id</span></tt> doesn&#8217;t match a stored container.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.Storage.delete_container_item">
+<tt class="descname">delete_container_item</tt><big>(</big><em>c_id</em>, <em>key</em><big>)</big><a class="headerlink" href="#caterpillar.storage.Storage.delete_container_item" title="Permalink to this definition">¶</a></dt>
+<dd><p>Delete the key/value pair from container <tt class="docutils literal"><span class="pre">c_id</span></tt> (str) identified by <tt class="docutils literal"><span class="pre">key</span></tt> (str).</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.Storage.delete_container_items">
+<tt class="descname">delete_container_items</tt><big>(</big><em>c_id</em>, <em>keys</em><big>)</big><a class="headerlink" href="#caterpillar.storage.Storage.delete_container_items" title="Permalink to this definition">¶</a></dt>
+<dd><p>Delete multiple key/value pairs from container <tt class="docutils literal"><span class="pre">c_id</span></tt> (str) using the iterable of <tt class="docutils literal"><span class="pre">keys</span></tt>.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.Storage.get_container_item">
+<tt class="descname">get_container_item</tt><big>(</big><em>c_id</em>, <em>key</em><big>)</big><a class="headerlink" href="#caterpillar.storage.Storage.get_container_item" title="Permalink to this definition">¶</a></dt>
+<dd><p>Retrieve a single item with <tt class="docutils literal"><span class="pre">key</span></tt> from container with <tt class="docutils literal"><span class="pre">c_id</span></tt>.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.Storage.get_container_items">
+<tt class="descname">get_container_items</tt><big>(</big><em>c_id</em>, <em>keys=None</em><big>)</big><a class="headerlink" href="#caterpillar.storage.Storage.get_container_items" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generator across some or all the items stored in a container identified by <tt class="docutils literal"><span class="pre">c_id</span></tt> (str) depending on the value
+of <tt class="docutils literal"><span class="pre">keys</span></tt> (list).</p>
+<p>If <tt class="docutils literal"><span class="pre">keys</span></tt> is <tt class="docutils literal"><span class="pre">None</span></tt> this method fetches all items otherwise this method fetches the items matching the keys
+in the <tt class="docutils literal"><span class="pre">keys</span></tt> list.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.Storage.get_container_keys">
+<tt class="descname">get_container_keys</tt><big>(</big><em>c_id</em><big>)</big><a class="headerlink" href="#caterpillar.storage.Storage.get_container_keys" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generator across all keys from container with <tt class="docutils literal"><span class="pre">c_id</span></tt> (str).</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.Storage.get_container_len">
+<tt class="descname">get_container_len</tt><big>(</big><em>c_id</em><big>)</big><a class="headerlink" href="#caterpillar.storage.Storage.get_container_len" title="Permalink to this definition">¶</a></dt>
+<dd><p>Retrieve count of items in container with <tt class="docutils literal"><span class="pre">c_id</span></tt> (str).</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.Storage.rollback">
+<tt class="descname">rollback</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.storage.Storage.rollback" title="Permalink to this definition">¶</a></dt>
+<dd><p>Rollback a transaction</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.Storage.set_container_item">
+<tt class="descname">set_container_item</tt><big>(</big><em>c_id</em>, <em>key</em>, <em>value</em><big>)</big><a class="headerlink" href="#caterpillar.storage.Storage.set_container_item" title="Permalink to this definition">¶</a></dt>
+<dd><p>Add a single key/value pair to container <tt class="docutils literal"><span class="pre">c_id</span></tt> (str). Both <tt class="docutils literal"><span class="pre">key</span></tt> and <tt class="docutils literal"><span class="pre">value</span></tt> will be coerced to strings
+by calling <tt class="xref py py-meth docutils literal"><span class="pre">str()</span></tt>.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.Storage.set_container_items">
+<tt class="descname">set_container_items</tt><big>(</big><em>c_id</em>, <em>items</em><big>)</big><a class="headerlink" href="#caterpillar.storage.Storage.set_container_items" title="Permalink to this definition">¶</a></dt>
+<dd><p>Add numerous key value pairs to container <tt class="docutils literal"><span class="pre">c_id</span></tt> (str).</p>
+<p><tt class="docutils literal"><span class="pre">items</span></tt> should be an iterable of string key/value pairs.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="exception">
+<dt id="caterpillar.storage.StorageError">
+<em class="property">exception </em><tt class="descclassname">caterpillar.storage.</tt><tt class="descname">StorageError</tt><a class="headerlink" href="#caterpillar.storage.StorageError" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference external" href="http://docs.python.org/library/exceptions.html#exceptions.Exception" title="(in Python v2.7)"><tt class="xref py py-class docutils literal"><span class="pre">exceptions.Exception</span></tt></a></p>
+<p>Base for all Storage exceptions.</p>
+</dd></dl>
+
+<dl class="exception">
+<dt id="caterpillar.storage.StorageNotFoundError">
+<em class="property">exception </em><tt class="descclassname">caterpillar.storage.</tt><tt class="descname">StorageNotFoundError</tt><a class="headerlink" href="#caterpillar.storage.StorageNotFoundError" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#caterpillar.storage.StorageError" title="caterpillar.storage.StorageError"><tt class="xref py py-class docutils literal"><span class="pre">caterpillar.storage.StorageError</span></tt></a></p>
+<p>No storage object found at the specified location.</p>
+</dd></dl>
+
+</div>
+<div class="section" id="module-caterpillar.storage.sqlite">
+<span id="caterpillar-storage-sqlite-module"></span><h2><tt class="docutils literal"><span class="pre">caterpillar.storage.sqlite</span></tt> module<a class="headerlink" href="#module-caterpillar.storage.sqlite" title="Permalink to this headline">¶</a></h2>
+<p>An sqlite implementation of <a class="reference internal" href="#caterpillar.storage.Storage" title="caterpillar.storage.Storage"><tt class="xref py py-class docutils literal"><span class="pre">caterpillar.storage.Storage</span></tt></a>.</p>
+<p>The only class is <a class="reference internal" href="#caterpillar.storage.sqlite.SqliteStorage" title="caterpillar.storage.sqlite.SqliteStorage"><tt class="xref py py-class docutils literal"><span class="pre">SqliteStorage</span></tt></a> which uses sqlite in WAL mode to achieve reader/writer isolation.</p>
+<dl class="class">
+<dt id="caterpillar.storage.sqlite.SqliteStorage">
+<em class="property">class </em><tt class="descclassname">caterpillar.storage.sqlite.</tt><tt class="descname">SqliteStorage</tt><big>(</big><em>path</em>, <em>create=False</em>, <em>readonly=False</em><big>)</big><a class="headerlink" href="#caterpillar.storage.sqlite.SqliteStorage" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#caterpillar.storage.Storage" title="caterpillar.storage.Storage"><tt class="xref py py-class docutils literal"><span class="pre">caterpillar.storage.Storage</span></tt></a></p>
+<p>This class utilises SQLite to store data structures to disk.</p>
+<p>Reader / writer isolation here is provided by using <a class="reference external" href="http://www.sqlite.org/wal.html">WAL mode</a>. There are no
+changes to the default checkpoint behaviour of SQLite, which at the time of writing defaults to 1000 pages.</p>
+<p>This storage type creates a new table for each container.</p>
+<dl class="method">
+<dt id="caterpillar.storage.sqlite.SqliteStorage.add_container">
+<tt class="descname">add_container</tt><big>(</big><em>c_id</em><big>)</big><a class="headerlink" href="#caterpillar.storage.sqlite.SqliteStorage.add_container" title="Permalink to this definition">¶</a></dt>
+<dd><p>Add a data container identified by <tt class="docutils literal"><span class="pre">c_id</span></tt> (str).</p>
+<p>Raises <tt class="xref py py-exc docutils literal"><span class="pre">DuplicateContainerError</span></tt> if there is already a container called <tt class="docutils literal"><span class="pre">c_id</span></tt> (str).</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.sqlite.SqliteStorage.begin">
+<tt class="descname">begin</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.storage.sqlite.SqliteStorage.begin" title="Permalink to this definition">¶</a></dt>
+<dd><p>Begin a transaction.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.sqlite.SqliteStorage.clear">
+<tt class="descname">clear</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.storage.sqlite.SqliteStorage.clear" title="Permalink to this definition">¶</a></dt>
+<dd><p>Clear all containers from storage.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.sqlite.SqliteStorage.clear_container">
+<tt class="descname">clear_container</tt><big>(</big><em>c_id</em><big>)</big><a class="headerlink" href="#caterpillar.storage.sqlite.SqliteStorage.clear_container" title="Permalink to this definition">¶</a></dt>
+<dd><p>Clear all data in container <tt class="docutils literal"><span class="pre">c_id</span></tt> (str).</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.sqlite.SqliteStorage.close">
+<tt class="descname">close</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.storage.sqlite.SqliteStorage.close" title="Permalink to this definition">¶</a></dt>
+<dd><p>Close this storage object and all its resources, rendering it UNUSABLE.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.sqlite.SqliteStorage.commit">
+<tt class="descname">commit</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.storage.sqlite.SqliteStorage.commit" title="Permalink to this definition">¶</a></dt>
+<dd><p>Commit a transaction.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.sqlite.SqliteStorage.delete_container">
+<tt class="descname">delete_container</tt><big>(</big><em>c_id</em><big>)</big><a class="headerlink" href="#caterpillar.storage.sqlite.SqliteStorage.delete_container" title="Permalink to this definition">¶</a></dt>
+<dd><p>Delete container <tt class="docutils literal"><span class="pre">c_id</span></tt> (str).</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.sqlite.SqliteStorage.delete_container_item">
+<tt class="descname">delete_container_item</tt><big>(</big><em>c_id</em>, <em>key</em><big>)</big><a class="headerlink" href="#caterpillar.storage.sqlite.SqliteStorage.delete_container_item" title="Permalink to this definition">¶</a></dt>
+<dd><p>Delete item <tt class="docutils literal"><span class="pre">key</span></tt> (str) from container <tt class="docutils literal"><span class="pre">c_id</span></tt> (str).</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.sqlite.SqliteStorage.delete_container_items">
+<tt class="descname">delete_container_items</tt><big>(</big><em>c_id</em>, <em>keys</em><big>)</big><a class="headerlink" href="#caterpillar.storage.sqlite.SqliteStorage.delete_container_items" title="Permalink to this definition">¶</a></dt>
+<dd><p>Delete items <tt class="docutils literal"><span class="pre">keys</span></tt> (str) from container <tt class="docutils literal"><span class="pre">c_id</span></tt> (str).</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.sqlite.SqliteStorage.get_container_item">
+<tt class="descname">get_container_item</tt><big>(</big><em>c_id</em>, <em>key</em><big>)</big><a class="headerlink" href="#caterpillar.storage.sqlite.SqliteStorage.get_container_item" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get item at <tt class="docutils literal"><span class="pre">key</span></tt> (str) from container <tt class="docutils literal"><span class="pre">c_id</span></tt> (str).</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.sqlite.SqliteStorage.get_container_items">
+<tt class="descname">get_container_items</tt><big>(</big><em>c_id</em>, <em>keys=None</em><big>)</big><a class="headerlink" href="#caterpillar.storage.sqlite.SqliteStorage.get_container_items" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generator of items at <tt class="docutils literal"><span class="pre">keys</span></tt> (list) in container <tt class="docutils literal"><span class="pre">c_id</span></tt> (str).</p>
+<p>If <tt class="docutils literal"><span class="pre">keys</span></tt> is None, iterates all items.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.sqlite.SqliteStorage.get_container_keys">
+<tt class="descname">get_container_keys</tt><big>(</big><em>c_id</em><big>)</big><a class="headerlink" href="#caterpillar.storage.sqlite.SqliteStorage.get_container_keys" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generator of keys from container <tt class="docutils literal"><span class="pre">c_id</span></tt> (str).</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.sqlite.SqliteStorage.get_container_len">
+<tt class="descname">get_container_len</tt><big>(</big><em>c_id</em><big>)</big><a class="headerlink" href="#caterpillar.storage.sqlite.SqliteStorage.get_container_len" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get the number of rows in container <tt class="docutils literal"><span class="pre">c_id</span></tt> (str).</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.sqlite.SqliteStorage.rollback">
+<tt class="descname">rollback</tt><big>(</big><big>)</big><a class="headerlink" href="#caterpillar.storage.sqlite.SqliteStorage.rollback" title="Permalink to this definition">¶</a></dt>
+<dd><p>Rollback a transaction.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.sqlite.SqliteStorage.set_container_item">
+<tt class="descname">set_container_item</tt><big>(</big><em>c_id</em>, <em>key</em>, <em>value</em><big>)</big><a class="headerlink" href="#caterpillar.storage.sqlite.SqliteStorage.set_container_item" title="Permalink to this definition">¶</a></dt>
+<dd><p>Add <tt class="docutils literal"><span class="pre">key</span></tt>/<tt class="docutils literal"><span class="pre">value</span></tt> pair to container <tt class="docutils literal"><span class="pre">c_id</span></tt> (str).</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="caterpillar.storage.sqlite.SqliteStorage.set_container_items">
+<tt class="descname">set_container_items</tt><big>(</big><em>c_id</em>, <em>items</em><big>)</big><a class="headerlink" href="#caterpillar.storage.sqlite.SqliteStorage.set_container_items" title="Permalink to this definition">¶</a></dt>
+<dd><p>Add the dict of key/value tuples to container <tt class="docutils literal"><span class="pre">c_id</span></tt> (str).</p>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+</div>
+
+
+          </div>
+          <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+      
+        <a href="caterpillar.searching.query.html" class="btn btn-neutral" title="caterpillar.searching.query package"><span class="fa fa-arrow-circle-left"></span> Previous</a>
+      
+    </div>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2014, Ryan Stuart, Kris Rogers, Kapiche Limited.
+    </p>
+  </div>
+
+  <a href="https://github.com/snide/sphinx_rtd_theme">Sphinx theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'../',
+            VERSION:'1.0',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true
+        };
+    </script>
+      <script type="text/javascript" src="../_static/jquery.js"></script>
+      <script type="text/javascript" src="../_static/underscore.js"></script>
+      <script type="text/javascript" src="../_static/doctools.js"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="../_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>

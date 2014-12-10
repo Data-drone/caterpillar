@@ -1,0 +1,275 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>Introduction &mdash; Caterpillar 1.0 documentation</title>
+  
+
+  
+  
+
+  
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700|Roboto+Slab:400,700|Inconsolata:400,700' rel='stylesheet' type='text/css'>
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  
+
+  
+    <link rel="top" title="Caterpillar 1.0 documentation" href="index.html"/>
+        <link rel="next" title="Getting Started" href="getting-started.html"/>
+        <link rel="prev" title="Caterpillar Documentation" href="index.html"/> 
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.6.2/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-nav-search">
+        <a href="index.html" class="fa fa-home"> Caterpillar</a>
+        <div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+        
+        
+            <ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="">Introduction</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#what-is-caterpillar">What is Caterpillar?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#err-what-example-please">Err, What? Example Please...</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#why-caterpillar">Why Caterpillar?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#supported-platforms">Supported Platforms</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#do-you-support-python-3">Do you support Python 3?</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#installation">Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#basic-concepts">Basic Concepts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#code-examples">Code Examples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#creating-and-writing-an-index">Creating and writing an Index</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#searching-an-index">Searching an Index</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#index-storage-formats">Index Storage Formats</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started.html#querying">Querying</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="indexes-schemas.html">Indexes and Schemas</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="indexes-schemas.html#designing-a-schema">Designing a Schema</a></li>
+<li class="toctree-l2"><a class="reference internal" href="indexes-schemas.html#field-types">Field Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="indexes-schemas.html#example">Example</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/modules.html">Caterpillar API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/caterpillar.html"><tt class="docutils literal"><span class="pre">caterpillar</span></tt> package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/caterpillar.processing.html"><tt class="docutils literal"><span class="pre">caterpillar.processing</span></tt> package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/caterpillar.processing.analysis.html"><tt class="docutils literal"><span class="pre">caterpillar.processing.analysis</span></tt> package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/caterpillar.searching.html"><tt class="docutils literal"><span class="pre">caterpillar.searching</span></tt> package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/caterpillar.searching.query.html"><tt class="docutils literal"><span class="pre">caterpillar.searching.query</span></tt> package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/caterpillar.storage.html"><tt class="docutils literal"><span class="pre">caterpillar.storage</span></tt> package</a></li>
+</ul>
+</li>
+</ul>
+
+        
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="index.html">Caterpillar</a>
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="index.html">Docs</a> &raquo;</li>
+      
+    <li>Introduction</li>
+      <li class="wy-breadcrumbs-aside">
+        
+          <a href="_sources/intro.txt" rel="nofollow"> View page source</a>
+        
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main">
+            
+  <div class="section" id="introduction">
+<h1>Introduction<a class="headerlink" href="#introduction" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="what-is-caterpillar">
+<h2>What is Caterpillar?<a class="headerlink" href="#what-is-caterpillar" title="Permalink to this headline">¶</a></h2>
+<p>Caterpillar is a pythonic text indexing and analytics library. While there are quite a few open source libraries
+available to perform this job, Caterpillar has support for <strong>qualitative</strong> analysis built-in, not just
+<strong>quantitative</strong> analysis. Additionally, Caterpillar can act as a regular information retrieval library just like
+Lucene or Whoosh.</p>
+<p>In Caterpillar, qualitative analysis is made possible by storing <em>extra</em> information about data added to an index.
+When you perform qualitative analysis on text you generally need to store extra information about that text. For
+example, most qualitative analysis techniques will want a context block smaller then a document like a sentence or a
+paragraph. Caterpillar allows you to specify this at an index level and retrieve that information about an index. This
+means you can still store <em>documents</em> in your index (like Wikipedia articles for example), but also do a qualitative
+analysis on your data.</p>
+<p>Caterpillar supports the regular quantitative features of in information retrieval engine (counting, filtering etc.).
+This means you can combine a filtered query with a qualitative analysis.</p>
+</div>
+<div class="section" id="err-what-example-please">
+<h2>Err, What? Example Please...<a class="headerlink" href="#err-what-example-please" title="Permalink to this headline">¶</a></h2>
+<p>Lets say you have a CSV file as follows:</p>
+<table border="1" class="docutils">
+<caption>Survey Responses</caption>
+<colgroup>
+<col width="8%" />
+<col width="8%" />
+<col width="4%" />
+<col width="80%" />
+</colgroup>
+<thead valign="bottom">
+<tr class="row-odd"><th class="head">Gender</th>
+<th class="head">Age</th>
+<th class="head">NPS Score</th>
+<th class="head">Comment</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr class="row-even"><td>M</td>
+<td>24</td>
+<td>8</td>
+<td>The store looked nice and the products are great but the staff can be rude.</td>
+</tr>
+<tr class="row-odd"><td>F</td>
+<td>35</td>
+<td>5</td>
+<td>You don&#8217;t stock clothes in my size and my size isn&#8217;t uncommon!</td>
+</tr>
+<tr class="row-even"><td>F</td>
+<td>29</td>
+<td>9</td>
+<td>The range of kids clothes is amazing and the prices are very reasonable.</td>
+</tr>
+</tbody>
+</table>
+<p>Using Caterpillar, you can:</p>
+<ul class="simple">
+<li>Add each row of the CSV as a document</li>
+<li>Ask for certain rows back based on filters - <tt class="docutils literal"><span class="pre">gender=f</span></tt> or <tt class="docutils literal"><span class="pre">gender=f</span> <span class="pre">and</span> <span class="pre">age</span> <span class="pre">&lt;</span> <span class="pre">30</span></tt> etc.</li>
+<li>Perform qualitative analysis on all rows or a subset of rows based on a query (like above). An example of a
+qualitative analysis might be to use <a class="reference external" href="https://github.com/Kapiche/caterpillar-lsi">LSA to extract topics</a> or do a
+sentiment analysis.</li>
+</ul>
+</div>
+<div class="section" id="why-caterpillar">
+<h2>Why Caterpillar?<a class="headerlink" href="#why-caterpillar" title="Permalink to this headline">¶</a></h2>
+<p>Caterpillar was originally developed by the guys at <a class="reference external" href="http://kapiche.com">Kapiche</a> because there wasn&#8217;t an existing
+solution that that could find that met their existing needs or could be easily adapted to meet their needs. Kapiche use
+caterpillar to provide a range of analytics products and services. They have written their own proprietary automated
+topic extraction and sentiment analysis technologies that the plug-in to Caterpillar.</p>
+<p>If you have a desire to store/retrieve data and do both quantitative <strong>AND</strong> qualitative analysis on it, then
+Caterpillar might be a good solution for you.</p>
+</div>
+<div class="section" id="supported-platforms">
+<h2>Supported Platforms<a class="headerlink" href="#supported-platforms" title="Permalink to this headline">¶</a></h2>
+<p>Most <a href="#id1"><span class="problematic" id="id2">*</span></a>nix systems. Tested on Ubuntu, Debian and OS X but should work on any <a href="#id3"><span class="problematic" id="id4">*</span></a>nix system with access to Python 2.7+ and
+a C compiler.</p>
+</div>
+<div class="section" id="do-you-support-python-3">
+<h2>Do you support Python 3?<a class="headerlink" href="#do-you-support-python-3" title="Permalink to this headline">¶</a></h2>
+<p>No, but support is planned for version 2.0 due early 2015.</p>
+</div>
+</div>
+
+
+          </div>
+          <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="getting-started.html" class="btn btn-neutral float-right" title="Getting Started"/>Next <span class="fa fa-arrow-circle-right"></span></a>
+      
+      
+        <a href="index.html" class="btn btn-neutral" title="Caterpillar Documentation"><span class="fa fa-arrow-circle-left"></span> Previous</a>
+      
+    </div>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2014, Ryan Stuart, Kris Rogers, Kapiche Limited.
+    </p>
+  </div>
+
+  <a href="https://github.com/snide/sphinx_rtd_theme">Sphinx theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'./',
+            VERSION:'1.0',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true
+        };
+    </script>
+      <script type="text/javascript" src="_static/jquery.js"></script>
+      <script type="text/javascript" src="_static/underscore.js"></script>
+      <script type="text/javascript" src="_static/doctools.js"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>
