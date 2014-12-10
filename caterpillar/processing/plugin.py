@@ -20,15 +20,15 @@ class AnalyticsPlugin(object):
     """
     __metaclass__ = abc.ABCMeta
 
-    def __init__(self, index):
+    def __init__(self, index_reader):
         """
-        An instance of an ``AnalyticsPlugin`` always needs an index.
+        An instance of an ``AnalyticsPlugin`` always needs an index to operate on.
 
-        Required Arguments:
-        index -- an instance of ``Index``.
+        The ``index_reader`` is an instance of :class:`IndexReader <caterpillar.processing.index.IndexReader>` that is
+        ready to be used (``start()``) has been called.
 
         """
-        self._index = index
+        self._index_reader = index_reader
 
     @abc.abstractmethod
     def run(self, **fields):

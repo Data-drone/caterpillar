@@ -268,8 +268,6 @@ class Schema(object):
         # Check field name
         if name.startswith("_"):
             raise FieldConfigurationError("Field names cannot start with an underscore")
-        if " " in name:
-            raise FieldConfigurationError("Field names cannot contain spaces")
         if name in self._fields:
             raise FieldConfigurationError("Schema already has a field {}".format(name))
 

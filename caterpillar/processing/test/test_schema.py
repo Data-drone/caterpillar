@@ -43,8 +43,6 @@ def test_schema():
     with pytest.raises(FieldConfigurationError):
         simple_schema.add("_test", TEXT)
     with pytest.raises(FieldConfigurationError):
-        simple_schema.add("a test", TEXT)
-    with pytest.raises(FieldConfigurationError):
         simple_schema.add("test", TEXT)
     with pytest.raises(FieldConfigurationError):
         simple_schema.add("text", object)
