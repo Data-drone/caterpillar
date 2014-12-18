@@ -74,9 +74,10 @@ Not code will be merged unless it has 100% test coverage and passes pep8. We cod
 each package. We generally run coverage as follows:
 
     coverage erase; coverage run --source caterpillar -m py.test -v caterpillar; coverage report
+
 Copyright and License
 =====================
-Lrparsing is copyright © 2013,2014 Kapiche Limited. It is licensed under the GNU Affero General Public License.
+Caterpillar is copyright © 2013 - 2015 Kapiche Limited. It is licensed under the GNU Affero General Public License.
 
 This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
 
