@@ -59,7 +59,7 @@ from __future__ import absolute_import, division
 
 import logging
 import os
-import pickle
+import cPickle
 import random
 import sys
 import ujson as json
@@ -67,10 +67,10 @@ import uuid
 
 import nltk
 
+from .analysis.analyse import PotentialBiGramAnalyser
+from .analysis.tokenize import ParagraphTokenizer, Token
 from caterpillar import VERSION
 from caterpillar.locking import PIDLockFile, LockTimeout, AlreadyLocked
-from caterpillar.processing.analysis.analyse import PotentialBiGramAnalyser
-from caterpillar.processing.analysis.tokenize import ParagraphTokenizer, Token
 from caterpillar.searching import TfidfScorer, IndexSearcher
 from caterpillar.storage import StorageNotFoundError, DuplicateContainerError
 
@@ -147,7 +147,7 @@ class IndexConfig(object):
 
         """
         try:
-            instance = pickle.loads(data)
+            instance = cPickle.loads(data)
             if not isinstance(instance, IndexConfig):
                 raise ValueError('The passed data couldn\'t be parsed.')
         except Exception:
@@ -157,7 +157,7 @@ class IndexConfig(object):
 
     def dumps(self):
         """Dump this instance as a string for serialization."""
-        return pickle.dumps(self)
+        return cPickle.dumps(self)
 
 
 class IndexWriter(object):
