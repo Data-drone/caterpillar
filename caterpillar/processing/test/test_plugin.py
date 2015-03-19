@@ -4,12 +4,11 @@
 import os
 
 from caterpillar import abstract_method_tester
-from caterpillar.processing.analysis import stopwords
-from caterpillar.processing.analysis.analyse import DefaultAnalyser
 from caterpillar.processing.index import IndexConfig, IndexWriter, IndexReader
 from caterpillar.processing.plugin import AnalyticsPlugin
 from caterpillar.processing import schema
 from caterpillar.storage.sqlite import SqliteStorage
+from caterpillar.test_util import TestAnalyser
 
 
 class TrivialTestPlugin(AnalyticsPlugin):
@@ -30,7 +29,7 @@ class TrivialTestPlugin(AnalyticsPlugin):
 def test_plugin(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'rbU') as f:
         data = f.read()
-        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        analyser = TestAnalyser()
         with IndexWriter(index_dir, IndexConfig(SqliteStorage, schema.Schema(text=schema.TEXT(analyser=analyser)))) as \
                 writer:
             writer.add_document(text=data, frame_size=2)

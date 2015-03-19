@@ -137,12 +137,12 @@ class _QueryStringParser(object):
         #
         wildcard = False
         if '?' in field_value:
-            # Insert regex pattern for single character wildcard
-            field_value = field_value.replace('?', r'\w')
+            # Insert regex pattern for single character wildcard (ie not a white-space char).
+            field_value = field_value.replace('?', r'\S')
             wildcard = True
         if '*' in field_value:
             # Insert regex pattern for multiple character wildcard
-            field_value = field_value.replace('*', r'[\w]*')
+            field_value = field_value.replace('*', r'[\S]*')
             wildcard = True
 
         # Determine matching frames
@@ -192,11 +192,11 @@ class _QueryStringParser(object):
             wildcard = False
             if '?' in value:
                 # Insert regex pattern for single character wildcard
-                value = value.replace('?', r'\w')
+                value = value.replace('?', r'\S')
                 wildcard = True
             if '*' in value:
                 # Insert regex pattern for multiple character wildcard
-                value = value.replace('*', r'[\w]*')
+                value = value.replace('*', r'[\S]*')
                 wildcard = True
             if wildcard:
                 re = regex.compile('^' + value + '$')

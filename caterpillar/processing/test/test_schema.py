@@ -10,14 +10,15 @@ from caterpillar.storage.sqlite import SqliteStorage
 import pytest
 
 from caterpillar.processing import schema
-from caterpillar.processing.analysis import stopwords
-from caterpillar.processing.analysis.analyse import DefaultAnalyser
 from caterpillar.processing.index import IndexWriter, IndexReader, IndexConfig
 from caterpillar.processing.schema import BOOLEAN, FieldType, ID, NUMERIC, Schema, TEXT, FieldConfigurationError
 from caterpillar.searching.query.querystring import QueryStringQuery
 
 
 # Plumbing tests
+from caterpillar.test_util import TestAnalyser
+
+
 def test_schema():
     simple_schema = Schema(test=TEXT, user=ID)
     names = simple_schema.names()
@@ -136,7 +137,7 @@ def test_index_stored_fields():
     path = tempfile.mkdtemp()
     try:
         tmp_dir = os.path.join(path, "tmp")
-        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        analyser = TestAnalyser()
         with IndexWriter(tmp_dir, IndexConfig(SqliteStorage,
                                               Schema(text=TEXT(analyser=analyser, stored=False),
                                                      test=NUMERIC(stored=True),

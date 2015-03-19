@@ -18,14 +18,14 @@ def test_base_analyse_class():
 def test_default_analyser():
     analyser = DefaultAnalyser()
 
-    assert len(analyser.get_filters()) == 2
+    assert len(analyser.get_filters()) == 4
     assert isinstance(analyser.get_tokenizer(), Tokenizer)
 
 
 def test_bigram_analyser():
     analyser = BiGramAnalyser([])
 
-    assert len(analyser.get_filters()) == 3
+    assert len(analyser.get_filters()) == 5
     assert isinstance(analyser.get_tokenizer(), Tokenizer)
 
 

@@ -187,7 +187,7 @@ class SubstitutionFilter(Filter):
 
     """
     def __init__(self, pattern, replacement):
-        self.pattern = regex.compile(pattern)
+        self.pattern = regex.compile(pattern, flags=regex.UNICODE | regex.DOTALL | regex.VERSION1)
         self.replacement = replacement
 
     def filter(self, tokens):
@@ -196,4 +196,56 @@ class SubstitutionFilter(Filter):
 
         for t in tokens:
             t.value = pattern.sub(replacement, t.value)
-            yield t
+            if t:
+                yield t
+
+
+class SearchFilter(Filter):
+    """
+    Performs a regular expression search on the token text and uses match group 0 as the token value. If no match is
+    found then the token is skipped.
+
+    :param str pattern: The pattern used in the re search.
+    """
+    def __init__(self, pattern):
+        self.pattern = regex.compile(pattern, flags=regex.UNICODE | regex.DOTALL | regex.VERSION1)
+
+    def filter(self, tokens):
+        pattern = self.pattern
+
+        for t in tokens:
+            match = pattern.search(t.value)
+            if match:
+                t.value = match.group(0)
+                yield t
+
+
+class OuterPunctuationFilter(SearchFilter):
+    """
+    Remove some or all leading and trailing punctuation from tokens.
+
+    User of this filter can specify which leading and/or trailing punctuation to leave in tact.
+    """
+    def __init__(self, leading_allow=None, trailing_allow=None):
+        """
+        :param list leading_allow: The leading punctuation characters to allow.
+        :param list trailing_allow: The trailing punctuation characters to allow.
+        """
+        leading_pattern = '' if not leading_allow else r'[%s]*' % regex.escape("".join(leading_allow))
+        trailing_pattern = '' if not trailing_allow else r'[%s]' % regex.escape("".join(trailing_allow))
+        if trailing_pattern:
+            super(OuterPunctuationFilter, self).__init__('%s[^\W_]+(?:$|.*[^\W_]%s*|%s*)' %
+                                                         (leading_pattern, trailing_pattern, trailing_pattern))
+        else:
+            super(OuterPunctuationFilter, self).__init__('%s[^\W_](?:$|.*[^\W_])' % leading_pattern)
+
+
+class PossessiveContractionFilter(SubstitutionFilter):
+    """
+    Removes possessive contractions from tokens.
+
+    Is fairly robust is that is uses all know unicode apostrophe characters except U+02EE. See
+    `http://en.wikipedia.org/wiki/Apostrophe#Unicode`_.
+    """
+    def __init__(self):
+        super(PossessiveContractionFilter, self).__init__(u"[\u0027\u2019\u02BC\u02BB\u055A\uA78B\uA78C\uFF07]s$", "")

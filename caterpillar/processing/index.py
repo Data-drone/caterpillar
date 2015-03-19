@@ -1445,7 +1445,7 @@ def find_bi_gram_words(frames, min_bi_gram_freq=3, min_bi_gram_coverage=0.65):
             for token_list in bi_gram_analyser.analyse(sentence):
                 # Using a special filter that returns list of tokens. List of 1 means no bi-grams.
                 if len(token_list) > 1:  # We have a bi-gram people!
-                    candidate_bi_grams.inc("{} {}".format(token_list[0].value, token_list[1].value))
+                    candidate_bi_grams.inc(u"{} {}".format(token_list[0].value, token_list[1].value))
                 for t in token_list:  # Keep a list of terms we have seen so we can record freqs later.
                     if not t.stopped:  # Naughty stopwords!
                         terms_seen.add(t.value)
@@ -1454,8 +1454,8 @@ def find_bi_gram_words(frames, min_bi_gram_freq=3, min_bi_gram_coverage=0.65):
 
     # Filter and sort by frequency-decreasing
     candidate_bi_gram_list = filter(lambda (k, v): v > min_bi_gram_freq, candidate_bi_grams.iteritems())
-    candidate_bi_gram_list = filter(lambda (k, v): v / uni_gram_frequencies[k.split(" ")[0]] > min_bi_gram_coverage
-                                    and v / uni_gram_frequencies[k.split(" ")[1]] > min_bi_gram_coverage,
+    candidate_bi_gram_list = filter(lambda (k, v): v / uni_gram_frequencies[k.split(" ")[0]] > min_bi_gram_coverage and
+                                    v / uni_gram_frequencies[k.split(" ")[1]] > min_bi_gram_coverage,
                                     candidate_bi_gram_list)
     logger.debug("Identified {} n-grams.".format(len(candidate_bi_gram_list)))
 

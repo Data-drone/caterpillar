@@ -3,18 +3,17 @@
 """Tests for the searching package."""
 import csv
 import os
-from caterpillar.storage.sqlite import SqliteStorage
 
 import pytest
 
-from caterpillar.processing.analysis import stopwords
-from caterpillar.processing.analysis.analyse import DefaultAnalyser, BiGramAnalyser
 from caterpillar.processing.index import find_bi_gram_words, IndexReader, IndexWriter, IndexConfig
 from caterpillar.processing import schema
 from caterpillar.searching.query import QueryError
 from caterpillar.searching.query.match import MatchAllQuery, MatchSomeQuery
 from caterpillar.searching.query.querystring import QueryStringQuery as QSQ
 from caterpillar.searching.scoring import SimpleScorer
+from caterpillar.storage.sqlite import SqliteStorage
+from caterpillar.test_util import TestAnalyser
 
 
 def test_searching_alice(index_dir):
@@ -22,7 +21,7 @@ def test_searching_alice(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'rbU') as f:
         f.seek(0)
         data = f.read()
-        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        analyser = TestAnalyser()
         config = IndexConfig(SqliteStorage, schema=schema.Schema(text=schema.TEXT(analyser=analyser)))
         with IndexWriter(index_dir, config) as writer:
             writer.add_document(text=data, frame_size=2)
@@ -44,7 +43,7 @@ def test_searching_alice(index_dir):
                 searcher.count(QSQ('King')) - searcher.count(QSQ('King not Queen'))
             assert searcher.count(QSQ("King NOT Queen")) == 56
             assert searcher.count(QSQ('golden key')) == 6
-            assert searcher.count(QSQ('*ing')) == 514
+            assert searcher.count(QSQ('*ing')) == 512
             assert searcher.count(QSQ("Alice and (thought or little)")) == \
                 searcher.count(QSQ("Alice and thought or Alice and little")) == 95 == \
                 searcher.count(MatchAllQuery([QSQ('Alice'), MatchSomeQuery([QSQ('thought'), QSQ('little')])]))
@@ -55,7 +54,7 @@ def test_searching_alice(index_dir):
             assert "jury" in searcher.search(QSQ("jury"), limit=1)[0].data['text']
 
             voice_hits = searcher.count(QSQ("voice"))
-            assert voice_hits == 47
+            assert voice_hits == 46
             results = searcher.search(QSQ("Alice or voice^1.5"), limit=voice_hits)
             for hit in results:
                 assert "voice" in hit.data['text']
@@ -89,7 +88,7 @@ def test_searching_alice_simple(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'rbU') as f:
         f.seek(0)
         data = f.read()
-        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        analyser = TestAnalyser()
         config = IndexConfig(SqliteStorage, schema=schema.Schema(text=schema.TEXT(analyser=analyser)))
         with IndexWriter(index_dir, config) as writer:
             writer.add_document(text=data, frame_size=2)
@@ -110,7 +109,7 @@ def test_searching_mt_warning(index_dir):
     """Test searching for mt warning data."""
     with open(os.path.abspath('caterpillar/test_resources/mt_warning_utf8.txt'), 'rbU') as f:
         data = f.read()
-        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        analyser = TestAnalyser()
         config = IndexConfig(SqliteStorage, schema=schema.Schema(text=schema.TEXT(analyser=analyser)))
         with IndexWriter(index_dir, config) as writer:
             writer.add_document(text=data, frame_size=2)
@@ -132,7 +131,7 @@ def test_searching_mt_warning(index_dir):
 def test_searching_twitter(index_dir):
     """Test searching twitter data."""
     with open('caterpillar/test_resources/twitter_sentiment.csv', 'rbU') as f:
-        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        analyser = TestAnalyser()
         config = IndexConfig(SqliteStorage, schema=schema.Schema(text=schema.TEXT(analyser=analyser),
                                                                  sentiment=schema.CATEGORICAL_TEXT(indexed=True)))
         with IndexWriter(index_dir, config) as writer:
@@ -152,7 +151,7 @@ def test_searching_twitter(index_dir):
 def test_searching_nps(index_dir):
     """Test searching nps-backed data."""
     with open('caterpillar/test_resources/big.csv', 'rbU') as f:
-        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        analyser = TestAnalyser()
         config = IndexConfig(SqliteStorage, schema.Schema(respondant=schema.NUMERIC,
                                                           region=schema.CATEGORICAL_TEXT(indexed=True),
                                                           store=schema.CATEGORICAL_TEXT(indexed=True),
@@ -273,14 +272,14 @@ def test_searching_reserved_words(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'rbU') as f:
         data = f.read()
         config = IndexConfig(SqliteStorage, schema=schema.Schema(
-            text=schema.TEXT(analyser=DefaultAnalyser(stopword_list=[]))))
+            text=schema.TEXT(analyser=TestAnalyser(stopword_list=[]))))
         with IndexWriter(index_dir, config) as writer:
             writer.add_document(text=data, frame_size=2)
             writer.fold_term_case()
 
         with IndexReader(index_dir) as reader:
             searcher = reader.searcher()
-            assert searcher.count(QSQ('"and"')) == sum(1 for _ in reader.get_term_positions('and')) == 474
+            assert searcher.count(QSQ('"and"')) == sum(1 for _ in reader.get_term_positions('and')) == 469
             assert searcher.count(QSQ('"or"')) == 0
             assert searcher.count(QSQ('"not"')) == 117
 
