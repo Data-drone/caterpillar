@@ -52,6 +52,7 @@ for
 from
 further
 get
+getting
 got
 had
 hadnt
@@ -102,6 +103,8 @@ its
 itself
 just
 let's
+make
+making
 may
 me
 more
@@ -192,6 +195,7 @@ we'll
 we're
 weve
 we've
+well
 were
 werent
 weren't
