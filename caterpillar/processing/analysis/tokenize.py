@@ -88,7 +88,7 @@ class RegexpTokenizer(Tokenizer):
         used: `regex.UNICODE | regex.MULTILINE | regex.DOTALL | regex.VERSION1`.
 
     """
-    def __init__(self, pattern, gaps=False, flags=regex.UNICODE | regex.MULTILINE | regex.DOTALL | regex.VERSION1):
+    def __init__(self, pattern, gaps=False, flags=regex.UNICODE | regex.MULTILINE | regex.DOTALL):
         # If they gave us a regexp object, extract the pattern.
         pattern = getattr(pattern, 'pattern', pattern)
 
@@ -187,6 +187,28 @@ class WordTokenizer(RegexpTokenizer):
 
     def __init__(self, detect_compound_names=True):
         pattern = self.URL + '|' + self.EMAIL + '|' + self.NUM + '|' + self.CONTRACTION + '|' + self.WORD
+        if detect_compound_names:
+            pattern = self.NAME_COMPOUND + '|' + pattern
+
+        RegexpTokenizer.__init__(self, pattern, gaps=False)
+
+
+class SimpleWordTokenizer(RegexpTokenizer):
+    """
+    Tokenize a string into words using a set of very simple rules.
+
+    This :class:`RegexpTokenizer` contains very little special logic. It will:
+      * split token on whitespace;
+      * return compound names as a single token;
+
+    """
+    # Capture multi-term names (optionally with 'of' as the second term).
+    # We exclude [The, But] from the beginning of multi-term names.
+    NAME_COMPOUND = u"((?!(The|But))([A-Z][a-z]+|[A-Z][a-z]{0,2}\.)([^\S\n]of)?([^\S\n][A-Z]+[A-Za-z]+)+)"
+    WORD = u"\S+"
+
+    def __init__(self, detect_compound_names=True):
+        pattern = self.WORD
         if detect_compound_names:
             pattern = self.NAME_COMPOUND + '|' + pattern
 

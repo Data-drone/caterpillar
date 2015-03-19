@@ -46,7 +46,7 @@ setup(
         'caterpillar.storage',
     ],
     package_data={
-        'caterpillar': ['resources/*.txt'],
+        'caterpillar': ['resources/*.txt', 'VERSION'],
     },
     url='https://github.com/Kapiche/caterpillar',
     license='AGPLv3+',

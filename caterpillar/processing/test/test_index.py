@@ -5,23 +5,23 @@ from __future__ import division
 
 import csv
 import pickle
-import tempfile
 import shutil
+import tempfile
 import mock
 
 import pytest
 
 from caterpillar.storage.sqlite import SqliteStorage
-from caterpillar.processing.analysis import stopwords
-from caterpillar.processing.analysis.analyse import EverythingAnalyser, DefaultAnalyser, BiGramAnalyser
+from caterpillar.processing.analysis.analyse import EverythingAnalyser
 from caterpillar.processing.index import *
 from caterpillar.processing.schema import ID, NUMERIC, TEXT, FieldType, Schema
+from caterpillar.test_util import TestAnalyser, TestBiGramAnalyser
 
 
 def test_index_open(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
         data = f.read()
-        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        analyser = TestAnalyser()
         writer = IndexWriter(index_dir, IndexConfig(SqliteStorage,
                              Schema(text=TEXT(analyser=analyser), document=TEXT(analyser=analyser, indexed=False),
                                     flag=FieldType(analyser=EverythingAnalyser(), indexed=True, categorical=True))))
@@ -29,7 +29,7 @@ def test_index_open(index_dir):
             writer.add_document(text=data, document='alice.txt', flag=True, frame_size=2)
 
         with IndexReader(index_dir) as reader:
-            assert sum(1 for _ in reader.get_frequencies()) == 504
+            assert sum(1 for _ in reader.get_frequencies()) == 501
             assert reader.get_term_frequency('Alice') == 23
             assert reader.get_document_count() == 1
             assert isinstance(reader.get_schema()['text'], TEXT)
@@ -89,7 +89,7 @@ def test_index_alice(index_dir):
     """Whole bunch of functional tests on the index."""
     with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
         data = f.read()
-        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        analyser = TestAnalyser()
         writer = IndexWriter(index_dir, IndexConfig(SqliteStorage,
                                                     Schema(text=TEXT(analyser=analyser),
                                                            document=TEXT(analyser=analyser, indexed=False),
@@ -105,7 +105,7 @@ def test_index_alice(index_dir):
             assert reader.get_term_association('Alice', 'poor') == reader.get_term_association('poor', 'Alice') == 3
             assert reader.get_term_association('key', 'golden') == reader.get_term_association('golden', 'key') == 3
 
-            assert reader.get_vocab_size() == sum(1 for _ in reader.get_frequencies()) == 504
+            assert reader.get_vocab_size() == sum(1 for _ in reader.get_frequencies()) == 501
             assert reader.get_term_frequency('Alice') == 23
 
             # Make sure this works
@@ -159,7 +159,7 @@ def test_index_alice(index_dir):
 def test_index_writer_rollback(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
         data = f.read()
-        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        analyser = TestAnalyser()
         writer = IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser))))
         writer.begin()
         try:
@@ -183,7 +183,7 @@ def test_index_writer_rollback(index_dir):
 
 
 def test_index_writer_lock(index_dir):
-    analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+    analyser = TestAnalyser()
     with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser)))) as writer1:
         writer1.add_document(text="Blah")
         writer2 = IndexWriter(index_dir)
@@ -194,7 +194,7 @@ def test_index_writer_lock(index_dir):
 def test_index_frames_docs_alice(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
         data = f.read()
-        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        analyser = TestAnalyser()
         writer = IndexWriter(index_dir, IndexConfig(SqliteStorage,
                                                     Schema(text=TEXT(analyser=analyser),
                                                            document=TEXT(analyser=analyser, indexed=False))))
@@ -215,7 +215,7 @@ def test_index_frames_docs_alice(index_dir):
 def test_index_moby_small(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/moby_small.txt'), 'r') as f:
         data = f.read()
-        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        analyser = TestAnalyser()
         writer = IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser))))
         with writer:
             writer.add_document(text=data, frame_size=2, )
@@ -234,7 +234,7 @@ def test_index_alice_bigram_discovery(index_dir):
 
         with IndexReader(index_dir) as reader:
             bi_grams = find_bi_gram_words(reader.get_frames())
-            assert len(bi_grams) == 5
+            assert len(bi_grams) == 3
             assert 'golden key' in bi_grams
 
 
@@ -250,7 +250,7 @@ def test_index_alice_merge_bigram(index_dir):
         bigram_index = os.path.join(tempfile.mkdtemp(), "bigram")
         merge_index = os.path.join(tempfile.mkdtemp(), "merge")
         try:
-            analyser = BiGramAnalyser(bi_grams, stopword_list=stopwords.ENGLISH_TEST)
+            analyser = TestBiGramAnalyser(bi_grams, )
             with IndexWriter(bigram_index, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser)))) as writer:
                 writer.add_document(text=data)
                 # Quick plumbing test.
@@ -258,7 +258,7 @@ def test_index_alice_merge_bigram(index_dir):
                     writer._merge_terms_into_ngram("old", None, {}, {}, {}, {})
 
             merges = [[b.split(' '), b] for b in bi_grams]
-            analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+            analyser = TestAnalyser()
             with IndexWriter(merge_index, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser)))) as writer:
                 writer.add_document(text=data)
                 writer.merge_terms(merges)
@@ -310,7 +310,7 @@ def test_index_alice_merge_bigram(index_dir):
 def test_index_moby_case_folding(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/moby.txt'), 'r') as f:
         data = f.read()
-        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        analyser = TestAnalyser()
         writer = IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser))))
         with writer:
             writer.add_document(text=data, frame_size=2)
@@ -321,33 +321,33 @@ def test_index_moby_case_folding(index_dir):
                 reader.get_term_positions('flask')
             with pytest.raises(KeyError):
                 assert not reader.get_term_frequency('flask')
-            assert reader.get_term_frequency('Flask') == 91
+            assert reader.get_term_frequency('Flask') == 88
             assert reader.get_term_association('Flask', 'person') == reader.get_term_association('person', 'Flask') == 2
 
             with pytest.raises(KeyError):
                 reader.get_term_positions('Well')
             with pytest.raises(KeyError):
                 assert not reader.get_term_frequency('Well')
-            assert reader.get_term_frequency('well') == 208
-            assert reader.get_term_association('well', 'whale') == reader.get_term_association('whale', 'well') == 26
+            assert reader.get_term_frequency('well') == 194
+            assert reader.get_term_association('well', 'whale') == reader.get_term_association('whale', 'well') == 20
 
             with pytest.raises(KeyError):
                 reader.get_term_positions('Whale')
             with pytest.raises(KeyError):
                 assert not reader.get_term_frequency('Whale')
-            assert reader.get_term_frequency('whale') == 803
+            assert reader.get_term_frequency('whale') == 695
             assert reader.get_term_association('whale', 'American') == \
-                reader.get_term_association('American', 'whale') == 14
+                reader.get_term_association('American', 'whale') == 9
 
             assert reader.get_term_frequency('T. HERBERT') == 1
-            assert sum(1 for _ in reader.get_frequencies()) == 17913
+            assert sum(1 for _ in reader.get_frequencies()) == 20548
 
 
 def test_index_merge_terms(index_dir):
     """Test merging terms together."""
     with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'r') as f:
         data = f.read()
-        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        analyser = TestAnalyser()
         writer = IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser))))
         with writer:
             writer.add_document(text=data, frame_size=2)
@@ -357,10 +357,10 @@ def test_index_merge_terms(index_dir):
             assert reader.get_term_association('alice', 'creatures') == 1
             assert sum(1 for _ in reader.get_term_positions('alice')) == 86
 
-            assert reader.get_term_frequency('party') == 9
+            assert reader.get_term_frequency('party') == 8
             assert reader.get_term_association('party', 'creatures') == 1
             assert reader.get_term_association('party', 'assembled') == 1
-            assert sum(1 for _ in reader.get_term_positions('party')) == 9
+            assert sum(1 for _ in reader.get_term_positions('party')) == 8
 
         writer = IndexWriter(index_dir)
         with writer:
@@ -381,16 +381,16 @@ def test_index_merge_terms(index_dir):
             assert reader.get_term_association('tplink', 'creatures') == 1
             assert sum(1 for _ in reader.get_term_positions('tplink')) == 86
 
-            assert reader.get_term_frequency('party') == 11
+            assert reader.get_term_frequency('party') == 10
             assert reader.get_term_association('party', 'creatures') == 1
             assert reader.get_term_association('party', 'assembled') == 1
-            assert sum(1 for _ in reader.get_term_positions('party')) == 11
+            assert sum(1 for _ in reader.get_term_positions('party')) == 10
 
 
 def test_index_alice_case_folding(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'r') as f:
         data = f.read()
-        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        analyser = TestAnalyser()
         writer = IndexWriter(index_dir, IndexConfig(SqliteStorage,
                                                     Schema(text=TEXT(analyser=analyser),
                                                            document=TEXT(analyser=analyser, indexed=False))))
@@ -427,7 +427,7 @@ def test_index_case_fold_no_new_term(index_dir):
 
     """
     with open(os.path.abspath('caterpillar/test_resources/case_fold_no_assoc.csv'), 'rbU') as f:
-        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        analyser = TestAnalyser()
         with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser)))) as writer:
             csv_reader = csv.reader(f)
             for row in csv_reader:
@@ -443,7 +443,7 @@ def test_index_case_fold_no_new_term(index_dir):
 def test_index_utf8(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/mt_warning_utf8.txt'), 'r') as f:
         data = f.read()
-        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        analyser = TestAnalyser()
         writer = IndexWriter(index_dir, IndexConfig(SqliteStorage,
                                                     Schema(text=TEXT(analyser=analyser),
                                                            document=TEXT(analyser=analyser, indexed=False))))
@@ -455,7 +455,7 @@ def test_index_utf8(index_dir):
 def test_index_latin1(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/mt_warning_latin1.txt'), 'r') as f:
         data = f.read()
-        analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+        analyser = TestAnalyser()
         writer = IndexWriter(index_dir, IndexConfig(SqliteStorage,
                                                     Schema(text=TEXT(analyser=analyser),
                                                            document=TEXT(analyser=analyser, indexed=False))))
@@ -472,7 +472,7 @@ def test_index_latin1(index_dir):
 
 
 def test_index_encoding(index_dir):
-    analyser = DefaultAnalyser(stopword_list=stopwords.ENGLISH_TEST)
+    analyser = TestAnalyser()
     writer = IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser))))
     with writer:
         doc_id = writer.add_document(text=u'This is a unicode string to test our field decoding.', frame_size=2)

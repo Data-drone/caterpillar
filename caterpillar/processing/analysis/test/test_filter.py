@@ -3,7 +3,7 @@
 """Tests for the caterpillar.processing.analysis.filter module."""
 import pytest
 from caterpillar.processing.analysis.filter import *
-from caterpillar.processing.analysis.tokenize import WordTokenizer, Token
+from caterpillar.processing.analysis.tokenize import WordTokenizer, Token, SimpleWordTokenizer
 
 
 TEST_STRING = 'This is my test-string. Isn\'t it great?'
@@ -56,3 +56,42 @@ def test_lower_filter():
     for t in f.filter(tokens):
         if t.position == 0:
             assert t.value == 'this'
+
+
+def test_search_filter():
+    f = SearchFilter('i')
+    tokens = TOKENIZER.tokenize(TEST_STRING)
+
+    for t in f.filter(tokens):
+        if t.position in (0, 1, 4, 6):
+            assert t.value == 'i'
+
+
+def test_outerpunctuation_filter():
+    f = OuterPunctuationFilter(leading_allow=['@#$'], trailing_allow=['/%!'])
+    tokens = f.filter(SimpleWordTokenizer().tokenize('@!@$#te--st/%!!-!! --@t@@ --t!!@ --tc-a! -tca!'))
+
+    token = next(tokens).value
+    assert token == '@$#te--st/%!!'
+
+    token = next(tokens).value
+    assert token == '@t'
+
+    token = next(tokens).value
+    assert token == 't!!'
+
+    token = next(tokens).value
+    assert token == 'tc-a!'
+
+    token = next(tokens).value
+    assert token == 'tca!'
+
+
+def test_possessivecontraction_filter():
+    f = PossessiveContractionFilter()
+    tokens = f.filter(SimpleWordTokenizer().tokenize(
+        u"bob's bob\u2019s bob\u02BCs bob\u02BBs bob\u055As bob\uA78Bs bob\uA78Cs bob\uFF07s"
+    ))
+
+    for t in tokens:
+        assert t.value == 'bob'
