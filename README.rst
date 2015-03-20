@@ -1,7 +1,10 @@
 What is Caterpillar?
 ====================
 
-[![Build Status](https://travis-ci.org/Kapiche/caterpillar.svg?branch=master)](https://travis-ci.org/Kapiche/caterpillar) [![Coverage Status](https://coveralls.io/repos/Kapiche/caterpillar/badge.png)](https://coveralls.io/r/Kapiche/caterpillar)
+.. image:: https://img.shields.io/travis/Kapiche/caterpillar.svg?style=flat-square
+    :target: https://travis-ci.org/Kapiche/caterpillar
+.. image:: https://img.shields.io/coveralls/Kapiche/caterpillar.svg?style=flat-square
+    :target: https://coveralls.io/r/Kapiche/caterpillar
 
 Caterpillar is a pure python text indexing and analytics library. Some features include:
 
@@ -15,7 +18,7 @@ Caterpillar is a pure python text indexing and analytics library. Some features 
 
 Quick Example
 =============
-Quick example of using caterpillar below:
+Quick example of using caterpillar below::
 
     import os
     import tempfile
@@ -32,12 +35,13 @@ Quick example of using caterpillar below:
     
 Installation
 ============
+.. code::
 
     pip install caterpillar
 
 Documentation
 =============
-The documentation can be found [here](http://caterpillar.readthedocs.org/en/latest/).
+The documentation can be found `here <http://caterpillar.readthedocs.org/en/latest/>`_.
     
 Roadmap
 =======
@@ -60,8 +64,8 @@ Currently Python 2.7+ only. Work is underway to support Python 3+. **WARNING**: 
 
 BDFLs
 =====
-* [Kris Rogers](https://github.com/krisrogers/)
-* [Ryan Stuart](https://github.com/rstuart85/)
+* `Kris Rogers <https://github.com/krisrogers/>`_
+* `Ryan Stuart <https://github.com/rstuart85/>`_
 
 Contributors
 ============
@@ -70,8 +74,8 @@ Anyone who is willing! In other words none yet, but we are more then accepting o
 Contributing
 ============
 Not code will be merged unless it has 100% test coverage and passes pep8. We code with a line length of 120 characters 
-(see tox.ini [pep8] section) and we use [py.test](http://pytest.org/) for testing. Tests are in a *test* sub-folder in 
-each package. We generally run coverage as follows:
+(see tox.ini [pep8] section) and we use `py.test <http://pytest.org/>`_ for testing. Tests are in a *test* sub-folder in 
+each package. We generally run coverage as follows::
 
     coverage erase; coverage run --source caterpillar -m py.test -v caterpillar; coverage report
 

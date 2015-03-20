@@ -20,7 +20,7 @@ class Tox(TestCommand):
         sys.exit(errno)
 
 # Use README.md as long_description
-with open('README.md', encoding='utf-8') as f:
+with open('README.rst', encoding='utf-8') as f:
     long_description = f.read()
 
 # Use the VERSION file to get caterpillar version
