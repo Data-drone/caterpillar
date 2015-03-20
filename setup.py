@@ -18,6 +18,9 @@ class Tox(TestCommand):
         errno = tox.cmdline(self.test_args)
         sys.exit(errno)
 
+# Use README.md as long_description
+with open('README.md', encoding='utf-8') as f:
+    long_description = f.read()
 
 # Use the VERSION file to get caterpillar version
 version_file = os.path.join(os.path.dirname(__file__), 'caterpillar', 'VERSION')
@@ -36,6 +39,7 @@ requires = [
 setup(
     name='caterpillar',
     version=caterpillar_version,
+    long_description=long_description,
     packages=[
         'caterpillar',
         'caterpillar.processing',
@@ -62,7 +66,9 @@ setup(
     ],
     keywords='indexing text analytics',
     install_requires=requires,
-    tests_require=['tox', 'pytest', 'coverage', 'pep8', 'mock'],
+    extras_require={
+        'test': ['tox', 'pytest', 'coverage', 'pep8', 'mock'],
+    },
     cmdclass={'test': Tox},
     author='Kapiche',
     author_email='contact@kapiche.com',
