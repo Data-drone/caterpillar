@@ -50,7 +50,7 @@ class SimpleScorer(Scorer):
 
 class TfidfScorer(Scorer):
     """
-    A scorer that uses TF-IDF in a Vector Space Model.
+    A scorer that uses tf-idf in a Vector Space Model.
 
     """
     def __init__(self, index):
