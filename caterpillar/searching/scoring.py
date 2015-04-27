@@ -66,10 +66,10 @@ class TfidfScorer(Scorer):
         """
         Given `term_positions` dict and `frame_ids` list, generate a full tf-idf matrix for use in searching.
 
-        Returns a 2-tuple containing the generated tf-idf index, and,
-        a vector containing the norms of all frame vectors in the tf-idf index.
+        Returns a 2-tuple containing the generated tf-idf matrix, and,
+        a vector containing the norms of all frame vectors in the tf-idf matrix.
 
-        The resultant tf-idf index is of structure frames x terms,
+        The resultant tf-idf matrix is of structure frames x terms,
         where the order of frames is consistent with the order of `frame_ids`, and,
         the order of terms is consistent with `keys()` on `term_positions`.
 
@@ -93,7 +93,7 @@ class TfidfScorer(Scorer):
 
     def score_and_rank(self, hits, term_weights):
         """
-        Score hits and return in ranked order according to TF-IDF in the VSM.
+        Score hits and return in ranked order using cosine similairty with the tf-idf matrix.
 
         """
         if len(term_weights) == 0:
