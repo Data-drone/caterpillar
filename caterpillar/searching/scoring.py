@@ -54,27 +54,28 @@ class TfidfScorer(Scorer):
 
     """
     def __init__(self, index):
-        self.frame_indexes = {frame_id: i for i, frame_id in enumerate(list(index.get_frame_ids()))}
+        self.frame_ids = list(index.get_frame_ids())
+        self.frame_indexes = {frame_id: i for i, frame_id in enumerate(self.frame_ids)}
         self.term_positions = {k: v for k, v in index.get_positions_index()}
-        self.tfidf_index, self.tfidf_index_norm =TfidfScorer.build_tfidf_index(self.term_positions,
-            self.frame_indexes)
+        self.tfidf_matrix, self.tfidf_frame_norms = TfidfScorer.build_tfidf_matrix(self.term_positions,
+            self.frame_ids)
         super(TfidfScorer, self).__init__(index)
 
     @staticmethod
-    def build_tfidf_index(term_positions, frame_indexes):
+    def build_tfidf_matrix(term_positions, frame_ids):
         """
-        Given `term_positions` and `frame_indexes`, which maps each frame id to a numerical index,
-        generate a full tf-idf index for use in searching.
+        Given `term_positions` dict and `frame_ids` list, generate a full tf-idf matrix for use in searching.
 
         Returns a 2-tuple containing the generated tf-idf index, and,
         a vector containing the norms of all frame vectors in the tf-idf index.
 
-        The resultant tf-idf index is of structure frames x terms, where the order of frames is
-        consistent with `keys()` on `frame_indexes` and the order of terms is consistent with `keys()`
-        on `term_positions`.
+        The resultant tf-idf index is of structure frames x terms,
+        where the order of frames is consistent with the order of `frame_ids`, and,
+        the order of terms is consistent with `keys()` on `term_positions`.
 
         """
-        num_frames = len(frame_indexes)
+        num_frames = len(frame_ids)
+        frame_indexes = {frame_id: i for i, frame_id in enumerate(frame_ids)}
         idfs = numpy.array([
             numpy.log(1 + num_frames / (len(positions) + 1))
             for positions in term_positions.itervalues()
@@ -86,9 +87,9 @@ class TfidfScorer(Scorer):
                 tfs[term_index][frame_indexes[frame_id]] = len(positions)
             term_index = term_index + 1
 
-        tfidf_index = tfs.T * idfs
+        tfidf_matrix = tfs.T * idfs
 
-        return (tfidf_index, numpy.linalg.norm(tfidf_index, axis=1))
+        return (tfidf_matrix, numpy.linalg.norm(tfidf_matrix, axis=1))
 
     def score_and_rank(self, hits, term_weights):
         """
@@ -103,7 +104,7 @@ class TfidfScorer(Scorer):
         query_weights = []
         for term in self.term_positions.iterkeys():
             query_weights.append(term_weights.get(term, 0))
-        scored_hits = numpy.dot(self.tfidf_index, query_weights) / (self.tfidf_index_norm *
+        scored_hits = numpy.dot(self.tfidf_matrix, query_weights) / (self.tfidf_frame_norms *
                                                                    numpy.linalg.norm(query_weights))
 
         # Update scores and return ranked hits

@@ -13,8 +13,9 @@ def test_scoring_abc():
     abstract_method_tester(Scorer)
 
 
-def test_tfidf_index():
+def test_tfidf_matrix():
     """Test generation of tf-idf index with simple, contrived example."""
+    # Test data
     term_positions = {
         "bicycle": {
             "frame1": [0, 2, 6],
@@ -27,17 +28,14 @@ def test_tfidf_index():
             "frame2": [1]
         }
     }
-    frame_indexes = {
-        "frame1": 0,
-        "frame2": 1,
-        "frame3": 2
-    }
-    tfidf_index, tfidf_frame_norm = TfidfScorer.build_tfidf_index(term_positions, frame_indexes)
-    reverese_frame_indexes = {index: frame_id for frame_id, index in frame_indexes.iteritems()}
+    frame_ids = ["frame1", "frame2", "frame3"]
+    # Generate tf-idf matrix
+    tfidf_matrix, tfidf_frame_norms = TfidfScorer.build_tfidf_matrix(term_positions, frame_ids)
+    # Manually verify tf-idf matrix
     terms = term_positions.keys()
-    num_frames = len(frame_indexes)
-    for i, frame_vector in enumerate(tfidf_index):
-        frame_id = reverese_frame_indexes[i]
+    num_frames = len(frame_ids)
+    for i, frame_vector in enumerate(tfidf_matrix):
+        frame_id = frame_ids[i]
         for j, value in enumerate(frame_vector):
             term = terms[j]
             if frame_id == "frame1":
