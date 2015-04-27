@@ -58,7 +58,7 @@ class TfidfScorer(Scorer):
         self.frame_indexes = {frame_id: i for i, frame_id in enumerate(self.frame_ids)}
         self.term_positions = {k: v for k, v in index.get_positions_index()}
         self.tfidf_matrix, self.tfidf_frame_norms = TfidfScorer.build_tfidf_matrix(self.term_positions,
-            self.frame_ids)
+                                                                                   self.frame_ids)
         super(TfidfScorer, self).__init__(index)
 
     @staticmethod
@@ -105,7 +105,7 @@ class TfidfScorer(Scorer):
         for term in self.term_positions.iterkeys():
             query_weights.append(term_weights.get(term, 0))
         scored_hits = numpy.dot(self.tfidf_matrix, query_weights) / (self.tfidf_frame_norms *
-                                                                   numpy.linalg.norm(query_weights))
+                                                                     numpy.linalg.norm(query_weights))
 
         # Update scores and return ranked hits
         for hit in hits:
