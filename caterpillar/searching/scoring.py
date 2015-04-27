@@ -69,10 +69,14 @@ class TfidfScorer(Scorer):
         Returns a 2-tuple containing the generated tf-idf index, and,
         a vector containing the norms of all frame vectors in the tf-idf index.
 
+        The resultant tf-idf index is of structure frames x terms, where the order of frames is
+        consistent with `keys()` on `frame_indexes` and the order of terms is consistent with `keys()`
+        on `term_positions`.
+
         """
         num_frames = len(frame_indexes)
         idfs = numpy.array([
-            numpy.log((num_frames / len(positions) if positions else 0) + 1)
+            numpy.log(1 + num_frames / (len(positions) + 1))
             for positions in term_positions.itervalues()
         ])
         tfs = numpy.zeros((len(term_positions), num_frames))
