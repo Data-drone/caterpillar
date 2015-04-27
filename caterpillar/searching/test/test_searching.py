@@ -55,12 +55,34 @@ def test_searching_alice(index_dir):
 
             voice_hits = searcher.count(QSQ("voice"))
             assert voice_hits == 46
-            results = searcher.search(QSQ("Alice or voice^1.5"), limit=voice_hits)
+            misses = 0
+            results = searcher.search(QSQ("Alice or voice"), limit=voice_hits)
             for hit in results:
-                assert "voice" in hit.data['text']
-            results = searcher.search(QSQ("Alice or voice^1.5"), start=voice_hits)
+                misses = misses + (1 if "voice" not in hit.frame_terms else 0)
+            assert misses == 23
+            misses = 0
+            results = searcher.search(QSQ("Alice or voice^0.2"), limit=voice_hits)
             for hit in results:
-                assert "voice" not in hit.data['text']
+                misses = misses + (1 if "voice" not in hit.frame_terms else 0)
+            assert misses == 45
+            misses = 0
+            results = searcher.search(QSQ("Alice or voice^0.5"), limit=voice_hits)
+            for hit in results:
+                misses = misses + (1 if "voice" not in hit.frame_terms else 0)
+            assert misses == 36
+            results = searcher.search(QSQ("Alice or voice^20"), limit=voice_hits)
+            for hit in results:
+                assert "voice" in hit.frame_terms
+            misses = 0
+            results = searcher.search(QSQ("Alice or voice"), limit=0)
+            for hit in results[-voice_hits:]:
+                misses = misses + (1 if "voice" not in hit.frame_terms else 0)
+            assert misses == voice_hits
+            misses = 0
+            results = searcher.search(QSQ("Alice^20 or voice"), limit=0)
+            for hit in results[-voice_hits:]:
+                misses = misses + (1 if "voice" not in hit.frame_terms else 0)
+            assert misses == 15
 
             results = searcher.search(QSQ("King not (court or evidence)"))
             assert len(results) == 25
