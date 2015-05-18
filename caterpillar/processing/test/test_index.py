@@ -29,7 +29,7 @@ def test_index_open(index_dir):
             writer.add_document(text=data, document='alice.txt', flag=True, frame_size=2)
 
         with IndexReader(index_dir) as reader:
-            assert sum(1 for _ in reader.get_frequencies()) == 501
+            assert sum(1 for _ in reader.get_frequencies()) == 500
             assert reader.get_term_frequency('Alice') == 23
             assert reader.get_document_count() == 1
             assert isinstance(reader.get_schema()['text'], TEXT)
@@ -105,7 +105,7 @@ def test_index_alice(index_dir):
             assert reader.get_term_association('Alice', 'poor') == reader.get_term_association('poor', 'Alice') == 3
             assert reader.get_term_association('key', 'golden') == reader.get_term_association('golden', 'key') == 3
 
-            assert reader.get_vocab_size() == sum(1 for _ in reader.get_frequencies()) == 501
+            assert reader.get_vocab_size() == sum(1 for _ in reader.get_frequencies()) == 500
             assert reader.get_term_frequency('Alice') == 23
 
             # Make sure this works
@@ -340,7 +340,7 @@ def test_index_moby_case_folding(index_dir):
                 reader.get_term_association('American', 'whale') == 9
 
             assert reader.get_term_frequency('T. HERBERT') == 1
-            assert sum(1 for _ in reader.get_frequencies()) == 20548
+            assert sum(1 for _ in reader.get_frequencies()) == 20546
 
 
 def test_index_merge_terms(index_dir):
