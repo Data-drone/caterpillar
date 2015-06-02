@@ -5,6 +5,7 @@ What is Caterpillar?
     :target: https://travis-ci.org/Kapiche/caterpillar
 .. image:: https://img.shields.io/coveralls/Kapiche/caterpillar.svg?style=flat-square
     :target: https://coveralls.io/r/Kapiche/caterpillar
+.. image:: https://codeship.com/projects/YOUR_PROJECT_UUID/status?branch=master
 
 Caterpillar is a pure python text indexing and analytics library. Some features include:
 
