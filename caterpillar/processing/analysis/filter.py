@@ -90,7 +90,7 @@ class StopFilter(Filter):
 
     """
     def __init__(self, stoplist, minsize=3):
-        self._stoplist = {s: None for s in stoplist}
+        self._stoplist = {s.lower(): None for s in stoplist}
         self._minsize = minsize
 
     def filter(self, tokens):
