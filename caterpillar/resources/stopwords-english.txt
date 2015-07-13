@@ -46,6 +46,7 @@ dont
 don't
 during
 each
+either
 else
 ever
 every
@@ -73,6 +74,7 @@ hes
 he's
 her
 here
+herein
 heres
 here's
 hers
@@ -104,7 +106,10 @@ it's
 its
 itself
 just
+know
+let
 let's
+like
 make
 making
 may
@@ -128,6 +133,7 @@ once
 only
 or
 other
+otherwise
 ought
 our
 ours
@@ -140,6 +146,7 @@ said
 same
 say
 says
+shall
 shan't
 she
 she'd
@@ -222,6 +229,7 @@ whys
 why's
 will
 with
+without
 wont
 won't
 would
