@@ -26,7 +26,7 @@ def test_paragraph_tokenizer_alice():
         count = 0
         for p in ParagraphTokenizer().tokenize(data):
             count += 1
-        assert count == 22
+        assert count == 25
 
 
 def test_paragraph_tokenizer_economics():

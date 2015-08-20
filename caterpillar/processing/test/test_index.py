@@ -202,7 +202,7 @@ def test_index_frames_docs_alice(index_dir):
             writer.add_document(text=data, document='alice.txt', frame_size=2)
 
         with IndexReader(index_dir) as reader:
-            assert reader.get_frame_count() == 49
+            assert reader.get_frame_count() == 52
 
             frame_id = reader.get_term_positions('Alice').keys()[0]
             assert frame_id == reader.get_frame(frame_id)['_id']
@@ -340,7 +340,7 @@ def test_index_moby_case_folding(index_dir):
                 reader.get_term_association('American', 'whale') == 9
 
             assert reader.get_term_frequency('T. HERBERT') == 1
-            assert sum(1 for _ in reader.get_frequencies()) == 20546
+            assert sum(1 for _ in reader.get_frequencies()) == 20542
 
 
 def test_index_merge_terms(index_dir):
@@ -522,7 +522,7 @@ def test_index_reader_writer_isolation(index_dir):
         reader = IndexReader(index_dir)
         reader.begin()
 
-        assert reader.get_frame_count() == 49
+        assert reader.get_frame_count() == 52
         assert reader.get_term_frequency('Alice') == 23
 
         # Add another copy of Alice
@@ -531,7 +531,7 @@ def test_index_reader_writer_isolation(index_dir):
             writer.add_document(text=data)
 
         # Check reader can't see it
-        assert reader.get_frame_count() == 49
+        assert reader.get_frame_count() == 52
         assert reader.get_term_frequency('Alice') == 23
 
         # Open new reader and make sure it CAN see the changes
@@ -551,14 +551,14 @@ def test_index_document_delete(index_dir):
             doc_id = writer.add_document(text=data)
 
         with IndexReader(index_dir) as reader:
-            assert reader.get_frame_count() == 98
+            assert reader.get_frame_count() == 104
             assert reader.get_term_frequency('Alice') == 46
 
         with IndexWriter(index_dir) as writer:
             writer.delete_document(doc_id)
 
         with IndexReader(index_dir) as reader:
-            assert reader.get_frame_count() == 49
+            assert reader.get_frame_count() == 52
             assert reader.get_term_frequency('Alice') == 23
 
 

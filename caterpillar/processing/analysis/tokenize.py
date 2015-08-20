@@ -146,7 +146,9 @@ class ParagraphTokenizer(RegexpTokenizer):
 
     """
     def __init__(self):
-        RegexpTokenizer.__init__(self, ur'(?<=[\u002E\u2024\uFE52\uFF0E\u0021\u003F][\S]*)\s*\n+|\n\n+', gaps=True)
+        RegexpTokenizer.__init__(
+            self, ur'(?<=[\u002E\u2024\uFE52\uFF0E\u0021\u003F][\S]*)\s*(?:\r?\n)+|(?:\r?\n){2,}', gaps=True
+        )
 
 
 class WordTokenizer(RegexpTokenizer):
