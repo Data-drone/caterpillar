@@ -641,6 +641,7 @@ class IndexWriter(object):
                         }
                         if field.stored:
                             frame['_text'] = " ".join(sentence_list)
+                        offset = 0
                         for sentence in sentence_list:
                             # Tokenize and index
                             tokens = field.analyse(sentence)
@@ -649,11 +650,13 @@ class IndexWriter(object):
                             for token in tokens:
                                 # Add to the list of terms we have seen if it isn't already there.
                                 if not token.stopped:
+                                    token.index = (token.index[0] + offset, token.index[1] + offset)
                                     # Record word positions
                                     try:
                                         frame['_positions'][token.value].append(token.index)
                                     except KeyError:
                                         frame['_positions'][token.value] = [token.index]
+                            offset += len(sentence)
 
                         # Build the final frame
                         frame.update(shell_frame)

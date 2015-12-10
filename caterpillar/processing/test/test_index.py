@@ -111,6 +111,17 @@ def test_index_alice(index_dir):
             # Make sure this works
             reader.__sizeof__()
 
+        # Test for overlapping positions
+        with IndexReader(index_dir) as reader:
+            positions_index = {k: v for k, v in reader.get_positions_index()}
+            for frame_id, frame in reader.get_frames():
+                frame_positions = []
+                for term in positions_index:
+                    if frame_id in positions_index[term]:
+                        for pos in positions_index[term][frame_id]:
+                            frame_positions.extend(range(pos[0], pos[1]))
+                assert len(set(frame_positions)) == len(frame_positions)
+
         with IndexWriter(index_dir) as writer:
             writer.add_fields(field1=TEXT, field2=NUMERIC)
 
