@@ -1,7 +1,6 @@
 # Copyright (c) 2012-2014 Kapiche Limited
 # Author: Ryan Stuart <ryan@kapiche.com>
 """Tools to tokenize text."""
-from nltk.internals import convert_regexp_to_nongrouping
 import regex
 
 
@@ -17,6 +16,8 @@ class Token(object):
     not the object!
 
     """
+    __slots__ = ["value", "position", "stopped", "index"]
+
     def __init__(self, value=None, position=None, stopped=None, index=None):
         self.value = value
         self.position = position
@@ -95,17 +96,12 @@ class RegexpTokenizer(Tokenizer):
         self._pattern = pattern
         self._gaps = gaps
         self._flags = flags
-        self._regexp = None
-
-        # Remove grouping parentheses -- if the regexp contains any
-        # grouping parentheses, then the behavior of re.findall and
-        # re.split will change.
-        nongrouping_pattern = convert_regexp_to_nongrouping(pattern)
+        self._token = Token()  # The token instance we will reuse
 
         try:
-            self._regexp = regex.compile(nongrouping_pattern, flags)
+            self._regexp = regex.compile(self._pattern, self._flags)
         except regex.error, e:
-            raise ValueError('Error in regular expression {}: {}'.format(pattern, e))
+            raise ValueError('Error in regular expression {}: {}'.format(self._pattern, e))
 
     def tokenize(self, value):
         """
@@ -115,24 +111,35 @@ class RegexpTokenizer(Tokenizer):
         value -- The unicode string to tokenize.
 
         """
-        t = Token()  # The token instance we will reuse
         if not self._gaps:
             # The default: expression matches are used as tokens
             for pos, match in enumerate(self._regexp.finditer(value)):
-                yield t.update(match.group(0), index=(match.start(), match.end(),), position=pos)
+                self._token.value = match.group(0)
+                self._token.index = (match.start(), match.end(),)
+                self._token.position = pos
+                self._token.stopped = False
+                yield self._token
         else:
             # When gaps=True, iterate through the matches and
             # yield the text between them.
             left = 0
             last_pos = 0
-            for pos, match in enumerate(regex.finditer(self._regexp, value)):
-                right, next = match.span()
+            for pos, match in enumerate(self._regexp.finditer(value)):
+                right, next_left = match.span()
                 if right != 0:
-                    yield t.update(value[left:right], position=pos, index=(left, right,))
-                left = next
+                    self._token.value = value[left:right]
+                    self._token.index = (left, right,)
+                    self._token.position = pos
+                    self._token.stopped = False
+                    yield self._token
+                left = next_left
                 last_pos = pos
             if left != len(value):
-                yield t.update(value[left:], position=last_pos+1, index=(left, len(value),))
+                self._token.value = value[left:]
+                self._token.index = (left, len(value),)
+                self._token.position = last_pos + 1
+                self._token.stopped = False
+                yield self._token
 
 
 class ParagraphTokenizer(RegexpTokenizer):
@@ -147,7 +154,9 @@ class ParagraphTokenizer(RegexpTokenizer):
     """
     def __init__(self):
         RegexpTokenizer.__init__(
-            self, ur'(?<=[\u002E\u2024\uFE52\uFF0E\u0021\u003F][\S]*)\s*(?:\r?\n)+|(?:\r?\n){2,}', gaps=True
+            self,
+            ur'(?<=[\u002E\u2024\uFE52\uFF0E\u0021\u003F][\S]*)\s*(?:\r?\n)+|(?:\r?\n){2,}',
+            gaps=True
         )
 
 
@@ -223,5 +232,4 @@ class EverythingTokenizer(Tokenizer):
 
     """
     def tokenize(self, value):
-        t = Token()
-        yield t.update(value, stopped=False, position=0, index=(0, len(str(value)) if value else 0,))
+        yield Token(value=value, stopped=False, position=0, index=(0, len(str(value)) if value else 0,))

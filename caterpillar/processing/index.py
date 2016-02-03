@@ -64,6 +64,7 @@ import random
 import sys
 import ujson as json
 import uuid
+from collections import Counter
 
 import nltk
 
@@ -342,13 +343,13 @@ class IndexWriter(object):
             """Index a set of frames. This includes building the index structure for the frames."""
             positions = {}  # Inverted term positions index:: term -> [(start, end,), (star,end,), ...]
             associations = {}  # Inverted term co-occurrence index:: term -> other_term -> count
-            frequencies = nltk.probability.FreqDist()  # Inverted term frequency index:: term -> count
+            frequencies = Counter()  # Inverted term frequency index:: term -> count
             metadata = {}  # Inverted frame metadata:: field_name -> field_value -> [frame1, frame2]
 
             for frame_id, frame in frames.iteritems():
                 # Positions & frequencies First
                 for term, indices in frame['_positions'].iteritems():
-                    frequencies.inc(term)
+                    frequencies[term] += 1
                     try:
                         positions[term][frame_id] = positions[term][frame_id] + indices
                     except KeyError:
@@ -1435,8 +1436,8 @@ def find_bi_gram_words(frames, min_bi_gram_freq=3, min_bi_gram_coverage=0.65):
     logger.debug("Identifying n-grams")
 
     # Generate a table of candidate bigrams
-    candidate_bi_grams = nltk.probability.FreqDist()
-    uni_gram_frequencies = nltk.probability.FreqDist()
+    candidate_bi_grams = Counter()
+    uni_gram_frequencies = Counter()
     bi_gram_analyser = PotentialBiGramAnalyser()
     sentence_tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
     for _, frame in frames:
@@ -1445,12 +1446,12 @@ def find_bi_gram_words(frames, min_bi_gram_freq=3, min_bi_gram_coverage=0.65):
             for token_list in bi_gram_analyser.analyse(sentence):
                 # Using a special filter that returns list of tokens. List of 1 means no bi-grams.
                 if len(token_list) > 1:  # We have a bi-gram people!
-                    candidate_bi_grams.inc(u"{} {}".format(token_list[0].value, token_list[1].value))
+                    candidate_bi_grams[u"{} {}".format(token_list[0].value, token_list[1].value)] += 1
                 for t in token_list:  # Keep a list of terms we have seen so we can record freqs later.
                     if not t.stopped:  # Naughty stopwords!
                         terms_seen.add(t.value)
             for term in terms_seen:
-                uni_gram_frequencies.inc(term)
+                uni_gram_frequencies[term] += 1
 
     # Filter and sort by frequency-decreasing
     candidate_bi_gram_list = filter(lambda (k, v): v > min_bi_gram_freq, candidate_bi_grams.iteritems())

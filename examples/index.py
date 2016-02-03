@@ -12,7 +12,8 @@ from caterpillar.storage.sqlite import SqliteStorage
 path = tempfile.mkdtemp()
 try:
     index_dir = os.path.join(path, "examples")
-    with open('caterpillar/test_resources/moby.txt', 'r') as f:
+    file_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'caterpillar', 'test_resources', 'moby.txt')
+    with open(file_dir, 'r') as f:
         data = f.read()
         with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT, some_number=NUMERIC))) as writer:
             writer.add_document(text=data, some_number=1)
