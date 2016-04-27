@@ -753,12 +753,12 @@ class IndexWriter(object):
                 freq_name = frequencies_index[w.title()]
                 if freq / freq_name < merge_threshold:
                     # Merge into name
-                    logger.debug('Merging {} into {}'.format(w, w.title()))
+                    logger.debug(u'Merging {} into {}'.format(w, w.title()))
                     self._merge_terms(w, w.title(), associations_index, positions_index, frequencies_index, frames)
                     count += 1
                 elif freq_name / freq < merge_threshold:
                     # Merge into word
-                    logger.debug('Merging {} into {}'.format(w.title(), w))
+                    logger.debug(u'Merging {} into {}'.format(w.title(), w))
                     self._merge_terms(w.title(), w, associations_index, positions_index, frequencies_index, frames)
                     count += 1
 
