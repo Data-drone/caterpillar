@@ -1414,17 +1414,26 @@ class IndexReader(object):
                 yield (k, v)
 
 
-def find_bi_gram_words(frames, min_bi_gram_freq=3, min_bi_gram_coverage=0.65):
+def find_bi_gram_words(frames, min_count=5, threshold=40.0):
     """
     This function finds bi-gram words from the specified ``frames`` iterable.
 
-    For two terms to be considered a bi-gram it must occur at least ``min_bi_gram_freq`` (int) times across all frames
-    and the ratio of bi-gram appearances to no bi-gram appearances must be no less then ``min_bi_gram_coverage``
-    (float). For example, if ``min_bi_gram_coverage`` is 0.65 (the default) and the bi-gram is *good quality* then the
-    frequency of the bi-gram *good quality* divided by the frequency of the term *good* must be higher then 0.65. Also,
-    the frequency of the bi-gram *good quality* divided by the frequency of the term *quality* must be higher then 0.65.
-    If both of these conditions are True and the bi-gram frequency is >= ``min_bi_gram_freq`` the it will be returned as
-    a bi-gram.
+    For two terms to be considered a bi-gram it must first occur at least ``min_count`` (int) times across all frames.
+    Subsequently, a score is calculated and bi-grams are included based on the specified ``threshold`` (float).
+
+    The formula for calculating bi-gram score is inspired by the Gensim implementation of phrase detection from the
+    Mikolov et al paper, "Distributed Representations of Words and Phrases and their Compositionality".
+
+        score(a, b) = freq(a, b) * vocab_size / (freq(a) * freq(b))
+
+    The multiplication of frequencies in the denominator diminishes the bi-gram score when both uni-gram frequencies are
+    significantly higher than the  bi-gram frequency. However, if only one uni-gram frequency is significantly higher
+    bi-grams can still score sufficiently high to be included.
+
+    The multiplication by vocab_size in the numerator boosts the score for larger corpora where uni-grams may be found
+    in many contexts.
+
+    The ``threshold`` value is derived empirically with the aim of capturing the most discriminative bi-grams.
 
     This function uses a :class:`caterpillar.processing.analysis.analyse.PotentialBiGramAnalyser` to identify potential
     bi-grams. Names and stopwords are not considered for bi-grams.
@@ -1439,24 +1448,29 @@ def find_bi_gram_words(frames, min_bi_gram_freq=3, min_bi_gram_coverage=0.65):
     uni_gram_frequencies = nltk.probability.FreqDist()
     bi_gram_analyser = PotentialBiGramAnalyser()
     sentence_tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
+    num_frames = 0
     for _, frame in frames:
         for sentence in sentence_tokenizer.tokenize(frame['_text'], realign_boundaries=True):
-            terms_seen = set()
+            terms_seen = []
             for token_list in bi_gram_analyser.analyse(sentence):
                 # Using a special filter that returns list of tokens. List of 1 means no bi-grams.
                 if len(token_list) > 1:  # We have a bi-gram people!
                     candidate_bi_grams.inc(u"{} {}".format(token_list[0].value, token_list[1].value))
                 for t in token_list:  # Keep a list of terms we have seen so we can record freqs later.
                     if not t.stopped:  # Naughty stopwords!
-                        terms_seen.add(t.value)
+                        terms_seen.append(t.value)
             for term in terms_seen:
                 uni_gram_frequencies.inc(term)
+        num_frames += 1
 
     # Filter and sort by frequency-decreasing
-    candidate_bi_gram_list = filter(lambda (k, v): v > min_bi_gram_freq, candidate_bi_grams.iteritems())
-    candidate_bi_gram_list = filter(lambda (k, v): v / uni_gram_frequencies[k.split(" ")[0]] > min_bi_gram_coverage and
-                                    v / uni_gram_frequencies[k.split(" ")[1]] > min_bi_gram_coverage,
-                                    candidate_bi_gram_list)
+    def filter_bi_grams(b):
+        k, v = b
+        if v < min_count:
+            return False
+        t1, t2 = k.split(" ")
+        score = v / (uni_gram_frequencies[t1] * uni_gram_frequencies[t2]) * len(uni_gram_frequencies)
+        return score > threshold
+    candidate_bi_gram_list = filter(filter_bi_grams, candidate_bi_grams.iteritems())
     logger.debug("Identified {} n-grams.".format(len(candidate_bi_gram_list)))
-
     return [b[0] for b in candidate_bi_gram_list]

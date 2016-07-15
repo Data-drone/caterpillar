@@ -234,8 +234,42 @@ def test_index_alice_bigram_discovery(index_dir):
 
         with IndexReader(index_dir) as reader:
             bi_grams = find_bi_gram_words(reader.get_frames())
-            assert len(bi_grams) == 3
+            assert len(bi_grams) == 4
             assert 'golden key' in bi_grams
+
+
+def test_moby_bigram_discovery(index_dir):
+    with open(os.path.abspath('caterpillar/test_resources/moby.txt'), 'r') as f:
+        data = f.read()
+        with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT))) as writer:
+            writer.add_document(text=data, frame_size=2)
+
+        with IndexReader(index_dir) as reader:
+            bi_grams = find_bi_gram_words(reader.get_frames())
+            assert len(bi_grams) == 10
+            assert 'steering oar' in bi_grams
+
+
+def test_wikileaks_bigram_discovery(index_dir):
+    with open(os.path.abspath('caterpillar/test_resources/wikileaks-secret.txt'), 'r') as f:
+        data = f.read()
+        with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT))) as writer:
+            writer.add_document(text=data, frame_size=2)
+
+        with IndexReader(index_dir) as reader:
+            bi_grams = find_bi_gram_words(reader.get_frames())
+            assert len(bi_grams) == 29
+
+
+def test_employee_survet_bigram_discovery(index_dir):
+    with open(os.path.abspath('caterpillar/test_resources/government-emplyee-survey-PC.txt'), 'r') as f:
+        data = f.read()
+        with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT))) as writer:
+            writer.add_document(text=data, frame_size=2)
+
+        with IndexReader(index_dir) as reader:
+            bi_grams = find_bi_gram_words(reader.get_frames())
+            assert len(bi_grams) == 7
 
 
 def test_index_alice_merge_bigram(index_dir):
@@ -245,7 +279,7 @@ def test_index_alice_merge_bigram(index_dir):
         with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT))) as writer:
             writer.add_document(text=data)
         with IndexReader(index_dir) as reader:
-            bi_grams = find_bi_gram_words(reader.get_frames())
+            bi_grams = find_bi_gram_words(reader.get_frames(), min_count=3)
 
         bigram_index = os.path.join(tempfile.mkdtemp(), "bigram")
         merge_index = os.path.join(tempfile.mkdtemp(), "merge")
@@ -258,6 +292,18 @@ def test_index_alice_merge_bigram(index_dir):
                     writer._merge_terms_into_ngram("old", None, {}, {}, {}, {})
 
             merges = [[b.split(' '), b] for b in bi_grams]
+
+            # Potential bi-grams 'white kid' & 'kid gloves' form the tri-gram 'white kid gloves'.
+            # The bi-gram analyser will match 'white kid' first due to lexical order, consuming the 'kid' token.
+            # Subsequently, 'kid gloves' will not be matched. This manual test using `merge_terms` however, attempts
+            # to convert the bi-grams in alphabetic order, hence 'kid gloves' will be matched first.
+            for i, m in enumerate(merges):
+                if m[1] == 'kid gloves':
+                    break
+            # ...so, here we just re-order 'kid gloves' to the end of `merges`
+            # to emulate the behavior of the bi-gram analyser
+            merges.append(merges.pop(i))
+
             analyser = TestAnalyser()
             with IndexWriter(merge_index, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser)))) as writer:
                 writer.add_document(text=data)
