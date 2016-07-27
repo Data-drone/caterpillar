@@ -13,7 +13,7 @@ class Scorer(object):
     """
     __metaclass__ = abc.ABCMeta
 
-    def __init__(self, index):
+    def __init__(self, index, field=None):
         pass
 
     @abc.abstractmethod
@@ -34,9 +34,10 @@ class TfidfScorer(Scorer):
     Simple tf-idf scorer implementation to be used by ``IndexSearcher``.
 
     """
-    def __init__(self, index):
-        self.num_frames = index.get_frame_count()
+    def __init__(self, index, field=None):
+        self.num_frames = index.get_frame_count(field)
         self.index = index
+        self.field = field
         self.idfs = {}
 
     def score_and_rank(self, hits, term_weights):
@@ -57,7 +58,9 @@ class TfidfScorer(Scorer):
                     idf = self.idfs[term]
                 except KeyError:
                     # calculate & store term's idf
-                    idf = self.idfs[term] = numpy.log(1 + self.num_frames / (self.index.get_term_frequency(term) + 1))
+                    idf = self.idfs[term] = numpy.log(
+                        1 + self.num_frames / (self.index.get_term_frequency(term, self.field) + 1)
+                    )
                 score += term_weights[term] * tf * idf
             hit.score = score
 

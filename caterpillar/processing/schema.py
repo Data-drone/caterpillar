@@ -285,6 +285,22 @@ class Schema(object):
 
         self._fields[name] = field_type
 
+    def get_indexed_text_fields(self):
+        """Return a list of all indexed text fields."""
+        return [name for name, field in self._fields.iteritems() if field._indexed and type(field) == TEXT]
+
+    def validate_storage_field(self, field):
+        """Check if ``field`` is a valid storage field."""
+        if field is not None and (field not in self._fields or not self._fields[field]._indexed):
+            raise ValueError("{} is not an indexed field".format(field))
+
+    def validate_text_storage_field(self, field):
+        """Check if ``field`` is a valid text storage field."""
+        if field is None:
+            raise ValueError("No field supplied")
+        if field not in self._fields or not self._fields[field]._indexed or not type(self._fields[field]) == TEXT:
+            raise ValueError("{} is not an indexed text field".format(field))
+
 
 class ColumnDataType(object):
     """

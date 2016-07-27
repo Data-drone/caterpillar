@@ -18,9 +18,10 @@ class IndexSearcher(object):
     must score and rank all of its results, so should only be used when interested in the ranking of results.
 
     """
-    def __init__(self, index_reader, scorer_cls=TfidfScorer):
+    def __init__(self, index_reader, field, scorer_cls=TfidfScorer):
         self.index_reader = index_reader
-        self.scorer = scorer_cls(index_reader)
+        self.scorer = scorer_cls(index_reader, field)
+        self.field = field
 
     def count(self, query):
         """
@@ -50,7 +51,7 @@ class IndexSearcher(object):
 
         """
         query_result = self._do_query(query)
-        hits = [SearchHit(fid, self.index_reader.get_frame(fid)) for fid in query_result.frame_ids]
+        hits = [SearchHit(fid, self.index_reader.get_frame(fid, self.field)) for fid in query_result.frame_ids]
         num_matches = len(hits)
         if num_matches > 0:
             hits = self.scorer.score_and_rank(hits, query_result.term_weights)[start:]
@@ -65,4 +66,4 @@ class IndexSearcher(object):
         if not isinstance(query, BaseQuery):
             raise TypeError("`query` parameter must match type `caterpillar.searching.query.BaseQuery`")
 
-        return query.evaluate(self.index_reader)
+        return query.evaluate(self.index_reader, self.field)

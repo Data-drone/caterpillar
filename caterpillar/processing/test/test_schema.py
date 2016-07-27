@@ -64,6 +64,14 @@ def test_schema():
 
     assert list(BOOLEAN().analyse('1'))[0].value is True
 
+    empty_schema = Schema()
+    with pytest.raises(ValueError):
+        empty_schema.validate_storage_field('test')
+    with pytest.raises(ValueError):
+        empty_schema.validate_text_storage_field('test')
+    with pytest.raises(ValueError):
+        empty_schema.validate_text_storage_field(None)
+
 
 def test_csv_schema():
     columns = [
@@ -146,7 +154,7 @@ def test_index_stored_fields():
                                          frame_size=2, fold_case=False, update_index=True)
 
         with IndexReader(tmp_dir) as reader:
-            searcher = reader.searcher()
+            searcher = reader.searcher('text')
             hit = searcher.search(QueryStringQuery("*"), limit=1)[0]
             assert 'text' not in hit.data
             assert 'test2' not in hit.data

@@ -32,35 +32,30 @@ class QueryStringQuery(BaseQuery):
     """
     This class allows term and metadata based querying via raw query string passed to ``query_str``.
 
-    Optionally restricts query to the specified ``text_field``.
-
     """
-    def __init__(self, query_str, text_field=None):
+    def __init__(self, query_str):
         self.query_str = query_str
-        self.text_field = text_field
 
-    def evaluate(self, index_reader):
-        frame_ids, term_weights = _QueryStringParser(index_reader).parse_and_evaluate(self.query_str)
-        if self.text_field is not None:
-            # Restrict for text field
-            metadata = {k: v for k, v in index_reader.get_metadata()}
-            if self.text_field not in metadata:
-                raise QueryError("Specified text field {} doesn't exist".format(self.text_field))
-            frame_ids.intersection_update(set(metadata[self.text_field]['_text']))
-
+    def evaluate(self, index_reader, field):
+        frame_ids, term_weights = _QueryStringParser(index_reader, field).parse_and_evaluate(self.query_str)
         return QueryResult(frame_ids, term_weights)
 
 
 class _QueryStringParser(object):
     """
-    This class parses and evaluates query strings against a specified ``index``.
+    This class parses and evaluates query strings against a specified ``index`` and ``field``.
 
     """
-    def __init__(self, index):
+    def __init__(self, index, field=None):
         self.index = index
+        self.field = field
         self.schema = index.get_schema()
-        self.metadata = {k: v for k, v in index.get_metadata()}
-        self.terms = [term for term, count in index.get_frequencies()]
+        self.metadata = {k: v for k, v in index.get_metadata(field)}
+        if field is not None:
+            self.terms = [term for term, count in index.get_frequencies(field)]
+        else:
+            # No terms for non-text field
+            self.terms = []
 
     def __call__(self, node):
         """
@@ -187,7 +182,7 @@ class _QueryStringParser(object):
         value = self._extract_term_value(node)
         if value == '*':
             # Single wildcard matches all frames
-            node.frame_ids = set(self.index.get_frame_ids())
+            node.frame_ids = set(self.index.get_frame_ids(self.field))
         else:
             wildcard = False
             if '?' in value:
@@ -203,11 +198,11 @@ class _QueryStringParser(object):
                 for term in self.terms:
                     # Search for terms that match wildcard query
                     if re.match(term):
-                        node.frame_ids.update(set(self.index.get_term_positions(term).keys()))
+                        node.frame_ids.update(set(self.index.get_term_positions(term, self.field).keys()))
                         node.matched_terms.add(term)
-            else:
+            elif self.field is not None:
                 try:
-                    node.frame_ids.update(set(self.index.get_term_positions(value).keys()))
+                    node.frame_ids.update(set(self.index.get_term_positions(value, self.field).keys()))
                     node.matched_terms.add(value)
                 except KeyError:
                     # Term not matched in index

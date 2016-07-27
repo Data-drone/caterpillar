@@ -215,14 +215,15 @@ class IndexWriter(object):
 
     """
     # Static storage names
-    DOCUMENTS_CONTAINER = "documents"
-    FRAMES_CONTAINER = "frames"
-    SETTINGS_CONTAINER = "settings"
     INFO_CONTAINER = "info"
-    ASSOCIATIONS_CONTAINER = "associations"
-    FREQUENCIES_CONTAINER = "frequencies"
-    METADATA_CONTAINER = "metadata"
-    POSITIONS_CONTAINER = "positions"
+    SETTINGS_CONTAINER = "settings"
+    DOCUMENTS_CONTAINER = "documents"
+    # per-field storage
+    FRAMES_CONTAINER = "{}_frames"
+    ASSOCIATIONS_CONTAINER = "{}_associations"
+    FREQUENCIES_CONTAINER = "{}_frequencies"
+    METADATA_CONTAINER = "{}_metadata"
+    POSITIONS_CONTAINER = "{}_positions"
 
     # How much data to buffer before a flush
     RAM_BUFFER_SIZE = 100*1024*1024  # 100 MB
@@ -258,10 +259,12 @@ class IndexWriter(object):
             self.__lock = None  # Should declare in __init__ and not outside.
         self.__committed = False
         # Internal index buffers we will update when flush() is called.
-        self.__new_frames = {}
+        text_fields = self.__schema.get_indexed_text_fields()
         self.__new_documents = {}
-        self.__rm_frames = set()
         self.__rm_documents = set()
+        self.__rm_frames = set()
+        self.__new_frames = {f: {} for f in text_fields}
+        self.__new_frames[None] = {}  # non-text frames
 
     def __enter__(self):
         self.begin()
@@ -302,15 +305,18 @@ class IndexWriter(object):
                 storage = self.__config.storage_cls(self._path, create=True)
                 # Need to create the containers
                 storage.begin()
+                for field_name in self.__schema.get_indexed_text_fields():
+                    storage.add_container(IndexWriter.FRAMES_CONTAINER.format(field_name))
+                    storage.add_container(IndexWriter.POSITIONS_CONTAINER.format(field_name))
+                    storage.add_container(IndexWriter.ASSOCIATIONS_CONTAINER.format(field_name))
+                    storage.add_container(IndexWriter.FREQUENCIES_CONTAINER.format(field_name))
+                    storage.add_container(IndexWriter.METADATA_CONTAINER.format(field_name))
                 storage.add_container(IndexWriter.DOCUMENTS_CONTAINER)
-                storage.add_container(IndexWriter.FRAMES_CONTAINER)
+                storage.add_container(IndexWriter.FRAMES_CONTAINER.format(None))  # non-text frames
+                storage.add_container(IndexWriter.METADATA_CONTAINER.format(None))  # non-text metadata
+                # Index settings
                 storage.add_container(IndexWriter.SETTINGS_CONTAINER)
                 storage.add_container(IndexWriter.INFO_CONTAINER)
-                storage.add_container(IndexWriter.POSITIONS_CONTAINER)
-                storage.add_container(IndexWriter.ASSOCIATIONS_CONTAINER)
-                storage.add_container(IndexWriter.FREQUENCIES_CONTAINER)
-                storage.add_container(IndexWriter.METADATA_CONTAINER)
-                # Index settings
                 storage.set_container_item(IndexWriter.INFO_CONTAINER, 'derived', json.dumps(False))
                 # Revision
                 storage.set_container_item(IndexWriter.INFO_CONTAINER, 'revision',
@@ -338,33 +344,37 @@ class IndexWriter(object):
         """
         logger.debug("Flushing the index writer.")
 
+        class FieldIndex:
+            def __init__(self):
+                self.positions = {}  # Inverted term positions index:: term -> [(start, end,), (star,end,), ...]
+                self.associations = {}  # Inverted term co-occurrence index:: term -> other_term -> count
+                self.frequencies = nltk.probability.FreqDist()  # Inverted term frequency index:: term -> count
+                self.metadata = {}  # Inverted frame metadata:: field_name -> field_value -> [frame1, frame2]
+
         def index_frames(frames):
             """Index a set of frames. This includes building the index structure for the frames."""
-            positions = {}  # Inverted term positions index:: term -> [(start, end,), (star,end,), ...]
-            associations = {}  # Inverted term co-occurrence index:: term -> other_term -> count
-            frequencies = nltk.probability.FreqDist()  # Inverted term frequency index:: term -> count
-            metadata = {}  # Inverted frame metadata:: field_name -> field_value -> [frame1, frame2]
-
+            field_index = FieldIndex()
             for frame_id, frame in frames.iteritems():
                 # Positions & frequencies First
                 for term, indices in frame['_positions'].iteritems():
-                    frequencies.inc(term)
+                    field_index.frequencies.inc(term)
                     try:
-                        positions[term][frame_id] = positions[term][frame_id] + indices
+                        field_index.positions[term][frame_id] = field_index.positions[term][frame_id] + indices
                     except KeyError:
                         try:
-                            positions[term][frame_id] = indices
+                            field_index.positions[term][frame_id] = indices
                         except KeyError:
-                            positions[term] = {frame_id: indices}
+                            field_index.positions[term] = {frame_id: indices}
                 # Associations next
                 for term in frame['_positions']:
                     for other_term in frame['_positions']:
                         if term == other_term:
                             continue
                         try:
-                            associations[term][other_term] = associations[term].get(other_term, 0) + 1
+                            field_index.associations[term][other_term] =\
+                                field_index.associations[term].get(other_term, 0) + 1
                         except KeyError:
-                            associations[term] = {other_term: 1}
+                            field_index.associations[term] = {other_term: 1}
                 # Metadata
                 if frame['_metadata']:
                     for field_name, values in frame['_metadata'].iteritems():
@@ -373,138 +383,162 @@ class IndexWriter(object):
                                 # Skip null values
                                 continue
                             try:
-                                metadata[field_name][value].append(frame_id)
+                                field_index.metadata[field_name][value].append(frame_id)
                             except KeyError:
                                 try:
-                                    metadata[field_name][value] = [frame_id]
+                                    field_index.metadata[field_name][value] = [frame_id]
                                 except KeyError:
-                                    metadata[field_name] = {value: [frame_id]}
+                                    field_index.metadata[field_name] = {value: [frame_id]}
                 # Record text field metadata
                 field_name = frame['_field']
                 if field_name is not None:
                     try:
-                        metadata[field_name]['_text'].append(frame_id)
+                        field_index.metadata[field_name]['_text'].append(frame_id)
                     except KeyError:
-                        metadata[field_name] = {'_text': [frame_id]}
+                        field_index.metadata[field_name] = {'_text': [frame_id]}
 
-            return positions, associations, frequencies, metadata
+            return field_index
 
-        rm_frames = {
-            k: json.loads(v)
-            for k, v in self.__storage.get_container_items(IndexWriter.FRAMES_CONTAINER, keys=self.__rm_frames)
-        } if self.__rm_frames else {}
+        for field_name in self.__new_frames.iterkeys():
+            field_index = index_frames(self.__new_frames[field_name])
+            if len(self.__rm_frames) > 0:
+                rm_frames = {
+                    k: json.loads(v)
+                    for k, v in self.__storage.get_container_items(
+                        IndexWriter.FRAMES_CONTAINER.format(field_name), keys=self.__rm_frames
+                    )
+                    if v is not None
+                }
+                rm_field_index = index_frames(rm_frames)
+            else:
+                rm_field_index = index_frames({})
+            if field_name is not None:
+                # Need to merge existing index with un-indexed frames for text fields only
+                positions_index = {k: json.loads(v) if v else {} for k, v in self.__storage.get_container_items(
+                    IndexWriter.POSITIONS_CONTAINER.format(field_name),
+                    field_index.positions.viewkeys() | rm_field_index.positions.viewkeys()
+                )}
+                assocs_index = {k: json.loads(v) if v else {} for k, v in self.__storage.get_container_items(
+                    IndexWriter.ASSOCIATIONS_CONTAINER.format(field_name),
+                    field_index.associations.viewkeys() | rm_field_index.associations.viewkeys()
+                )}
+                frequencies_index = {k: json.loads(v) if v else 0 for k, v in self.__storage.get_container_items(
+                    IndexWriter.FREQUENCIES_CONTAINER.format(field_name),
+                    field_index.frequencies.viewkeys() | rm_field_index.frequencies.viewkeys()
+                )}
 
-        new_positions, new_associations, new_frequencies, new_metadata = index_frames(self.__new_frames)
-        rm_positions, rm_associations, rm_frequencies, rm_metadata = index_frames(rm_frames)
+                # Keys to remove from each index
+                delete_positions_keys = set()
+                delete_assoc_keys = set()
+                delete_frequencies_keys = set()
 
-        # Need to merge existing index with un-indexed frames
-        positions_index = {k: json.loads(v) if v else {} for k, v in self.__storage.get_container_items(
-            IndexWriter.POSITIONS_CONTAINER, new_positions.viewkeys() | rm_positions.viewkeys())}
-        assocs_index = {k: json.loads(v) if v else {} for k, v in self.__storage.get_container_items(
-            IndexWriter.ASSOCIATIONS_CONTAINER, new_associations.viewkeys() | rm_associations.viewkeys())}
-        frequencies_index = {k: json.loads(v) if v else 0 for k, v in self.__storage.get_container_items(
-            IndexWriter.FREQUENCIES_CONTAINER, new_frequencies.viewkeys() | rm_frequencies.viewkeys())}
-        metadata_index = {k: json.loads(v) if v else {} for k, v in self.__storage.get_container_items(
-            IndexWriter.METADATA_CONTAINER, new_metadata.viewkeys() | rm_metadata.viewkeys())}
+                # Positions
+                for term, indices in field_index.positions.iteritems():
+                    for frame_id, index in indices.iteritems():
+                        try:
+                            positions_index[term][frame_id] = positions_index[term][frame_id] + index
+                        except KeyError:
+                            positions_index[term][frame_id] = index
+                for term, indices in rm_field_index.positions.iteritems():
+                    for frame_id, index in indices.iteritems():
+                        for item in index:
+                            positions_index[term][frame_id].remove(item)
+                            if not positions_index[term][frame_id]:
+                                del positions_index[term][frame_id]
+                        if not positions_index[term]:  # No items stored?
+                            del positions_index[term]
+                            delete_positions_keys.add(term)
 
-        # Keys to remove from each index
-        delete_positions_keys = set()
-        delete_assoc_keys = set()
-        delete_frequencies_keys = set()
-        delete_metadata_keys = set()
+                # Associations
+                for term, value in field_index.associations.iteritems():
+                    for other_term, count in value.iteritems():
+                        assocs_index[term][other_term] = assocs_index[term].get(other_term, 0) + count
+                for term, value in rm_field_index.associations.iteritems():
+                    for other_term, count in value.iteritems():
+                        assocs_index[term][other_term] = assocs_index[term][other_term] - count
+                        if assocs_index[term][other_term] == 0:
+                            del assocs_index[term][other_term]
+                    if not assocs_index[term]:  # No associations recorded
+                        del assocs_index[term]
+                        delete_assoc_keys.add(term)
 
-        # Positions
-        for term, indices in new_positions.iteritems():
-            for frame_id, index in indices.iteritems():
-                try:
-                    positions_index[term][frame_id] = positions_index[term][frame_id] + index
-                except KeyError:
-                    positions_index[term][frame_id] = index
-        for term, indices in rm_positions.iteritems():
-            for frame_id, index in indices.iteritems():
-                for item in index:
-                    positions_index[term][frame_id].remove(item)
-                    if not positions_index[term][frame_id]:
-                        del positions_index[term][frame_id]
-                if not positions_index[term]:  # No items stored?
-                    del positions_index[term]
-                    delete_positions_keys.add(term)
+                # Frequencies
+                for key, value in field_index.frequencies.iteritems():
+                    frequencies_index[key] = frequencies_index[key] + value
+                for key, value in rm_field_index.frequencies.iteritems():
+                    frequencies_index[key] = frequencies_index[key] - value
+                    if not frequencies_index[key]:
+                        del frequencies_index[key]
+                        delete_frequencies_keys.add(key)
 
-        # Associations
-        for term, value in new_associations.iteritems():
-            for other_term, count in value.iteritems():
-                assocs_index[term][other_term] = assocs_index[term].get(other_term, 0) + count
-        for term, value in rm_associations.iteritems():
-            for other_term, count in value.iteritems():
-                assocs_index[term][other_term] = assocs_index[term][other_term] - count
-                if assocs_index[term][other_term] == 0:
-                    del assocs_index[term][other_term]
-            if not assocs_index[term]:  # No associations recorded
-                del assocs_index[term]
-                delete_assoc_keys.add(term)
+                # Now do the writing
+                # Positions
+                for key in positions_index:
+                    positions_index[key] = json.dumps(positions_index[key])
+                self.__storage.set_container_items(IndexWriter.POSITIONS_CONTAINER.format(field_name), positions_index)
+                self.__storage.delete_container_items(
+                    IndexWriter.POSITIONS_CONTAINER.format(field_name), delete_positions_keys
+                )
+                # Associations
+                for key in assocs_index:
+                    assocs_index[key] = json.dumps(assocs_index[key])
+                self.__storage.set_container_items(IndexWriter.ASSOCIATIONS_CONTAINER.format(field_name), assocs_index)
+                self.__storage.delete_container_items(
+                    IndexWriter.ASSOCIATIONS_CONTAINER.format(field_name), delete_assoc_keys
+                )
+                # Frequencies
+                for key in frequencies_index:
+                    frequencies_index[key] = json.dumps(frequencies_index[key])
+                self.__storage.set_container_items(
+                    IndexWriter.FREQUENCIES_CONTAINER.format(field_name), frequencies_index
+                )
+                self.__storage.delete_container_items(
+                    IndexWriter.FREQUENCIES_CONTAINER.format(field_name), delete_frequencies_keys
+                )
 
-        # Frequencies
-        for key, value in new_frequencies.iteritems():
-            frequencies_index[key] = frequencies_index[key] + value
-        for key, value in rm_frequencies.iteritems():
-            frequencies_index[key] = frequencies_index[key] - value
-            if not frequencies_index[key]:
-                del frequencies_index[key]
-                delete_frequencies_keys.add(key)
+            # Final storage items - frames and metadata for text and non-text data
+            # Metadata
+            metadata_index = {k: json.loads(v) if v else {} for k, v in self.__storage.get_container_items(
+                IndexWriter.METADATA_CONTAINER.format(field_name),
+                field_index.metadata.viewkeys() | rm_field_index.metadata.viewkeys()
+            )}
+            delete_metadata_keys = set()
+            for name, values in field_index.metadata.iteritems():
+                for value, f_ids in values.iteritems():
+                    try:
+                        metadata_index[name][value].extend(f_ids)
+                    except KeyError:
+                        metadata_index[name][value] = f_ids
+            for name, values in rm_field_index.metadata.iteritems():
+                for value, f_ids in values.iteritems():
+                    metadata_index[name][str(value)] = list(set(metadata_index[name][str(value)]) - set(f_ids))
+                    if not metadata_index[name][str(value)]:
+                        del metadata_index[name][str(value)]
+                if not metadata_index[name]:
+                    del metadata_index[name]
+                    delete_metadata_keys.add(name)
+            for key in metadata_index:
+                metadata_index[key] = json.dumps(metadata_index[key])
+            self.__storage.set_container_items(IndexWriter.METADATA_CONTAINER.format(field_name), metadata_index)
+            self.__storage.delete_container_items(
+                IndexWriter.METADATA_CONTAINER.format(field_name), delete_metadata_keys
+            )
+            # Frames
+            self.__storage.set_container_items(
+                IndexWriter.FRAMES_CONTAINER.format(field_name),
+                {k: json.dumps(v) for k, v in self.__new_frames[field_name].iteritems()}
+            )
+            self.__storage.delete_container_items(IndexWriter.FRAMES_CONTAINER.format(field_name), self.__rm_frames)
+            self.__new_frames[field_name] = {}
 
-        # Metadata
-        for name, values in new_metadata.iteritems():
-            for value, f_ids in values.iteritems():
-                try:
-                    metadata_index[name][value].extend(f_ids)
-                except KeyError:
-                    metadata_index[name][value] = f_ids
-        for name, values in rm_metadata.iteritems():
-            for value, f_ids in values.iteritems():
-                metadata_index[name][str(value)] = list(set(metadata_index[name][str(value)]) - set(f_ids))
-                if not metadata_index[name][str(value)]:
-                    del metadata_index[name][str(value)]
-            if not metadata_index[name]:
-                del metadata_index[name]
-                delete_metadata_keys.add(name)
-
-        # Now do the writing
-        # Positions
-        for key in positions_index:
-            positions_index[key] = json.dumps(positions_index[key])
-        self.__storage.set_container_items(IndexWriter.POSITIONS_CONTAINER, positions_index)
-        self.__storage.delete_container_items(IndexWriter.POSITIONS_CONTAINER, delete_positions_keys)
-        # Associations
-        for key in assocs_index:
-            assocs_index[key] = json.dumps(assocs_index[key])
-        self.__storage.set_container_items(IndexWriter.ASSOCIATIONS_CONTAINER, assocs_index)
-        self.__storage.delete_container_items(IndexWriter.ASSOCIATIONS_CONTAINER, delete_assoc_keys)
-        # Frequencies
-        for key in frequencies_index:
-            frequencies_index[key] = json.dumps(frequencies_index[key])
-        self.__storage.set_container_items(IndexWriter.FREQUENCIES_CONTAINER, frequencies_index)
-        self.__storage.delete_container_items(IndexWriter.FREQUENCIES_CONTAINER, delete_frequencies_keys)
-        # Metadata
-        for key in metadata_index:
-            metadata_index[key] = json.dumps(metadata_index[key])
-        self.__storage.set_container_items(IndexWriter.METADATA_CONTAINER, metadata_index)
-        self.__storage.delete_container_items(IndexWriter.METADATA_CONTAINER, delete_metadata_keys)
-        # Frames
-        if self.__new_frames:
-            self.__storage.set_container_items(IndexWriter.FRAMES_CONTAINER,
-                                               {k: json.dumps(v) for k, v in self.__new_frames.iteritems()})
-        if self.__rm_frames:
-            self.__storage.delete_container_items(IndexWriter.FRAMES_CONTAINER, self.__rm_frames)
-        self.__new_frames = {}
-        self.__rm_frames = set()
         # Documents
-        if self.__new_documents:
-            self.__storage.set_container_items(IndexWriter.DOCUMENTS_CONTAINER,
-                                               {k: json.dumps(v) for k, v in self.__new_documents.iteritems()})
-        if self.__rm_documents:
-            self.__storage.delete_container_items(IndexWriter.DOCUMENTS_CONTAINER, self.__rm_documents)
+        self.__storage.set_container_items(IndexWriter.DOCUMENTS_CONTAINER,
+                                           {k: json.dumps(v) for k, v in self.__new_documents.iteritems()})
+        self.__storage.delete_container_items(IndexWriter.DOCUMENTS_CONTAINER, self.__rm_documents)
         self.__new_documents = {}
         self.__rm_documents = set()
+
+        self.__rm_frames = set()
 
     def commit(self):
         """Commit changes made by this writer by calling :meth:`.flush` then ``commit()`` on the storage instance."""
@@ -576,6 +610,11 @@ class IndexWriter(object):
         document_id = uuid.uuid4().hex
         sentence_tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
 
+        doc_fields = {
+            '_id': document_id,
+            '_frames': []  # List of frames for this doc
+        }
+
         # Build the frames by performing required analysis.
         frames = {}  # Frame data:: frame_id -> {key: value}
         metadata = {}  # Inverted frame metadata:: field_name -> field_value
@@ -590,7 +629,6 @@ class IndexWriter(object):
         logger.debug('Starting tokenization of document {}'.format(document_id))
         frame_count = 0
         for field_name, field in schema_fields:
-
             if field_name not in fields or not field.indexed or fields[field_name] is None:
                 # Skip non-indexed fields or fields with no value supplied for this document
                 continue
@@ -635,6 +673,7 @@ class IndexWriter(object):
                         frame = {
                             '_id': frame_id,
                             '_field': field_name,
+                            '_metadata': metadata,
                             '_positions': {},
                             '_sequence_number': frame_count,
                             '_doc_id': document_id,
@@ -659,39 +698,37 @@ class IndexWriter(object):
                         frame.update(shell_frame)
                         frames[frame_id] = frame
 
+            # Store the frames for the current field in our temporary buffer
+            if len(frames) > 0:
+                self.__new_frames[field_name].update(frames)
+                doc_fields['_frames'] += frames.keys()
+                frames = {}
+
         # If someone wants to store something besides text we need to handle it if we want to be a storage engine.
         # This only applies if we had at least 1 indexed field otherwise the frame can't be retrieved.
         # If there was at least 1 indexed field then there must be metadata!
-        if not frames and metadata:
+        if frame_count == 0 and metadata:
             frame_id = "{}-{}".format(document_id, frame_count)
             frame = {
                 '_id': frame_id,
                 '_field': None,  # There is no text field
+                '_metadata': metadata,
                 '_positions': {},
                 '_sequence_number': frame_count,
                 '_doc_id': document_id,
             }
             frame.update(shell_frame)
             frames[frame_id] = frame
-
-        # Make sure we store the meta-data on the frame
-        for f_id in frames:
-            frames[f_id]['_metadata'] = metadata
+            self.__new_frames[None].update(frames)
+            doc_fields['_frames'] = frames.keys()
 
         logger.debug('Tokenization of document {} complete. {} frames created.'.format(document_id, len(frames)))
 
-        # Store the frames - in our temporary buffer
-        self.__new_frames.update(frames)
-
         # Finally add the document to storage.
-        doc_fields = {
-            '_id': document_id,
-            '_frames': frames.keys()  # List of frames for this doc
-        }
-        for field_name, field in schema_fields:
-            if field.stored and field_name in fields:
+        for f_name, field in schema_fields:
+            if field.stored and f_name in fields:
                 # Only record stored fields against the document
-                doc_fields[field_name] = fields[field_name]
+                doc_fields[f_name] = fields[f_name]
         self.__new_documents[document_id] = doc_fields
 
         # Flush buffers if needed
@@ -717,10 +754,10 @@ class IndexWriter(object):
         self.__rm_frames |= set(doc['_frames'])
         self.__rm_documents.add(d_id)
 
-    def fold_term_case(self, merge_threshold=0.7):
+    def fold_term_case(self, field, merge_threshold=0.7):
         """
-        Perform case folding on this index, merging words into names (camel cased word or phrase) and vice-versa
-        depending ``merge_threshold``.
+        Perform case folding on this index ``field``, merging words into names (camel cased word or phrase)
+        and vice-versa depending ``merge_threshold``.
 
         ``merge_threshold`` (float) is used to test when to merge two variants. When the ratio between word and name
         version of a term falls below this threshold the merge is carried out.
@@ -729,24 +766,25 @@ class IndexWriter(object):
             This method calls flush before it runs and doesn't use the internal buffers.
 
         """
+        self.__schema.validate_text_storage_field(field)
         self.flush()
         count = 0
         # Pre-fetch indexes and pass them around to save I/O
         frequencies_index = {
             k: json.loads(v) if v else 0
-            for k, v in self.__storage.get_container_items(IndexWriter.FREQUENCIES_CONTAINER)
+            for k, v in self.__storage.get_container_items(IndexWriter.FREQUENCIES_CONTAINER.format(field))
         }
         associations_index = {
             k: json.loads(v) if v else {}
-            for k, v in self.__storage.get_container_items(IndexWriter.ASSOCIATIONS_CONTAINER)
+            for k, v in self.__storage.get_container_items(IndexWriter.ASSOCIATIONS_CONTAINER.format(field))
         }
         positions_index = {
             k: json.loads(v) if v else {}
-            for k, v in self.__storage.get_container_items(IndexWriter.POSITIONS_CONTAINER)
+            for k, v in self.__storage.get_container_items(IndexWriter.POSITIONS_CONTAINER.format(field))
         }
         frames = {
             k: json.loads(v)
-            for k, v in self.__storage.get_container_items(IndexWriter.FRAMES_CONTAINER)
+            for k, v in self.__storage.get_container_items(IndexWriter.FRAMES_CONTAINER.format(field))
         }
         for w, freq in frequencies_index.items():
             if w.islower() and w.title() in frequencies_index:
@@ -763,22 +801,22 @@ class IndexWriter(object):
                     count += 1
 
         # Update stored data structures
-        self.__storage.clear_container(IndexWriter.ASSOCIATIONS_CONTAINER)
-        self.__storage.set_container_items(IndexWriter.ASSOCIATIONS_CONTAINER,
+        self.__storage.clear_container(IndexWriter.ASSOCIATIONS_CONTAINER.format(field))
+        self.__storage.set_container_items(IndexWriter.ASSOCIATIONS_CONTAINER.format(field),
                                            {k: json.dumps(v) for k, v in associations_index.iteritems()})
-        self.__storage.clear_container(IndexWriter.POSITIONS_CONTAINER)
-        self.__storage.set_container_items(IndexWriter.POSITIONS_CONTAINER,
+        self.__storage.clear_container(IndexWriter.POSITIONS_CONTAINER.format(field))
+        self.__storage.set_container_items(IndexWriter.POSITIONS_CONTAINER.format(field),
                                            {k: json.dumps(v) for k, v in positions_index.iteritems()})
-        self.__storage.clear_container(IndexWriter.FREQUENCIES_CONTAINER)
-        self.__storage.set_container_items(IndexWriter.FREQUENCIES_CONTAINER,
+        self.__storage.clear_container(IndexWriter.FREQUENCIES_CONTAINER.format(field))
+        self.__storage.set_container_items(IndexWriter.FREQUENCIES_CONTAINER.format(field),
                                            {k: json.dumps(v) for k, v in frequencies_index.iteritems()})
-        self.__storage.set_container_items(IndexWriter.FRAMES_CONTAINER,
+        self.__storage.set_container_items(IndexWriter.FRAMES_CONTAINER.format(field),
                                            {f_id: json.dumps(d) for f_id, d in frames.iteritems()})
         logger.debug("Merged {} terms during case folding.".format(count))
 
-    def merge_terms(self, merges):
+    def merge_terms(self, merges, field):
         """
-        Merge the terms in ``merges``.
+        Merge the terms in ``merges`` for ``field``.
 
         ``merges`` (list) should be a list of str tuples of the format ``(old_term, new_term,)``. If new_term is ``''``
         then old_term is removed. N-grams can be specified by supplying a str tuple instead of str for the old term.
@@ -792,24 +830,25 @@ class IndexWriter(object):
             This method calls flush before it runs and doesn't use the internal buffers.
 
         """
+        self.__schema.validate_text_storage_field(field)
         self.flush()
         count = 0
         # Pre-fetch indexes and pass them around to save I/O
         frequencies_index = {
             k: json.loads(v) if v else 0
-            for k, v in self.__storage.get_container_items(IndexWriter.FREQUENCIES_CONTAINER)
+            for k, v in self.__storage.get_container_items(IndexWriter.FREQUENCIES_CONTAINER.format(field))
         }
         associations_index = {
             k: json.loads(v) if v else {}
-            for k, v in self.__storage.get_container_items(IndexWriter.ASSOCIATIONS_CONTAINER)
+            for k, v in self.__storage.get_container_items(IndexWriter.ASSOCIATIONS_CONTAINER.format(field))
         }
         positions_index = {
             k: json.loads(v) if v else {}
-            for k, v in self.__storage.get_container_items(IndexWriter.POSITIONS_CONTAINER)
+            for k, v in self.__storage.get_container_items(IndexWriter.POSITIONS_CONTAINER.format(field))
         }
         frames = {
             k: json.loads(v)
-            for k, v in self.__storage.get_container_items(IndexWriter.FRAMES_CONTAINER)
+            for k, v in self.__storage.get_container_items(IndexWriter.FRAMES_CONTAINER.format(field))
         }
         for old_term, new_term in merges:
             logger.debug('Merging {} into {}'.format(old_term, new_term))
@@ -825,16 +864,16 @@ class IndexWriter(object):
                 logger.exception('One of the terms doesn\'t exist in the index!')
 
         # Update indexes
-        self.__storage.clear_container(IndexWriter.ASSOCIATIONS_CONTAINER)
-        self.__storage.set_container_items(IndexWriter.ASSOCIATIONS_CONTAINER,
+        self.__storage.clear_container(IndexWriter.ASSOCIATIONS_CONTAINER.format(field))
+        self.__storage.set_container_items(IndexWriter.ASSOCIATIONS_CONTAINER.format(field),
                                            {k: json.dumps(v) for k, v in associations_index.iteritems()})
-        self.__storage.clear_container(IndexWriter.POSITIONS_CONTAINER)
-        self.__storage.set_container_items(IndexWriter.POSITIONS_CONTAINER,
+        self.__storage.clear_container(IndexWriter.POSITIONS_CONTAINER.format(field))
+        self.__storage.set_container_items(IndexWriter.POSITIONS_CONTAINER.format(field),
                                            {k: json.dumps(v) for k, v in positions_index.iteritems()})
-        self.__storage.clear_container(IndexWriter.FREQUENCIES_CONTAINER)
-        self.__storage.set_container_items(IndexWriter.FREQUENCIES_CONTAINER,
+        self.__storage.clear_container(IndexWriter.FREQUENCIES_CONTAINER.format(field))
+        self.__storage.set_container_items(IndexWriter.FREQUENCIES_CONTAINER.format(field),
                                            {k: json.dumps(v) for k, v in frequencies_index.iteritems()})
-        self.__storage.set_container_items(IndexWriter.FRAMES_CONTAINER,
+        self.__storage.set_container_items(IndexWriter.FRAMES_CONTAINER.format(field),
                                            {f_id: json.dumps(d) for f_id, d in frames.iteritems()})
         logger.debug("Merged {} terms during manual merge.".format(count))
 
@@ -1085,8 +1124,10 @@ class IndexWriter(object):
         All keyword arguments are treated as ``(field_name, field_type)`` pairs.
 
         """
-        for name, value in fields.iteritems():
-            self.__schema.add(name, value)
+        for field_name, value in fields.iteritems():
+            self.__schema.add(field_name, value)
+            if field_name in self.__schema.get_indexed_text_fields():
+                self._init_text_field(field_name)
         self.__config.schema = self.__schema
         # Save updated schema
         with open(os.path.join(self._path, IndexWriter.CONFIG_FILE), 'w') as f:
@@ -1098,10 +1139,23 @@ class IndexWriter(object):
 
     def set_schema(self, schema):
         """Update the schema for this index."""
+        for field in set(schema.get_indexed_text_fields()) - set(self.__schema.get_indexed_text_fields()):
+            self._init_text_field(field)
         self.__schema = schema
         self.__config.schema = schema
         with open(os.path.join(self._path, IndexWriter.CONFIG_FILE), 'w') as f:
             f.write(self.__config.dumps())
+
+    def _init_text_field(self, field):
+        """Initialise storage containers for text ``field``."""
+        storage = self.__config.storage_cls(self._path)
+        storage.begin()
+        storage.add_container(IndexWriter.FRAMES_CONTAINER.format(field))
+        storage.add_container(IndexWriter.POSITIONS_CONTAINER.format(field))
+        storage.add_container(IndexWriter.ASSOCIATIONS_CONTAINER.format(field))
+        storage.add_container(IndexWriter.FREQUENCIES_CONTAINER.format(field))
+        storage.add_container(IndexWriter.METADATA_CONTAINER.format(field))
+        storage.commit()
 
 
 class IndexReader(object):
@@ -1191,9 +1245,9 @@ class IndexReader(object):
         self.__storage.commit()
         self.__storage.close()
 
-    def get_positions_index(self):
+    def get_positions_index(self, field=None):
         """
-        Get all term positions.
+        Get all term positions for ``field``.
 
         This is a generator which yields a key/value pair tuple.
 
@@ -1208,12 +1262,13 @@ class IndexReader(object):
             }
 
         """
-        for k, v in self.__storage.get_container_items(IndexWriter.POSITIONS_CONTAINER):
+        self.__schema.validate_text_storage_field(field)
+        for k, v in self.__storage.get_container_items(IndexWriter.POSITIONS_CONTAINER.format(field)):
             yield (k, json.loads(v))
 
-    def get_term_positions(self, term):
+    def get_term_positions(self, term, field=None):
         """
-        Returns a dict of term positions for ``term`` (str).
+        Returns a dict of term positions for ``term`` (str) and ``field``.
 
         Structure of returned dict is as follows::
 
@@ -1224,11 +1279,12 @@ class IndexReader(object):
         }
 
         """
-        return json.loads(self.__storage.get_container_item(IndexWriter.POSITIONS_CONTAINER, term))
+        self.__schema.validate_text_storage_field(field)
+        return json.loads(self.__storage.get_container_item(IndexWriter.POSITIONS_CONTAINER.format(field), term))
 
-    def get_associations_index(self):
+    def get_associations_index(self, field=None):
         """
-        Term associations for this Index.
+        Term associations for this Index and ``field``.
 
         This is used to record when two terms co-occur in a document. Be aware that only 1 co-occurrence for two terms
         is recorded per document no matter the frequency of each term. The format is as follows::
@@ -1244,16 +1300,20 @@ class IndexReader(object):
         This method is a generator which yields key/value pair tuples.
 
         """
-        for k, v in self.__storage.get_container_items(IndexWriter.ASSOCIATIONS_CONTAINER):
+        self.__schema.validate_text_storage_field(field)
+        for k, v in self.__storage.get_container_items(IndexWriter.ASSOCIATIONS_CONTAINER.format(field)):
             yield (k, json.loads(v))
 
-    def get_term_association(self, term, association):
-        """Returns a count of term associations between ``term`` (str) and ``association`` (str)."""
-        return json.loads(self.__storage.get_container_item(IndexWriter.ASSOCIATIONS_CONTAINER, term))[association]
+    def get_term_association(self, term, association, field=None):
+        """Returns a count of term associations between ``term`` (str) and ``association`` (str) for ``field``."""
+        self.__schema.validate_text_storage_field(field)
+        return json.loads(self.__storage.get_container_item(
+            IndexWriter.ASSOCIATIONS_CONTAINER.format(field), term)
+        )[association]
 
-    def get_frequencies(self):
+    def get_frequencies(self, field=None):
         """
-        Term frequencies for this index.
+        Term frequencies for this index and ``field``.
 
         Be aware that a terms frequency is only incremented by 1 per frame no matter the frequency within that
         frame. The format is as follows::
@@ -1269,24 +1329,27 @@ class IndexReader(object):
             all of the terms positions returned by :meth:`.get_term_position`.
 
         """
-        for k, v in self.__storage.get_container_items(IndexWriter.FREQUENCIES_CONTAINER):
+        self.__schema.validate_text_storage_field(field)
+        for k, v in self.__storage.get_container_items(IndexWriter.FREQUENCIES_CONTAINER.format(field)):
             yield (k, json.loads(v))
 
-    def get_term_frequency(self, term):
-        """Return the frequency of ``term`` (str) as an int."""
-        return json.loads(self.__storage.get_container_item(IndexWriter.FREQUENCIES_CONTAINER, term))
+    def get_term_frequency(self, term, field=None):
+        """Return the frequency of ``term`` (str) for ``field`` as an int."""
+        self.__schema.validate_text_storage_field(field)
+        return json.loads(self.__storage.get_container_item(IndexWriter.FREQUENCIES_CONTAINER.format(field), term))
 
-    def get_frame_count(self):
-        """Return the int count of frames stored on this index."""
-        return self.__storage.get_container_len(IndexWriter.FRAMES_CONTAINER)
+    def get_frame_count(self, field=None):
+        """Return the int count of frames stored on this index ``field``."""
+        return self.__storage.get_container_len(IndexWriter.FRAMES_CONTAINER.format(field))
 
-    def get_frame(self, frame_id):
-        """Fetch frame ``frame_id`` (str)."""
-        return json.loads(self.__storage.get_container_item(IndexWriter.FRAMES_CONTAINER, frame_id))
+    def get_frame(self, frame_id, field=None):
+        """Fetch frame ``frame_id`` (str) for ``field``."""
+        self.__schema.validate_text_storage_field(field)
+        return json.loads(self.__storage.get_container_item(IndexWriter.FRAMES_CONTAINER.format(field), frame_id))
 
-    def get_frames(self, frame_ids=None):
+    def get_frames(self, field=None, frame_ids=None):
         """
-        Generator across frames from this index.
+        Generator across frames from this index ``field``.
 
         If present, the returned frames will be restricted to those with ids in ``frame_ids`` (list). Format of the
         frames index data is as follows::
@@ -1301,18 +1364,21 @@ class IndexReader(object):
         This method is a generator that yields tuples of frame_id and frame data dict.
 
         """
-        for k, v in self.__storage.get_container_items(IndexWriter.FRAMES_CONTAINER, keys=frame_ids):
+        self.__schema.validate_storage_field(field)
+        for k, v in self.__storage.get_container_items(IndexWriter.FRAMES_CONTAINER.format(field), keys=frame_ids):
             yield (k, json.loads(v))
 
-    def get_frame_ids(self):
-        """Generator of ids for all frames stored on this index."""
-        for f_id in self.__storage.get_container_keys(IndexWriter.FRAMES_CONTAINER):
+    def get_frame_ids(self, field=None):
+        """Generator of ids for all frames stored on this index ``field``."""
+        self.__schema.validate_storage_field(field)
+        for f_id in self.__storage.get_container_keys(IndexWriter.FRAMES_CONTAINER.format(field)):
             yield f_id
 
     def get_document(self, document_id):
         """Returns the document with the given ``document_id`` (str) as a dict."""
         try:
-            return json.loads(self.__storage.get_container_item(IndexWriter.DOCUMENTS_CONTAINER, document_id))
+            return json.loads(self.__storage.get_container_item(IndexWriter.DOCUMENTS_CONTAINER,
+                                                                document_id))
         except KeyError:
             raise DocumentNotFoundError("No document '{}'".format(document_id))
 
@@ -1327,12 +1393,13 @@ class IndexReader(object):
         If present, the returned documents will be restricted to those with ids in ``document_ids`` (list).
 
         """
-        for k, v in self.__storage.get_container_items(IndexWriter.DOCUMENTS_CONTAINER, keys=document_ids):
+        for k, v in self.__storage.get_container_items(IndexWriter.DOCUMENTS_CONTAINER,
+                                                       keys=document_ids):
             yield (k, json.loads(v))
 
-    def get_metadata(self):
+    def get_metadata(self, field=None):
         """
-        Get the metadata index.
+        Get the metadata index for ``field``.
 
         This method is a generator that yields a key, value tuple. The index is in the following format::
 
@@ -1347,7 +1414,8 @@ class IndexReader(object):
             }
 
         """
-        for k, v in self.__storage.get_container_items(IndexWriter.METADATA_CONTAINER):
+        self.__schema.validate_storage_field(field)
+        for k, v in self.__storage.get_container_items(IndexWriter.METADATA_CONTAINER.format(field)):
             yield (k, json.loads(v))
 
     def get_schema(self):
@@ -1363,16 +1431,17 @@ class IndexReader(object):
         """
         return self.__storage.get_container_item(IndexWriter.INFO_CONTAINER, 'revision')
 
-    def get_vocab_size(self):
-        """Get total number of unique terms identified for this index (int)."""
-        return self.__storage.get_container_len(IndexWriter.POSITIONS_CONTAINER)
+    def get_vocab_size(self, field=None):
+        """Get total number of unique terms identified for this index ``field``."""
+        self.__schema.validate_text_storage_field(field)
+        return self.__storage.get_container_len(IndexWriter.POSITIONS_CONTAINER.format(field))
 
-    def searcher(self, scorer_cls=TfidfScorer):
+    def searcher(self, field=None, scorer_cls=TfidfScorer):
         """
-        Return an :class:`IndexSearcher <caterpillar.search.IndexSearcher>` for this Index.
+        Return an :class:`IndexSearcher <caterpillar.search.IndexSearcher>` for this Index ``field``.
 
         """
-        return IndexSearcher(self, scorer_cls)
+        return IndexSearcher(self, field, scorer_cls)
 
     def get_setting(self, name):
         """Get the setting identified by ``name`` (str)."""

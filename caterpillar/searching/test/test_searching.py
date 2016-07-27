@@ -25,16 +25,16 @@ def test_searching_alice(index_dir):
         config = IndexConfig(SqliteStorage, schema=schema.Schema(text=schema.TEXT(analyser=analyser)))
         with IndexWriter(index_dir, config) as writer:
             writer.add_document(text=data, frame_size=2)
-            writer.fold_term_case()
+            writer.fold_term_case("text")
 
         # Merge bigrams
         with IndexReader(index_dir) as reader:
-            bigrams = find_bi_gram_words(reader.get_frames())
+            bigrams = find_bi_gram_words(reader.get_frames("text"))
         with IndexWriter(index_dir) as writer:
-            writer.merge_terms(merges=[((bigram.split(' ')[0], bigram.split(' ')[1]), bigram) for bigram in bigrams])
+            writer.merge_terms([((bigram.split(' ')[0], bigram.split(' ')[1]), bigram) for bigram in bigrams], "text")
 
         with IndexReader(index_dir) as reader:
-            searcher = reader.searcher()
+            searcher = reader.searcher("text")
             assert searcher.count(QSQ("King")) == searcher.count(QSQ("K?ng"))
             assert searcher.count(QSQ("Queen or K??g")) == 123 == \
                 searcher.count(QSQ("King or Queen"))
@@ -117,12 +117,12 @@ def test_searching_alice_simple(index_dir):
 
         # Merge bigrams
         with IndexReader(index_dir) as reader:
-            bigrams = find_bi_gram_words(reader.get_frames())
+            bigrams = find_bi_gram_words(reader.get_frames("text"))
         with IndexWriter(index_dir) as writer:
-            writer.merge_terms(merges=[((bigram.split(' ')[0], bigram.split(' ')[1]), bigram) for bigram in bigrams])
+            writer.merge_terms([((bigram.split(' ')[0], bigram.split(' ')[1]), bigram) for bigram in bigrams], "text")
 
         with IndexReader(index_dir) as reader:
-            searcher = reader.searcher(scorer_cls=TfidfScorer)
+            searcher = reader.searcher("text")
             results = searcher.search(QSQ('Alice or Caterpillar'))
             text = results[0].data[results[0].text_field]
             assert len(results) == 25
@@ -141,16 +141,16 @@ def test_searching_mt_warning(index_dir):
 
         # Merge bigrams
         with IndexReader(index_dir) as reader:
-            bigrams = find_bi_gram_words(reader.get_frames())
+            bigrams = find_bi_gram_words(reader.get_frames("text"))
         with IndexWriter(index_dir) as writer:
-            writer.merge_terms(merges=[((bigram.split(' ')[0], bigram.split(' ')[1]), bigram) for bigram in bigrams])
+            writer.merge_terms([((bigram.split(' ')[0], bigram.split(' ')[1]), bigram) for bigram in bigrams], "text")
 
         with IndexReader(index_dir) as reader:
-            searcher = reader.searcher()
+            searcher = reader.searcher("text")
             assert searcher.count(QSQ('1770')) == 2
             assert searcher.count(QSQ('1,900')) == 1
             assert searcher.count(QSQ('4.4')) == 1
-            assert searcher.count(QSQ('*')) == reader.get_frame_count()
+            assert searcher.count(QSQ('*')) == reader.get_frame_count("text")
 
 
 def test_searching_twitter(index_dir):
@@ -166,11 +166,11 @@ def test_searching_twitter(index_dir):
                 writer.add_document(text=row[1], sentiment=row[0])
 
         with IndexReader(index_dir) as reader:
-            searcher = reader.searcher()
+            searcher = reader.searcher("text")
             assert searcher.count(QSQ('@NYSenate')) == 1
             assert searcher.count(QSQ('summerdays@gmail.com')) == 1
             assert searcher.count(QSQ('sentiment=positive')) + \
-                searcher.count(QSQ('sentiment=negative')) == reader.get_frame_count()
+                searcher.count(QSQ('sentiment=negative')) == reader.get_frame_count("text")
 
 
 def test_searching_nps(index_dir):
@@ -197,66 +197,74 @@ def test_searching_nps(index_dir):
                                     disliked=row[4], would_like=row[5], nps=row[6], fake2=None)
 
         with IndexReader(index_dir) as reader:
-            searcher = reader.searcher()
-            # Search limited by text field
-            assert reader.get_frame_count() == empty_rows + searcher.count(QSQ('*', 'disliked'))\
-                + searcher.count(QSQ('*', 'liked')) + searcher.count(QSQ('*', 'would_like'))
-            assert searcher.count(QSQ('point*', 'would_like'))\
-                == searcher.count(QSQ('point or points or pointed', 'would_like'))
+            searcher_disliked = reader.searcher(field="disliked")
+            searcher_liked = reader.searcher(field="liked")
+            searcher_would = reader.searcher(field="would_like")
+
+            def search_all(q):
+                return searcher_disliked.search(q) + searcher_liked.search(q) + searcher_would.search(q)
+
+            def count_all(q):
+                return searcher_disliked.count(q) + searcher_liked.count(q) + searcher_would.count(q)
+
+            assert empty_rows == reader.searcher().count(QSQ('*'))
+            assert searcher_liked.count(QSQ('*')) == 10891
+            assert searcher_disliked.count(QSQ('*')) == 3149
+            assert searcher_would.count(QSQ('*')) == 1851
+            assert searcher_would.count(QSQ('point*'))\
+                == searcher_would.count(QSQ('point or points or pointed'))
 
             # Verify uniqueness of returned results
             docs = set()
-            results = searcher.search(QSQ('region=Otago and nps<5'))
+            results = search_all(QSQ('region=Otago and nps<5'))
             for hit in results:
                 docs.add(hit.doc_id)
             assert len(docs) == 5
             assert len(results) == 15
 
             # Metadata field searching
-            assert searcher.count(QSQ('nps=10 and store=DANNEVIRKE')) == 6
-            num_christchurch = searcher.count(QSQ('region=Christchurch'))
+            assert count_all(QSQ('nps=10 and store=DANNEVIRKE')) == 6
+            num_christchurch = count_all(QSQ('region=Christchurch'))
             num_null_nps_christchurch = num_christchurch \
-                - searcher.count(QSQ('region=Christchurch and nps > 0'))
-            assert num_christchurch == searcher.count(QSQ('region=Christchurch and nps < 8')) \
-                + searcher.count(QSQ('region=Christchurch and nps >= 8')) \
+                - count_all(QSQ('region=Christchurch and nps > 0'))
+            assert num_christchurch == count_all(QSQ('region=Christchurch and nps < 8')) \
+                + count_all(QSQ('region=Christchurch and nps >= 8')) \
                 + num_null_nps_christchurch
-            assert searcher.count(QSQ('region=Christchurch and nps>7 and (reliable or quick)')) \
-                == searcher.count(QSQ('region = Christchurch and nps>7')) \
-                - searcher.count(QSQ('region=Christchurch and nps > 7 not (reliable or quick)'))
-            assert searcher.count(QSQ('nps>0')) == searcher.count(QSQ('nps<=7')) \
-                + searcher.count(QSQ('nps>7'))
-            assert searcher.count(QSQ('region=Christ*')) == num_christchurch == 1399
-            assert searcher.count(QSQ('fake=1')) == 0
-            assert searcher.count(QSQ('fake2=something')) == 0
-            assert searcher.count(QSQ('region=nonexistentregion')) == 0
+            assert count_all(QSQ('region=Christchurch and nps>7 and (reliable or quick)')) \
+                == count_all(QSQ('region = Christchurch and nps>7')) \
+                - count_all(QSQ('region=Christchurch and nps > 7 not (reliable or quick)'))
+            assert count_all(QSQ('nps>0')) == count_all(QSQ('nps<=7')) \
+                + count_all(QSQ('nps>7'))
+            assert count_all(QSQ('region=Christ*')) == num_christchurch
+            assert count_all(QSQ('fake=1')) == 0
+            assert count_all(QSQ('fake2=something')) == 0
+            assert count_all(QSQ('region=nonexistentregion')) == 0
 
             # Check all incorrect usages of metadata field searching
             with pytest.raises(QueryError):
-                searcher.count(QSQ('nps >= 1?'))
+                count_all(QSQ('nps >= 1?'))
             with pytest.raises(QueryError):
-                searcher.count(QSQ('nps=?'))
+                count_all(QSQ('nps=?'))
             with pytest.raises(QueryError):
-                searcher.count(QSQ('n*s=10'))
+                count_all(QSQ('n*s=10'))
             with pytest.raises(QueryError):
-                searcher.count(QSQ('badfield=something'))
+                count_all(QSQ('badfield=something'))
             with pytest.raises(QueryError):
-                searcher.count(QSQ('liked=something'))
+                count_all(QSQ('liked=something'))
             with pytest.raises(QueryError):
-                searcher.count(QSQ('region>something'))
+                count_all(QSQ('region>something'))
             with pytest.raises(QueryError):
-                searcher.count(QSQ('region>=something'))
+                count_all(QSQ('region>=something'))
             with pytest.raises(QueryError):
-                searcher.count(QSQ('region<something'))
+                count_all(QSQ('region<something'))
             with pytest.raises(QueryError):
-                searcher.count(QSQ('region<=something'))
+                count_all(QSQ('region<=something'))
             with pytest.raises(QueryError):
-                searcher.count(QSQ('respondant=something'))
+                count_all(QSQ('respondant=something'))
             with pytest.raises(QueryError):
-                searcher.count(QSQ('region>Christchurch'))
+                count_all(QSQ('region>Christchurch'))
             with pytest.raises(QueryError):
-                searcher.count(QSQ('nps>bad'))
-            with pytest.raises(QueryError):
-                searcher.count(QSQ('*', 'badfield'))
+                count_all(QSQ('nps>bad'))
 
 
 def test_searching_nps_no_text(index_dir):
@@ -300,11 +308,11 @@ def test_searching_reserved_words(index_dir):
             text=schema.TEXT(analyser=TestAnalyser(stopword_list=[]))))
         with IndexWriter(index_dir, config) as writer:
             writer.add_document(text=data, frame_size=2)
-            writer.fold_term_case()
+            writer.fold_term_case("text")
 
         with IndexReader(index_dir) as reader:
-            searcher = reader.searcher()
-            assert searcher.count(QSQ('"and"')) == sum(1 for _ in reader.get_term_positions('and')) == 469
+            searcher = reader.searcher("text")
+            assert searcher.count(QSQ('"and"')) == sum(1 for _ in reader.get_term_positions('and', 'text')) == 469
             assert searcher.count(QSQ('"or"')) == 0
             assert searcher.count(QSQ('"not"')) == 117
 

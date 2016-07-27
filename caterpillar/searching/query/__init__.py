@@ -36,7 +36,7 @@ class BaseQuery(object):
     __metaclass__ = abc.ABCMeta
 
     @abc.abstractmethod
-    def evaluate(self, index):
+    def evaluate(self, index, field):
         """
         Evaluate this query against the specified ``index``.
 

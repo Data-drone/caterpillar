@@ -31,11 +31,11 @@ class _MatchQuery(BaseQuery):
         self.intersection = intersection
         self.exclude_queries = exclude_queries
 
-    def evaluate(self, index):
-        results = [q.evaluate(index) for q in self.queries]
+    def evaluate(self, index, field):
+        results = [q.evaluate(index, field) for q in self.queries]
         query_result = self._merge_query_results(results)
         if self.exclude_queries:
-            self._exclude_query_results(query_result, [q.evaluate(index) for q in self.exclude_queries])
+            self._exclude_query_results(query_result, [q.evaluate(index, field) for q in self.exclude_queries])
         return query_result
 
     @classmethod

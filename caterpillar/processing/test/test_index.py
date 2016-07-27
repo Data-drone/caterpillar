@@ -29,8 +29,8 @@ def test_index_open(index_dir):
             writer.add_document(text=data, document='alice.txt', flag=True, frame_size=2)
 
         with IndexReader(index_dir) as reader:
-            assert sum(1 for _ in reader.get_frequencies()) == 500
-            assert reader.get_term_frequency('Alice') == 23
+            assert sum(1 for _ in reader.get_frequencies("text")) == 500
+            assert reader.get_term_frequency('Alice', "text") == 23
             assert reader.get_document_count() == 1
             assert isinstance(reader.get_schema()['text'], TEXT)
 
@@ -99,14 +99,17 @@ def test_index_alice(index_dir):
                                          ref=123, frame_size=2)
 
         with IndexReader(index_dir) as reader:
-            assert sum(1 for _ in reader.get_term_positions('nice')) == 3
-            assert sum(1 for _ in reader.get_term_positions('key')) == 5
+            assert sum(1 for _ in reader.get_term_positions('nice', 'text')) == 3
+            assert sum(1 for _ in reader.get_term_positions('key', 'text')) == 5
 
-            assert reader.get_term_association('Alice', 'poor') == reader.get_term_association('poor', 'Alice') == 3
-            assert reader.get_term_association('key', 'golden') == reader.get_term_association('golden', 'key') == 3
+            assert reader.get_term_association('Alice', 'poor', field='text') == \
+                reader.get_term_association('poor', 'Alice', field='text') == 3
+            assert reader.get_term_association('key', 'golden', field='text') == \
+                reader.get_term_association('golden', 'key', field='text') == 3
 
-            assert reader.get_vocab_size() == sum(1 for _ in reader.get_frequencies()) == 500
-            assert reader.get_term_frequency('Alice') == 23
+            assert reader.get_vocab_size('text') == sum(1 for _ in reader.get_frequencies('text')) == 500
+            assert reader.get_term_frequency('Alice', 'text') == 23
+            assert reader.get_term_frequency('managed', 'text') == 1
 
             # Make sure this works
             reader.__sizeof__()
@@ -138,9 +141,10 @@ def test_index_alice(index_dir):
                 writer.delete_document(doc_id)
 
         with IndexReader(index_dir) as reader:
-            assert 'Alice' not in reader.get_frequencies()
-            assert 'Alice' not in reader.get_associations_index()
-            assert 'Alice' not in reader.get_positions_index()
+            assert 'Alice' not in reader.get_frequencies('text')
+            assert 'Alice' not in reader.get_associations_index('text')
+            assert 'Alice' not in reader.get_positions_index('text')
+            assert reader.get_frame_count('text') == 0
 
         # Test not text
         with IndexWriter(index_dir) as writer:
@@ -153,7 +157,7 @@ def test_index_alice(index_dir):
             writer.add_document(text=unicode("unicode data"), document='test', frame_size=0)
 
         with IndexReader(index_dir) as reader:
-            assert reader.get_frame_count() == 2
+            assert reader.get_frame_count('text') == 2
 
 
 def test_index_writer_rollback(index_dir):
@@ -202,10 +206,10 @@ def test_index_frames_docs_alice(index_dir):
             writer.add_document(text=data, document='alice.txt', frame_size=2)
 
         with IndexReader(index_dir) as reader:
-            assert reader.get_frame_count() == 52
+            assert reader.get_frame_count('text') == 52
 
-            frame_id = reader.get_term_positions('Alice').keys()[0]
-            assert frame_id == reader.get_frame(frame_id)['_id']
+            frame_id = reader.get_term_positions('Alice', 'text').keys()[0]
+            assert frame_id == reader.get_frame(frame_id, 'text')['_id']
 
             doc_id = frame_id.split('-')[0]
             assert doc_id == reader.get_document(doc_id)['_id']
@@ -221,9 +225,9 @@ def test_index_moby_small(index_dir):
             writer.add_document(text=data, frame_size=2, )
 
         with IndexReader(index_dir) as reader:
-            assert sum(1 for _ in reader.get_term_positions('Mr. Chace')) == 1
-            assert sum(1 for _ in reader.get_term_positions('CONVERSATIONS')) == 1
-            assert sum(1 for _ in reader.get_frequencies()) == 38
+            assert sum(1 for _ in reader.get_term_positions('Mr. Chace', 'text')) == 1
+            assert sum(1 for _ in reader.get_term_positions('CONVERSATIONS', 'text')) == 1
+            assert sum(1 for _ in reader.get_frequencies('text')) == 38
 
 
 def test_index_alice_bigram_discovery(index_dir):
@@ -233,7 +237,7 @@ def test_index_alice_bigram_discovery(index_dir):
             writer.add_document(text=data, frame_size=2)
 
         with IndexReader(index_dir) as reader:
-            bi_grams = find_bi_gram_words(reader.get_frames())
+            bi_grams = find_bi_gram_words(reader.get_frames('text'))
             assert len(bi_grams) == 4
             assert 'golden key' in bi_grams
 
@@ -245,7 +249,7 @@ def test_moby_bigram_discovery(index_dir):
             writer.add_document(text=data, frame_size=2)
 
         with IndexReader(index_dir) as reader:
-            bi_grams = find_bi_gram_words(reader.get_frames())
+            bi_grams = find_bi_gram_words(reader.get_frames('text'))
             assert len(bi_grams) == 10
             assert 'steering oar' in bi_grams
 
@@ -257,7 +261,7 @@ def test_wikileaks_bigram_discovery(index_dir):
             writer.add_document(text=data, frame_size=2)
 
         with IndexReader(index_dir) as reader:
-            bi_grams = find_bi_gram_words(reader.get_frames())
+            bi_grams = find_bi_gram_words(reader.get_frames('text'))
             assert len(bi_grams) == 29
 
 
@@ -268,7 +272,7 @@ def test_employee_survet_bigram_discovery(index_dir):
             writer.add_document(text=data, frame_size=2)
 
         with IndexReader(index_dir) as reader:
-            bi_grams = find_bi_gram_words(reader.get_frames())
+            bi_grams = find_bi_gram_words(reader.get_frames('text'))
             assert len(bi_grams) == 7
 
 
@@ -279,7 +283,7 @@ def test_index_alice_merge_bigram(index_dir):
         with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT))) as writer:
             writer.add_document(text=data)
         with IndexReader(index_dir) as reader:
-            bi_grams = find_bi_gram_words(reader.get_frames(), min_count=3)
+            bi_grams = find_bi_gram_words(reader.get_frames('text'), min_count=3)
 
         bigram_index = os.path.join(tempfile.mkdtemp(), "bigram")
         merge_index = os.path.join(tempfile.mkdtemp(), "merge")
@@ -307,47 +311,46 @@ def test_index_alice_merge_bigram(index_dir):
             analyser = TestAnalyser()
             with IndexWriter(merge_index, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser)))) as writer:
                 writer.add_document(text=data)
-                writer.merge_terms(merges)
+                writer.merge_terms(merges, 'text')
 
             # Verify indexes match
             with IndexReader(merge_index) as merges, IndexReader(bigram_index) as bigrams:
                 # Frequencies
-                assert bigrams.get_term_frequency('golden key') == 6
-                assert bigrams.get_term_frequency('golden') == 1
-                assert bigrams.get_term_frequency('key') == 3
-                merge_frequencies = {k: v for k, v in merges.get_frequencies()}
-                for term, frequency in bigrams.get_frequencies():
+                assert bigrams.get_term_frequency('golden key', 'text') == 6
+                assert bigrams.get_term_frequency('golden', 'text') == 1
+                assert bigrams.get_term_frequency('key', 'text') == 3
+                merge_frequencies = {k: v for k, v in merges.get_frequencies('text')}
+                for term, frequency in bigrams.get_frequencies('text'):
                     assert merge_frequencies[term] == frequency
                 # Associations
-                merge_associations = {k: v for k, v in merges.get_associations_index()}
-                for term, associations in bigrams.get_associations_index():
+                merge_associations = {k: v for k, v in merges.get_associations_index('text')}
+                for term, associations in bigrams.get_associations_index('text'):
                     assert merge_associations[term] == associations
                 # Frame positions
                 frame_mappings = {}
-                merge_frames = sorted({k: v for k, v in merges.get_frames()}.values(),
+                merge_frames = sorted({k: v for k, v in merges.get_frames('text')}.values(),
                                       key=lambda t: t['_sequence_number'])
-                bigram_frames = sorted({k: v for k, v in bigrams.get_frames()}.values(),
+                bigram_frames = sorted({k: v for k, v in bigrams.get_frames('text')}.values(),
                                        key=lambda t: t['_sequence_number'])
                 for i, merge_frame in enumerate(merge_frames):
                     frame_mappings[bigram_frames[i]['_id']] = merge_frame['_id']
                     assert merge_frame['_positions'] == bigram_frames[i]['_positions']
                 # Global positions
-                merge_positions = {k: v for k, v in merges.get_positions_index()}
-                for term, positions in bigrams.get_positions_index():
+                merge_positions = {k: v for k, v in merges.get_positions_index('text')}
+                for term, positions in bigrams.get_positions_index('text'):
                     for f_id, f_positions in positions.iteritems():
                         assert f_positions == merge_positions[term][frame_mappings[f_id]]
 
-                with pytest.raises(Exception):
-                    merges.merge_terms([[('hot', 'dog',), '']])
-
             with IndexWriter(merge_index) as writer:
-                writer.merge_terms([[('garbage', 'term',), 'test']])
-                writer.merge_terms([[('Alice', 'garbage',), 'test']])
+                writer.merge_terms([('garbage', 'term',)], 'text')
+                writer.merge_terms([('Alice', 'garbage',)], 'text')
+                writer.merge_terms([[('gdgdsg', 'dsdggds',), 'abc']], 'text')
+                writer.merge_terms([[('King', 'dsdggds',), 'abc']], 'text')
             with IndexReader(merge_index) as reader:
                 with pytest.raises(KeyError):
-                    reader.get_term_frequency('garbage term')
+                    reader.get_term_frequency('garbage term', 'text')
                 with pytest.raises(KeyError):
-                    reader.get_term_frequency('Alice garbage')
+                    reader.get_term_frequency('Alice garbage', 'text')
         finally:
             shutil.rmtree(bigram_index)
             shutil.rmtree(merge_index)
@@ -360,33 +363,35 @@ def test_index_moby_case_folding(index_dir):
         writer = IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser))))
         with writer:
             writer.add_document(text=data, frame_size=2)
-            writer.fold_term_case()
+            writer.fold_term_case('text')
 
         with IndexReader(index_dir) as reader:
             with pytest.raises(KeyError):
-                reader.get_term_positions('flask')
+                reader.get_term_positions('flask', 'text')
             with pytest.raises(KeyError):
-                assert not reader.get_term_frequency('flask')
-            assert reader.get_term_frequency('Flask') == 88
-            assert reader.get_term_association('Flask', 'person') == reader.get_term_association('person', 'Flask') == 2
+                assert not reader.get_term_frequency('flask', 'text')
+            assert reader.get_term_frequency('Flask', 'text') == 88
+            assert reader.get_term_association('Flask', 'person', field='text') == \
+                reader.get_term_association('person', 'Flask', field='text') == 2
 
             with pytest.raises(KeyError):
-                reader.get_term_positions('Well')
+                reader.get_term_positions('Well', 'text')
             with pytest.raises(KeyError):
-                assert not reader.get_term_frequency('Well')
-            assert reader.get_term_frequency('well') == 194
-            assert reader.get_term_association('well', 'whale') == reader.get_term_association('whale', 'well') == 20
+                assert not reader.get_term_frequency('Well', 'text')
+            assert reader.get_term_frequency('well', 'text') == 194
+            assert reader.get_term_association('well', 'whale', field='text') == \
+                reader.get_term_association('whale', 'well', field='text') == 20
 
             with pytest.raises(KeyError):
-                reader.get_term_positions('Whale')
+                reader.get_term_positions('Whale', 'text')
             with pytest.raises(KeyError):
-                assert not reader.get_term_frequency('Whale')
-            assert reader.get_term_frequency('whale') == 695
-            assert reader.get_term_association('whale', 'American') == \
-                reader.get_term_association('American', 'whale') == 9
+                assert not reader.get_term_frequency('Whale', 'text')
+            assert reader.get_term_frequency('whale', 'text') == 695
+            assert reader.get_term_association('whale', 'American', field='text') == \
+                reader.get_term_association('American', 'whale', field='text') == 9
 
-            assert reader.get_term_frequency('T. HERBERT') == 1
-            assert sum(1 for _ in reader.get_frequencies()) == 20542
+            assert reader.get_term_frequency('T. HERBERT', 'text') == 1
+            assert sum(1 for _ in reader.get_frequencies('text')) == 20542
 
 
 def test_index_merge_terms(index_dir):
@@ -399,14 +404,14 @@ def test_index_merge_terms(index_dir):
             writer.add_document(text=data, frame_size=2)
 
         with IndexReader(index_dir) as reader:
-            assert reader.get_term_frequency('alice') == 86
-            assert reader.get_term_association('alice', 'creatures') == 1
-            assert sum(1 for _ in reader.get_term_positions('alice')) == 86
+            assert reader.get_term_frequency('alice', 'text') == 86
+            assert reader.get_term_association('alice', 'creatures', field='text') == 1
+            assert sum(1 for _ in reader.get_term_positions('alice', 'text')) == 86
 
-            assert reader.get_term_frequency('party') == 8
-            assert reader.get_term_association('party', 'creatures') == 1
-            assert reader.get_term_association('party', 'assembled') == 1
-            assert sum(1 for _ in reader.get_term_positions('party')) == 8
+            assert reader.get_term_frequency('party', 'text') == 8
+            assert reader.get_term_association('party', 'creatures', field='text') == 1
+            assert reader.get_term_association('party', 'assembled', field='text') == 1
+            assert sum(1 for _ in reader.get_term_positions('party', 'text')) == 8
 
         writer = IndexWriter(index_dir)
         with writer:
@@ -415,22 +420,22 @@ def test_index_merge_terms(index_dir):
                 ('alice', 'tplink',),  # rename
                 ('Eaglet', 'party',),  # merge
                 ('idonotexist', '',),  # non-existent term
-            ])
+            ], field='text')
 
         with IndexReader(index_dir) as reader:
             with pytest.raises(KeyError):
-                reader.get_term_frequency('Alice')
+                reader.get_term_frequency('Alice', 'text')
             with pytest.raises(KeyError):
-                reader.get_term_positions('Alice')
+                reader.get_term_positions('Alice', 'text')
 
-            assert reader.get_term_frequency('tplink') == 86
-            assert reader.get_term_association('tplink', 'creatures') == 1
-            assert sum(1 for _ in reader.get_term_positions('tplink')) == 86
+            assert reader.get_term_frequency('tplink', 'text') == 86
+            assert reader.get_term_association('tplink', 'creatures', field='text') == 1
+            assert sum(1 for _ in reader.get_term_positions('tplink', 'text')) == 86
 
-            assert reader.get_term_frequency('party') == 10
-            assert reader.get_term_association('party', 'creatures') == 1
-            assert reader.get_term_association('party', 'assembled') == 1
-            assert sum(1 for _ in reader.get_term_positions('party')) == 10
+            assert reader.get_term_frequency('party', 'text') == 10
+            assert reader.get_term_association('party', 'creatures', field='text') == 1
+            assert reader.get_term_association('party', 'assembled', field='text') == 1
+            assert sum(1 for _ in reader.get_term_positions('party', 'text')) == 10
 
 
 def test_index_alice_case_folding(index_dir):
@@ -442,23 +447,23 @@ def test_index_alice_case_folding(index_dir):
                                                            document=TEXT(analyser=analyser, indexed=False))))
         with writer:
             writer.add_document(text=data, document='alice.txt', frame_size=2)
-            writer.fold_term_case()
+            writer.fold_term_case('text')
 
         with IndexReader(index_dir) as reader:
-            positions_index = {k: v for k, v in reader.get_positions_index()}
-            for frame_id, frame in reader.get_frames():
+            positions_index = {k: v for k, v in reader.get_positions_index('text')}
+            for frame_id, frame in reader.get_frames('text'):
                 for term in frame['_positions']:
                     assert frame_id in positions_index[term]
 
             # Check that associations never exceed frequency of either term
-            associations = {k: v for k, v in reader.get_associations_index()}
-            frequencies = {k: v for k, v in reader.get_frequencies()}
+            associations = {k: v for k, v in reader.get_associations_index('text')}
+            frequencies = {k: v for k, v in reader.get_frequencies('text')}
             for term, term_associations in associations.iteritems():
                 for other_term, assoc in term_associations.items():
                     assert assoc <= frequencies[term] and assoc <= frequencies[other_term]
 
             # Check frequencies against positions
-            frequencies = {k: v for k, v in reader.get_frequencies()}
+            frequencies = {k: v for k, v in reader.get_frequencies('text')}
             for term, freq in frequencies.items():
                 assert freq == len(positions_index[term])
 
@@ -478,12 +483,12 @@ def test_index_case_fold_no_new_term(index_dir):
             csv_reader = csv.reader(f)
             for row in csv_reader:
                 writer.add_document(text=row[0])
-            writer.fold_term_case()
+            writer.fold_term_case('text')
 
         with IndexReader(index_dir) as reader:
-            assert reader.get_term_frequency('stirling') == 6
+            assert reader.get_term_frequency('stirling', 'text') == 6
             with pytest.raises(KeyError):
-                reader.get_term_frequency('Stirling')
+                reader.get_term_frequency('Stirling', 'text')
 
 
 def test_index_utf8(index_dir):
@@ -568,8 +573,8 @@ def test_index_reader_writer_isolation(index_dir):
         reader = IndexReader(index_dir)
         reader.begin()
 
-        assert reader.get_frame_count() == 52
-        assert reader.get_term_frequency('Alice') == 23
+        assert reader.get_frame_count('text') == 52
+        assert reader.get_term_frequency('Alice', 'text') == 23
 
         # Add another copy of Alice
         writer = IndexWriter(index_dir, Schema(text=TEXT))
@@ -577,13 +582,13 @@ def test_index_reader_writer_isolation(index_dir):
             writer.add_document(text=data)
 
         # Check reader can't see it
-        assert reader.get_frame_count() == 52
-        assert reader.get_term_frequency('Alice') == 23
+        assert reader.get_frame_count('text') == 52
+        assert reader.get_term_frequency('Alice', 'text') == 23
 
         # Open new reader and make sure it CAN see the changes
         with IndexReader(index_dir) as reader1:
-            assert reader1.get_frame_count() == reader.get_frame_count() * 2
-            assert reader1.get_term_frequency('Alice') == reader.get_term_frequency('Alice') * 2
+            assert reader1.get_frame_count('text') == reader.get_frame_count('text') * 2
+            assert reader1.get_term_frequency('Alice', 'text') == reader.get_term_frequency('Alice', 'text') * 2
 
         reader.close()
 
@@ -597,15 +602,15 @@ def test_index_document_delete(index_dir):
             doc_id = writer.add_document(text=data)
 
         with IndexReader(index_dir) as reader:
-            assert reader.get_frame_count() == 104
-            assert reader.get_term_frequency('Alice') == 46
+            assert reader.get_frame_count('text') == 104
+            assert reader.get_term_frequency('Alice', 'text') == 46
 
         with IndexWriter(index_dir) as writer:
             writer.delete_document(doc_id)
 
         with IndexReader(index_dir) as reader:
-            assert reader.get_frame_count() == 52
-            assert reader.get_term_frequency('Alice') == 23
+            assert reader.get_frame_count('text') == 52
+            assert reader.get_term_frequency('Alice', 'text') == 23
 
 
 def test_index_writer_buffer_flush(index_dir):
@@ -622,3 +627,21 @@ def test_index_writer_buffer_flush(index_dir):
                 fake_flush.assert_called_with()
 
     IndexWriter.RAM_BUFFER_SIZE = old_buffer
+
+
+def test_index_multiple_fields(index_dir):
+    """Test index with multiple text fields."""
+    with open(os.path.abspath('caterpillar/test_resources/government-survey-all.csv'), 'rbU') as f:
+        analyser = TestAnalyser()
+        config = IndexConfig(SqliteStorage, Schema(text1=TEXT(analyser=analyser), text2=TEXT(analyser=analyser)))
+        with IndexWriter(index_dir, config) as writer:
+            csv_reader = csv.reader(f)
+            for row in csv_reader:
+                if row[2] == "IQ1":
+                    writer.add_document(text1=row[3])
+                else:
+                    writer.add_document(text2=row[3])
+
+        with IndexReader(index_dir) as reader:
+            assert reader.get_term_frequency('terrorism', "text1") == 452
+            assert reader.get_term_frequency('terrorism', "text2") == 82
