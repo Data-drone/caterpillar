@@ -11,7 +11,7 @@ from caterpillar.processing import schema
 from caterpillar.searching.query import QueryError
 from caterpillar.searching.query.match import MatchAllQuery, MatchSomeQuery
 from caterpillar.searching.query.querystring import QueryStringQuery as QSQ
-from caterpillar.searching.scoring import SimpleScorer
+from caterpillar.searching.scoring import TfidfScorer
 from caterpillar.storage.sqlite import SqliteStorage
 from caterpillar.test_util import TestAnalyser
 
@@ -58,31 +58,31 @@ def test_searching_alice(index_dir):
             misses = 0
             results = searcher.search(QSQ("Alice or voice"), limit=voice_hits)
             for hit in results:
-                misses = misses + (1 if "voice" not in hit.frame_terms else 0)
-            assert misses == 23
+                misses = misses + (1 if "voice" not in hit.tfs else 0)
+            assert misses == 0
             misses = 0
             results = searcher.search(QSQ("Alice or voice^0.2"), limit=voice_hits)
             for hit in results:
-                misses = misses + (1 if "voice" not in hit.frame_terms else 0)
-            assert misses == 45
+                misses = misses + (1 if "voice" not in hit.tfs else 0)
+            assert misses == 30
             misses = 0
             results = searcher.search(QSQ("Alice or voice^0.5"), limit=voice_hits)
             for hit in results:
-                misses = misses + (1 if "voice" not in hit.frame_terms else 0)
-            assert misses == 36
+                misses = misses + (1 if "voice" not in hit.tfs else 0)
+            assert misses == 15
             results = searcher.search(QSQ("Alice or voice^20"), limit=voice_hits)
             for hit in results:
-                assert "voice" in hit.frame_terms
+                assert "voice" in hit.tfs
             misses = 0
             results = searcher.search(QSQ("Alice or voice"), limit=0)
             for hit in results[-voice_hits:]:
-                misses = misses + (1 if "voice" not in hit.frame_terms else 0)
+                misses = misses + (1 if "voice" not in hit.tfs else 0)
             assert misses == voice_hits
             misses = 0
             results = searcher.search(QSQ("Alice^20 or voice"), limit=0)
             for hit in results[-voice_hits:]:
-                misses = misses + (1 if "voice" not in hit.frame_terms else 0)
-            assert misses == 15
+                misses = misses + (1 if "voice" not in hit.tfs else 0)
+            assert misses == 16
 
             results = searcher.search(QSQ("King not (court or evidence)"))
             assert len(results) == 25
@@ -122,9 +122,12 @@ def test_searching_alice_simple(index_dir):
             writer.merge_terms(merges=[((bigram.split(' ')[0], bigram.split(' ')[1]), bigram) for bigram in bigrams])
 
         with IndexReader(index_dir) as reader:
-            searcher = reader.searcher(scorer_cls=SimpleScorer)
+            searcher = reader.searcher(scorer_cls=TfidfScorer)
             results = searcher.search(QSQ('Alice or Caterpillar'))
-            assert results[0].score == 2
+            text = results[0].data[results[0].text_field]
+            assert len(results) == 25
+            assert 'Alice' in text and 'Caterpillar' in text
+            assert 'Alice' not in results[-1].data[results[-1].text_field]
 
 
 def test_searching_mt_warning(index_dir):
