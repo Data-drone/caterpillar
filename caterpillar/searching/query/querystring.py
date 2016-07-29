@@ -287,6 +287,7 @@ class _QueryStringGrammar(Grammar):
         operand
     )
     START = expr    # Where the grammar must start
+_QueryStringGrammar.pre_compile_grammar()
 
 
 class _QueryStringNode(tuple):
