@@ -16,3 +16,4 @@ coverage_report
 .komodotools
 junit-*
 pep8*
+.ipynb_checkpoints
