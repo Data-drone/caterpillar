@@ -255,6 +255,10 @@ class Schema(object):
         """Returns a list of the names of the fields in this schema."""
         return sorted(self._fields.keys())
 
+    def get_indexed_text_fields(self):
+        """Returns a list of the indexed text fields."""
+        return [name for name, field in self._fields.iteritems() if field._indexed and type(field) == TEXT]
+
     def add(self, name, field_type):
         """
         Adds a field to this schema.
