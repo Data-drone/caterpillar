@@ -147,7 +147,7 @@ def test_index_stored_fields():
 
         with IndexReader(tmp_dir) as reader:
             searcher = reader.searcher()
-            hit = searcher.search(QueryStringQuery("*"), limit=1)[0]
+            hit = searcher.search(QueryStringQuery("*", 'text'), limit=1)[0]
             assert 'text' not in hit.data
             assert 'test2' not in hit.data
             assert hit.data['test'] == 777

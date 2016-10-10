@@ -34,8 +34,9 @@ class TfidfScorer(Scorer):
     Simple tf-idf scorer implementation to be used by ``IndexSearcher``.
 
     """
-    def __init__(self, index):
-        self.num_frames = index.get_frame_count()
+    def __init__(self, index, text_field):
+        self.text_field = text_field
+        self.num_frames = index.get_frame_count(text_field)
         self.index = index
         self.idfs = {}
 

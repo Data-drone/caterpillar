@@ -20,7 +20,7 @@ class IndexSearcher(object):
     """
     def __init__(self, index_reader, scorer_cls=TfidfScorer):
         self.index_reader = index_reader
-        self.scorer = scorer_cls(index_reader)
+        self.scorer = scorer_cls
 
     def count(self, query):
         """
@@ -49,11 +49,12 @@ class IndexSearcher(object):
         ``start`` and ``limit`` define pagination of results, which defaults to the first 25 frames.
 
         """
+        query_scorer = self.scorer(self.index_reader, query.text_field)
         query_result = self._do_query(query)
-        hits = [SearchHit(fid, self.index_reader.get_frame(fid)) for fid in query_result.frame_ids]
+        hits = [SearchHit(fid, self.index_reader.get_frame(fid, query.text_field)) for fid in query_result.frame_ids]
         num_matches = len(hits)
         if num_matches > 0:
-            hits = self.scorer.score_and_rank(hits, query_result.term_weights)[start:]
+            hits = query_scorer.score_and_rank(hits, query_result.term_weights)[start:]
 
         if limit:
             hits = hits[:limit]
