@@ -146,7 +146,7 @@ class SqliteStorage(Storage):
         If ``keys`` is None, iterates all items.
 
         """
-        if keys is not None: # Need to distinguish between empty sets of keys and no keys specified
+        if keys is not None: # If keys is none, return all keys, if keys is an empty set, return nothing
             keys = list(keys)
             for k in self._chunks(keys):
                 cursor = self._execute("SELECT * FROM {} WHERE key IN ({})".format(c_id, ','.join(['?']*len(k))), k)
