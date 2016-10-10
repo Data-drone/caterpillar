@@ -18,21 +18,21 @@ def test_querystring_query_basic(index_dir):
 
     # Simple terms
     with IndexReader(index_dir) as reader:
-        alice_count = len(QueryStringQuery('Alice').evaluate(reader).frame_ids)
-        king_count = len(QueryStringQuery('King').evaluate(reader).frame_ids)
+        alice_count = len(QueryStringQuery('Alice', 'text').evaluate(reader).frame_ids)
+        king_count = len(QueryStringQuery('King', 'text').evaluate(reader).frame_ids)
         assert alice_count > 0
         assert king_count > 0
         # Boolean operators
-        alice_and_king_count = len(QueryStringQuery('Alice AND King').evaluate(reader).frame_ids)
-        alice_not_king_count = len(QueryStringQuery('Alice NOT King').evaluate(reader).frame_ids)
-        alice_or_king_count = len(QueryStringQuery('Alice OR King').evaluate(reader).frame_ids)
-        king_not_alice_count = len(QueryStringQuery('King NOT Alice').evaluate(reader).frame_ids)
+        alice_and_king_count = len(QueryStringQuery('Alice AND King', 'text').evaluate(reader).frame_ids)
+        alice_not_king_count = len(QueryStringQuery('Alice NOT King', 'text').evaluate(reader).frame_ids)
+        alice_or_king_count = len(QueryStringQuery('Alice OR King', 'text').evaluate(reader).frame_ids)
+        king_not_alice_count = len(QueryStringQuery('King NOT Alice', 'text').evaluate(reader).frame_ids)
         assert alice_not_king_count == alice_count - alice_and_king_count
         assert king_not_alice_count == king_count - alice_and_king_count
         assert alice_or_king_count == alice_not_king_count + king_not_alice_count + alice_and_king_count
         # Wildcards
-        assert len(QueryStringQuery('*ice').evaluate(reader).frame_ids) > alice_count
-        assert len(QueryStringQuery('K??g').evaluate(reader).frame_ids) == king_count
+        assert len(QueryStringQuery('*ice', 'text').evaluate(reader).frame_ids) > alice_count
+        assert len(QueryStringQuery('K??g', 'text').evaluate(reader).frame_ids) == king_count
 
 
 def test_querystring_query_advanced(index_dir):
@@ -48,11 +48,21 @@ def test_querystring_query_advanced(index_dir):
 
     # Metadata
     with IndexReader(index_dir) as reader:
-        assert len(QueryStringQuery('age=80').evaluate(reader).frame_ids) == 2
-        assert len(QueryStringQuery('age<80').evaluate(reader).frame_ids) == 6
-        assert len(QueryStringQuery('age>=20').evaluate(reader).frame_ids) == 8
-        assert len(QueryStringQuery('product not gender=male').evaluate(reader).frame_ids) == 2
-        assert len(QueryStringQuery('product not gender=*male').evaluate(reader).frame_ids) == 0
+        # Test presence of terms for each text_field
+        # liked:
+        x = QueryStringQuery('age=80', 'liked').evaluate(reader).frame_ids
+        assert len(QueryStringQuery('age=80', 'liked').evaluate(reader).frame_ids) == 1
+        assert len(QueryStringQuery('age<80', 'liked').evaluate(reader).frame_ids) == 3
+        assert len(QueryStringQuery('age>=20', 'liked').evaluate(reader).frame_ids) == 4
+        assert len(QueryStringQuery('product not gender=male', 'liked').evaluate(reader).frame_ids) == 1
+        assert len(QueryStringQuery('product not gender=*male', 'liked').evaluate(reader).frame_ids) == 0
+        #disliked:
+        assert len(QueryStringQuery('age=80', 'disliked').evaluate(reader).frame_ids) == 1
+        assert len(QueryStringQuery('age<80', 'disliked').evaluate(reader).frame_ids) == 3
+        assert len(QueryStringQuery('age>=20', 'disliked').evaluate(reader).frame_ids) == 4
+        assert len(QueryStringQuery('product not gender=male', 'disliked').evaluate(reader).frame_ids) == 1
+        assert len(QueryStringQuery('product not gender=*male', 'disliked').evaluate(reader).frame_ids) == 0
+
         # Text field
         assert len(QueryStringQuery('product', 'liked').evaluate(reader).frame_ids) == 2
         assert len(QueryStringQuery('gender=female not product', 'disliked').evaluate(reader).frame_ids) == 1
