@@ -717,21 +717,6 @@ class IndexWriter(object):
                         frame.update(shell_frame)
                         frames[field_name][frame_id] = frame
 
-        # If someone wants to store something besides text we need to handle it if we want to be a storage engine.
-        # This only applies if we had at least 1 indexed field otherwise the frame can't be retrieved.
-        # If there was at least 1 indexed field then there must be metadata!
-        if frame_count==0 and metadata:
-            frame_id = "{}-{}".format(document_id, frame_count)
-            frame = {
-                '_id': frame_id,
-                '_field': None,  # There is no text field
-                '_positions': {},
-                '_sequence_number': frame_count,
-                '_doc_id': document_id,
-            }
-            frame.update(shell_frame)
-            frames[frame_id] = frame
-
         # Store the complete metadata in each item
         for field_name, values in frames.iteritems():
             for f_id in values:
@@ -1359,7 +1344,7 @@ class IndexReader(object):
 
     def get_frames(self, field, frame_ids=None,):
         """
-        Generator across frames from this index.
+        Generator across frames from this field in this index.
 
         If present, the returned frames will be restricted to those with ids in ``frame_ids`` (list). Format of the
         frames index data is as follows::

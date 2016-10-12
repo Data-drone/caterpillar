@@ -143,7 +143,7 @@ def test_index_stored_fields():
                                                      test=NUMERIC(stored=True),
                                                      test2=BOOLEAN(stored=False)))) as writer:
             doc_id = writer.add_document(text="hello world", test=777, test2=True,
-                                         frame_size=2, fold_case=False, update_index=True)
+                                         frame_size=2)
 
         with IndexReader(tmp_dir) as reader:
             searcher = reader.searcher()
