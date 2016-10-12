@@ -34,9 +34,8 @@ class TfidfScorer(Scorer):
     Simple tf-idf scorer implementation to be used by ``IndexSearcher``.
 
     """
-    def __init__(self, index, text_field):
-        self.text_field = text_field
-        self.num_frames = index.get_frame_count(text_field)
+    def __init__(self, index):
+        self.num_frames = {}
         self.index = index
         self.idfs = {}
 
@@ -48,18 +47,26 @@ class TfidfScorer(Scorer):
         """
         for hit in hits:
             score = 0
-            for term in term_weights:
+            try:
+                num_frames = self.num_frames[hit.searched_field]
+            except KeyError:
+                num_frames = self.num_frames[hit.searched_field] = self.index.get_frame_count(hit.searched_field)
+            for term in term_weights[hit.searched_field]:
                 try:
                     tf = hit.tfs[term]
                 except KeyError:
                     # term not present in frame
                     continue
                 try:
-                    idf = self.idfs[term]
+                    idf = self.idfs[hit.searched_field][term]
                 except KeyError:
                     # calculate & store term's idf
-                    idf = self.idfs[term] = numpy.log(1 + self.num_frames / (self.index.get_term_frequency(term) + 1))
-                score += term_weights[term] * tf * idf
+                    idf =  numpy.log(1 + num_frames / (self.index.get_term_frequency(term, hit.searched_field) + 1))
+                    try: 
+                        self.idfs[hit.searched_field][term] = idf
+                    except KeyError: 
+                        self.idfs[hit.searched_field] = {term: idf}
+                score += term_weights[hit.searched_field][term] * tf * idf
             hit.score = score
 
         return sorted(hits, key=lambda h: (h.score, len(h.tfs), h.frame_id), reverse=True)

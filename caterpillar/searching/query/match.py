@@ -26,47 +26,28 @@ class _MatchQuery(BaseQuery):
     Optionally accepts a list of ``exclude_queries`` whose results are subtracted from the matched queries.
 
     """
-    def __init__(self, queries, intersection, exclude_queries=None):
+    def __init__(self, queries, intersection, exclude_queries):
         self.queries = queries
         self.intersection = intersection
         self.exclude_queries = exclude_queries
 
     def evaluate(self, index):
-        results = [q.evaluate(index) for q in self.queries]
-        query_result = self._merge_query_results(results)
-        if self.exclude_queries:
-            self._exclude_query_results(query_result, [q.evaluate(index) for q in self.exclude_queries])
-        return query_result
-
-    @classmethod
-    def _exclude_query_results(cls, result, exclude_results):
-        """
-        Take the difference between an existing query result and a list of results to exclude.
+        """Evaluate all queries and combine the results into a single query. 
 
         """
-        for other_result in exclude_results:
-            result.frame_ids = result.frame_ids.difference(other_result.frame_ids)
+        results = (q.evaluate(index) for q in self.queries)
+        query_result = next(results)
 
-    def _merge_query_results(self, results):
-        """
-        Merge the specified query results together, optionally by their intersection.
-
-        """
-        result = results[0]
-        for other_result in results[1:]:
-            # Merge frame ids
+        for other_result in results:
             if self.intersection:
-                result.frame_ids.intersection_update(other_result.frame_ids)
+                query_result &= other_result
             else:
-                result.frame_ids.update(other_result.frame_ids)
-            # Merge term weights
-            for term, weight in other_result.term_weights.iteritems():
-                if term in result.term_weights:
-                    result.term_weights[term] = max(result.term_weights[term], weight)
-                else:
-                    result.term_weights[term] = weight
+                query_result |= other_result
 
-        return result
+        for exclude_result in (q.evaluate(index) for q in self.exclude_queries):
+            query_result -= exclude_result
+
+        return query_result
 
 
 class MatchAllQuery(_MatchQuery):
@@ -75,7 +56,7 @@ class MatchAllQuery(_MatchQuery):
     subtracting the results of ``exclude_queries``.
 
     """
-    def __init__(self, queries, exclude_queries=None):
+    def __init__(self, queries, exclude_queries=[]):
         super(MatchAllQuery, self).__init__(queries, True, exclude_queries)
 
 
@@ -85,5 +66,5 @@ class MatchSomeQuery(_MatchQuery):
     results of ``exclude_queries``.
 
     """
-    def __init__(self, queries, exclude_queries=None):
+    def __init__(self, queries, exclude_queries=[]):
         super(MatchSomeQuery, self).__init__(queries, False, exclude_queries)

@@ -25,69 +25,76 @@ def test_searching_alice(index_dir):
         config = IndexConfig(SqliteStorage, schema=schema.Schema(text=schema.TEXT(analyser=analyser)))
         with IndexWriter(index_dir, config) as writer:
             writer.add_document(text=data, frame_size=2)
-            writer.fold_term_case()
+            writer.fold_term_case('text')
 
         # Merge bigrams
         with IndexReader(index_dir) as reader:
-            bigrams = find_bi_gram_words(reader.get_frames())
+            bigrams = find_bi_gram_words(reader.get_frames('text'))
         with IndexWriter(index_dir) as writer:
-            writer.merge_terms(merges=[((bigram.split(' ')[0], bigram.split(' ')[1]), bigram) for bigram in bigrams])
+            writer.merge_terms(merges=[((bigram.split(' ')[0], bigram.split(' ')[1]), bigram) for bigram in bigrams],
+                               text_field='text')
 
         with IndexReader(index_dir) as reader:
             searcher = reader.searcher()
-            assert searcher.count(QSQ("King")) == searcher.count(QSQ("K?ng"))
-            assert searcher.count(QSQ("Queen or K??g")) == 123 == \
-                searcher.count(QSQ("King or Queen"))
-            assert searcher.count(QSQ("King AND Queen")) == 4 == \
-                searcher.count(MatchAllQuery([QSQ('King'), QSQ('Queen')])) == \
-                searcher.count(QSQ('King')) - searcher.count(QSQ('King not Queen'))
-            assert searcher.count(QSQ("King NOT Queen")) == 56
-            assert searcher.count(QSQ('golden key')) == 6
-            assert searcher.count(QSQ('*ing')) == 512
-            assert searcher.count(QSQ("Alice and (thought or little)")) == \
-                searcher.count(QSQ("Alice and thought or Alice and little")) == 95 == \
-                searcher.count(MatchAllQuery([QSQ('Alice'), MatchSomeQuery([QSQ('thought'), QSQ('little')])]))
-            assert searcher.count(QSQ("thistermdoesntexist")) == 0
-            assert searcher.count(QSQ('Mock Turtle')) == 51
-            assert searcher.count(QSQ('*t? R*b??')) == searcher.count(QSQ('White Rabbit'))
+            assert searcher.count(QSQ("King", 'text')) == searcher.count(QSQ("K?ng", 'text'))
+            assert searcher.count(QSQ("Queen or K??g", 'text')) == 123 == \
+                searcher.count(QSQ("King or Queen", 'text'))
+            assert searcher.count(QSQ("King AND Queen", 'text')) == 4 == \
+                searcher.count(MatchAllQuery([QSQ('King', 'text'), QSQ('Queen', 'text')])) == \
+                searcher.count(QSQ('King', 'text')) - searcher.count(QSQ('King not Queen', 'text'))
+            assert searcher.count(QSQ("King NOT Queen", 'text')) == 56
+            assert searcher.count(QSQ('golden key', 'text')) == 6
+            assert searcher.count(QSQ('*ing', 'text')) == 512
+            assert searcher.count(QSQ("Alice and (thought or little)", 'text')) == \
+                searcher.count(QSQ("Alice and thought or Alice and little", 'text')) == 95 == \
+                searcher.count(MatchAllQuery([QSQ('Alice', 'text'), MatchSomeQuery([QSQ('thought', 'text'), QSQ('little', 'text')])]))
+            assert searcher.count(QSQ("thistermdoesntexist", 'text')) == 0
+            assert searcher.count(QSQ('Mock Turtle', 'text')) == 51
+            assert searcher.count(QSQ('*t? R*b??', 'text')) == searcher.count(QSQ('White Rabbit', 'text'))
 
-            assert "jury" in searcher.search(QSQ("jury"), limit=1)[0].data['text']
+            # Test that filtering, counts and searching all return the same number of results.
+            assert searcher.count(QSQ("King", 'text')) == \
+                   len(searcher.filter(QSQ("King", 'text'))) == \
+                   searcher.search(QSQ("King", 'text')).num_matches
 
-            voice_hits = searcher.count(QSQ("voice"))
+            assert "jury" in searcher.search(QSQ("jury", 'text'), limit=1)[0].data['text']
+
+            voice_hits = searcher.count(QSQ("voice", 'text'))
             assert voice_hits == 46
             misses = 0
-            results = searcher.search(QSQ("Alice or voice"), limit=voice_hits)
+            results = searcher.search(QSQ("Alice or voice", 'text'), limit=voice_hits)
             for hit in results:
                 misses = misses + (1 if "voice" not in hit.tfs else 0)
             assert misses == 0
             misses = 0
-            results = searcher.search(QSQ("Alice or voice^0.2"), limit=voice_hits)
+            results = searcher.search(QSQ("Alice or voice^0.2", 'text'), limit=voice_hits)
             for hit in results:
                 misses = misses + (1 if "voice" not in hit.tfs else 0)
             assert misses == 30
             misses = 0
-            results = searcher.search(QSQ("Alice or voice^0.5"), limit=voice_hits)
+            results = searcher.search(QSQ("Alice or voice^0.5", 'text'), limit=voice_hits)
             for hit in results:
                 misses = misses + (1 if "voice" not in hit.tfs else 0)
             assert misses == 15
-            results = searcher.search(QSQ("Alice or voice^20"), limit=voice_hits)
+            results = searcher.search(QSQ("Alice or voice^20", 'text'), limit=voice_hits)
             for hit in results:
                 assert "voice" in hit.tfs
             misses = 0
-            results = searcher.search(QSQ("Alice or voice"), limit=0)
+            results = searcher.search(QSQ("Alice or voice", 'text'), limit=0)
             for hit in results[-voice_hits:]:
                 misses = misses + (1 if "voice" not in hit.tfs else 0)
             assert misses == voice_hits
             misses = 0
-            results = searcher.search(QSQ("Alice^20 or voice"), limit=0)
+            results = searcher.search(QSQ("Alice^20 or voice", 'text'), limit=0)
             for hit in results[-voice_hits:]:
                 misses = misses + (1 if "voice" not in hit.tfs else 0)
             assert misses == 16
 
-            results = searcher.search(QSQ("King not (court or evidence)"))
+            results = searcher.search(QSQ("King not (court or evidence)", 'text'))
             assert len(results) == 25
             assert len(results.term_weights) == 1
-            assert results.num_matches == 53 == searcher.count(MatchAllQuery([QSQ('King')], [QSQ('court or evidence')]))
+            assert results.num_matches == 53 == searcher.count(MatchAllQuery([QSQ('King', 'text')], 
+                                                               [QSQ('court or evidence', 'text')]))
             for hit in results:
                 assert "evidence" not in hit.data['text']
                 assert "court" not in hit.data['text']
@@ -96,13 +103,15 @@ def test_searching_alice(index_dir):
                     assert k in ('_id', '_doc_id', '_field') or not k.startswith('_')
 
             # Check multiple boostings; this example is totally contrived but a real case could occur when combining
-            # different plugin queries.
-            results = searcher.search(MatchSomeQuery([QSQ("King"), QSQ("court AND King^1.5")]))
-            assert results.term_weights['King'] == 1.5
+            # different plugin queries. Also ensure that the term boosting is independent of query order.
+            results1 = searcher.search(MatchSomeQuery([QSQ("King", 'text'), QSQ("court AND King^1.5", 'text')]))
+            results2 = searcher.search(MatchSomeQuery([QSQ("court AND King^1.5", 'text'), QSQ("King", 'text')]))
+            assert results1.term_weights['text']['King'] == 1.5
+            assert results2.term_weights['text']['King'] == 1.5
 
             with pytest.raises(TypeError):
                 # Invalid query format
-                searcher.count('hello')
+                searcher.count(['hello', 'text'])
 
 
 def test_searching_alice_simple(index_dir):
@@ -117,13 +126,14 @@ def test_searching_alice_simple(index_dir):
 
         # Merge bigrams
         with IndexReader(index_dir) as reader:
-            bigrams = find_bi_gram_words(reader.get_frames())
+            bigrams = find_bi_gram_words(reader.get_frames('text'))
         with IndexWriter(index_dir) as writer:
-            writer.merge_terms(merges=[((bigram.split(' ')[0], bigram.split(' ')[1]), bigram) for bigram in bigrams])
+            writer.merge_terms(merges=[((bigram.split(' ')[0], bigram.split(' ')[1]), bigram) for bigram in bigrams],
+                               text_field='text')
 
         with IndexReader(index_dir) as reader:
             searcher = reader.searcher(scorer_cls=TfidfScorer)
-            results = searcher.search(QSQ('Alice or Caterpillar'))
+            results = searcher.search(QSQ('Alice or Caterpillar', 'text'))
             text = results[0].data[results[0].text_field]
             assert len(results) == 25
             assert 'Alice' in text and 'Caterpillar' in text
@@ -141,16 +151,17 @@ def test_searching_mt_warning(index_dir):
 
         # Merge bigrams
         with IndexReader(index_dir) as reader:
-            bigrams = find_bi_gram_words(reader.get_frames())
+            bigrams = find_bi_gram_words(reader.get_frames('text'))
         with IndexWriter(index_dir) as writer:
-            writer.merge_terms(merges=[((bigram.split(' ')[0], bigram.split(' ')[1]), bigram) for bigram in bigrams])
+            writer.merge_terms(merges=[((bigram.split(' ')[0], bigram.split(' ')[1]), bigram) for bigram in bigrams],
+                               text_field='text')
 
         with IndexReader(index_dir) as reader:
             searcher = reader.searcher()
-            assert searcher.count(QSQ('1770')) == 2
-            assert searcher.count(QSQ('1,900')) == 1
-            assert searcher.count(QSQ('4.4')) == 1
-            assert searcher.count(QSQ('*')) == reader.get_frame_count()
+            assert searcher.count(QSQ('1770', 'text')) == 2
+            assert searcher.count(QSQ('1,900', 'text')) == 1
+            assert searcher.count(QSQ('4.4', 'text')) == 1
+            assert searcher.count(QSQ('*', 'text')) == reader.get_frame_count('text')
 
 
 def test_searching_twitter(index_dir):
@@ -167,10 +178,10 @@ def test_searching_twitter(index_dir):
 
         with IndexReader(index_dir) as reader:
             searcher = reader.searcher()
-            assert searcher.count(QSQ('@NYSenate')) == 1
-            assert searcher.count(QSQ('summerdays@gmail.com')) == 1
-            assert searcher.count(QSQ('sentiment=positive')) + \
-                searcher.count(QSQ('sentiment=negative')) == reader.get_frame_count()
+            assert searcher.count(QSQ('@NYSenate', 'text')) == 1
+            assert searcher.count(QSQ('summerdays@gmail.com', 'text')) == 1
+            assert searcher.count(QSQ('sentiment=positive', 'text')) + \
+                   searcher.count(QSQ('sentiment=negative', 'text')) == reader.get_frame_count('text')
 
 
 def test_searching_nps(index_dir):
@@ -193,104 +204,75 @@ def test_searching_nps(index_dir):
             for row in csv_reader:
                 if len(row[3]) + len(row[4]) + len(row[5]) == 0:
                     empty_rows += 1
-                writer.add_document(update_index=False, respondant=row[0], region=row[1], store=row[2], liked=row[3],
+                writer.add_document(respondant=row[0], region=row[1], store=row[2], liked=row[3],
                                     disliked=row[4], would_like=row[5], nps=row[6], fake2=None)
 
         with IndexReader(index_dir) as reader:
             searcher = reader.searcher()
-            # Search limited by text field
-            assert reader.get_frame_count() == empty_rows + searcher.count(QSQ('*', 'disliked'))\
-                + searcher.count(QSQ('*', 'liked')) + searcher.count(QSQ('*', 'would_like'))
             assert searcher.count(QSQ('point*', 'would_like'))\
                 == searcher.count(QSQ('point or points or pointed', 'would_like'))
 
             # Verify uniqueness of returned results
             docs = set()
-            results = searcher.search(QSQ('region=Otago and nps<5'))
-            for hit in results:
-                docs.add(hit.doc_id)
+            result_count = 0
+            for field in ['liked', 'disliked', 'would_like']:
+                results = searcher.search(QSQ('region=Otago and nps<5', field))
+                result_count += len(results)
+                for hit in results:
+                    docs.add(hit.doc_id)
             assert len(docs) == 5
-            assert len(results) == 15
+            assert result_count == 15
 
             # Metadata field searching
-            assert searcher.count(QSQ('nps=10 and store=DANNEVIRKE')) == 6
-            num_christchurch = searcher.count(QSQ('region=Christchurch'))
-            num_null_nps_christchurch = num_christchurch \
-                - searcher.count(QSQ('region=Christchurch and nps > 0'))
-            assert num_christchurch == searcher.count(QSQ('region=Christchurch and nps < 8')) \
-                + searcher.count(QSQ('region=Christchurch and nps >= 8')) \
-                + num_null_nps_christchurch
-            assert searcher.count(QSQ('region=Christchurch and nps>7 and (reliable or quick)')) \
-                == searcher.count(QSQ('region = Christchurch and nps>7')) \
-                - searcher.count(QSQ('region=Christchurch and nps > 7 not (reliable or quick)'))
-            assert searcher.count(QSQ('nps>0')) == searcher.count(QSQ('nps<=7')) \
-                + searcher.count(QSQ('nps>7'))
-            assert searcher.count(QSQ('region=Christ*')) == num_christchurch == 1399
-            assert searcher.count(QSQ('fake=1')) == 0
-            assert searcher.count(QSQ('fake2=something')) == 0
-            assert searcher.count(QSQ('region=nonexistentregion')) == 0
+            assert searcher.count(QSQ('nps=10 and store=DANNEVIRKE', 'liked')) + \
+                   searcher.count(QSQ('nps=10 and store=DANNEVIRKE', 'disliked')) + \
+                   searcher.count(QSQ('nps=10 and store=DANNEVIRKE', 'would_like')) == 6
+
+            num_christchurch = searcher.count(QSQ('region=Christchurch', 'liked'))
+
+            num_null_nps_christchurch = num_christchurch - searcher.count(QSQ('region=Christchurch and nps > 0', 'liked'))
+
+            assert num_christchurch == searcher.count(QSQ('region=Christchurch and nps < 8', 'liked')) + \
+                                       searcher.count(QSQ('region=Christchurch and nps >= 8', 'liked')) + \
+                                       num_null_nps_christchurch
+
+            assert searcher.count(QSQ('region=Christchurch and nps>7 and (reliable or quick)', 'disliked')) \
+                == searcher.count(QSQ('region = Christchurch and nps>7', 'disliked')) \
+                - searcher.count(QSQ('region=Christchurch and nps > 7 not (reliable or quick)', 'disliked'))
+            assert searcher.count(QSQ('nps>0', 'would_like')) == searcher.count(QSQ('nps<=7', 'would_like')) \
+                + searcher.count(QSQ('nps>7', 'would_like'))
+            assert searcher.count(QSQ('region=Christ*', 'liked')) == num_christchurch
+            assert searcher.count(QSQ('fake=1', 'liked')) == 0
+            assert searcher.count(QSQ('fake2=something', 'liked')) == 0
+            assert searcher.count(QSQ('region=nonexistentregion', 'liked')) == 0
 
             # Check all incorrect usages of metadata field searching
             with pytest.raises(QueryError):
-                searcher.count(QSQ('nps >= 1?'))
+                searcher.count(QSQ('nps >= 1?', 'liked'))
             with pytest.raises(QueryError):
-                searcher.count(QSQ('nps=?'))
+                searcher.count(QSQ('nps=?', 'liked'))
             with pytest.raises(QueryError):
-                searcher.count(QSQ('n*s=10'))
+                searcher.count(QSQ('n*s=10', 'liked'))
             with pytest.raises(QueryError):
-                searcher.count(QSQ('badfield=something'))
+                searcher.count(QSQ('badfield=something', 'liked'))
             with pytest.raises(QueryError):
-                searcher.count(QSQ('liked=something'))
+                searcher.count(QSQ('liked=something', 'liked'))
             with pytest.raises(QueryError):
-                searcher.count(QSQ('region>something'))
+                searcher.count(QSQ('region>something', 'liked'))
             with pytest.raises(QueryError):
-                searcher.count(QSQ('region>=something'))
+                searcher.count(QSQ('region>=something', 'liked'))
             with pytest.raises(QueryError):
-                searcher.count(QSQ('region<something'))
+                searcher.count(QSQ('region<something', 'liked'))
             with pytest.raises(QueryError):
-                searcher.count(QSQ('region<=something'))
+                searcher.count(QSQ('region<=something', 'liked'))
             with pytest.raises(QueryError):
-                searcher.count(QSQ('respondant=something'))
+                searcher.count(QSQ('respondant=something', 'liked'))
             with pytest.raises(QueryError):
-                searcher.count(QSQ('region>Christchurch'))
+                searcher.count(QSQ('region>Christchurch', 'liked'))
             with pytest.raises(QueryError):
-                searcher.count(QSQ('nps>bad'))
+                searcher.count(QSQ('nps>bad', 'liked'))
             with pytest.raises(QueryError):
                 searcher.count(QSQ('*', 'badfield'))
-
-
-def test_searching_nps_no_text(index_dir):
-    """Test retrieving by ID with no text."""
-    with open('caterpillar/test_resources/big.csv', 'rbU') as f:
-        config = IndexConfig(SqliteStorage, schema.Schema(respondant=schema.ID(indexed=True),
-                                                          region=schema.CATEGORICAL_TEXT(indexed=True),
-                                                          nps=schema.NUMERIC))
-        with IndexWriter(index_dir, config) as writer:
-            csv_reader = csv.reader(f)
-            csv_reader.next()  # Skip header
-            for row in csv_reader:
-                writer.add_document(update_index=False, respondant=row[0], region=row[1], nps=row[6])
-
-        with IndexReader(index_dir) as reader:
-            searcher = reader.searcher()
-            assert searcher.count(QSQ('respondant = 1')) == 1
-            assert searcher.count(QSQ('region = Chr*')) == 878
-            assert searcher.filter(QSQ('respondant = 9846'))
-
-
-def test_no_data_by_circumstance(index_dir):
-    """Test that when we add data with no indexed fields we can't retrieve it."""
-    with open('caterpillar/test_resources/test_small.csv', 'rbU') as f:
-        config = IndexConfig(SqliteStorage, schema=schema.Schema(respondant=schema.ID, nps=schema.NUMERIC))
-        with IndexWriter(index_dir, config) as writer:
-            csv_reader = csv.reader(f)
-            csv_reader.next()  # Skip header
-            for row in csv_reader:
-                writer.add_document(update_index=False, respondant=row[0], region=row[1], nps=row[6])
-
-        with IndexReader(index_dir) as reader:
-            searcher = reader.searcher()
-            assert searcher.count(QSQ('*')) == 0
 
 
 def test_searching_reserved_words(index_dir):
@@ -300,14 +282,14 @@ def test_searching_reserved_words(index_dir):
             text=schema.TEXT(analyser=TestAnalyser(stopword_list=[]))))
         with IndexWriter(index_dir, config) as writer:
             writer.add_document(text=data, frame_size=2)
-            writer.fold_term_case()
+            writer.fold_term_case('text')
 
         with IndexReader(index_dir) as reader:
             searcher = reader.searcher()
-            assert searcher.count(QSQ('"and"')) == sum(1 for _ in reader.get_term_positions('and')) == 469
-            assert searcher.count(QSQ('"or"')) == 0
-            assert searcher.count(QSQ('"not"')) == 117
+            assert searcher.count(QSQ('"and"', 'text')) == sum(1 for _ in reader.get_term_positions('and', 'text')) == 469
+            assert searcher.count(QSQ('"or"', 'text')) == 0
+            assert searcher.count(QSQ('"not"', 'text')) == 117
 
             with pytest.raises(QueryError):
                 # Unescaped reserved word
-                searcher.count(QSQ('and'))
+                searcher.count(QSQ('and', 'text'))

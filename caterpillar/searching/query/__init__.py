@@ -12,15 +12,79 @@ import abc
 
 class QueryResult(object):
     """
-    Encapsulates result data for a single query, which is comprised of a list of ``frame_ids`` that match the query, and
-    ``term_weights``, which is a dit of *matched* query terms to their float weightings. All weightings default to 1
-    unless they are modified explicitly by the query. Their purpose is to facilitate scoring a query result, based
-    on the query that returned it.
+    Encapsulates results for a query, including combined queries.
+
+    The result of a query is a dict of text_field: set(frame_ids) and text_field: term_weights.
+
+    All term weightings default to 1 unless they are modified explicitly by the query. Their purpose is to facilitate 
+    scoring a query result, based on the query that returned it.
 
     """
-    def __init__(self, frame_ids, term_weights):
-        self.frame_ids = frame_ids
-        self.term_weights = term_weights
+    def __init__(self, frame_ids, term_weights, text_field):
+        self.frame_ids = {text_field: set(frame_ids)}
+        self.term_weights = {text_field: term_weights}
+
+    def __ior__(self, other_query):
+        """ Union of this query and other_query. """
+        for text_field, frame_ids in other_query.frame_ids.iteritems():
+            try:
+                self.frame_ids[text_field] |= frame_ids
+            except KeyError:
+                self.frame_ids[text_field] = frame_ids
+
+        for text_field, term_weights in other_query.term_weights.iteritems():
+            for term, weight in term_weights.iteritems():
+                # Carry through the maximum term weight for all of the queries.
+                try:
+                    self.term_weights[text_field][term] = max(self.term_weights[text_field][term], weight)
+                except KeyError:
+                    try:
+                        self.term_weights[text_field][term] = weight
+                    except KeyError:
+                        self.term_weights[text_field] = {term: weight}
+        return self
+
+
+    def __iand__(self, other_query):
+        """ Intersection of this query and other_query. """
+
+        # Need to combine in both directions, otherwise fields in self but not other_query will be missed.
+        for text_field, frame_ids in self.frame_ids.iteritems():
+            try:
+                other_query.frame_ids[text_field] &= frame_ids
+            except KeyError:
+                other_query.frame_ids[text_field] = set()
+
+        for text_field, frame_ids in other_query.frame_ids.iteritems():
+            try:
+                self.frame_ids[text_field] &= frame_ids
+            except KeyError:
+                self.frame_ids[text_field] = set()
+
+
+        for text_field, term_weights in other_query.term_weights.iteritems():
+            for term, weight in term_weights.iteritems():
+                # Carry through the maximum term weight for all of the queries.
+                try:
+                    self.term_weights[text_field][term] = max(self.term_weights[text_field][term], weight)
+                except KeyError:
+                    try:
+                        self.term_weights[text_field][term] = weight
+                    except KeyError:
+                        self.term_weights[text_field] = {term: weight}
+
+        return self
+
+    def __isub__(self, other_query):
+        """Remove other_query results from this query"""
+        for text_field, frame_ids in other_query.frame_ids.iteritems():
+            try:
+                self.frame_ids[text_field] -= frame_ids
+            except KeyError:
+                pass
+        # Exclusions are treated as boolean only, and do not affect term weighting for scoring.
+        return self
+
 
 
 class QueryError(Exception):

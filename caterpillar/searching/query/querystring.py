@@ -48,7 +48,7 @@ class QueryStringQuery(BaseQuery):
         # Ensure that only frames of the specified text_field are included.
         # Metadata only queries might return frames for other text fields.
         frame_ids.intersection_update(set(metadata[self.text_field]['_text']))
-        return QueryResult(frame_ids, term_weights)
+        return QueryResult(frame_ids, term_weights, self.text_field)
 
 
 class _QueryStringParser(object):

@@ -8,7 +8,7 @@ class SearchHit(object):
     Represents a single frame that matched the search.
 
     """
-    def __init__(self, frame_id, frame):
+    def __init__(self, frame_id, search_field, frame):
         self.frame_id = frame_id
         self.doc_id = frame['_doc_id']
         self.score = 1
@@ -20,6 +20,7 @@ class SearchHit(object):
         if '_text' in frame:
             self.data[frame['_field']] = frame['_text']  # Make the text available at it's original field name
             self.text_field = frame['_field']
+        self.searched_field = search_field # The searched text field leading to this hit.
 
 
 class SearchResults(list):
