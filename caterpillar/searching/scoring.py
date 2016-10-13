@@ -61,10 +61,10 @@ class TfidfScorer(Scorer):
                     idf = self.idfs[hit.searched_field][term]
                 except KeyError:
                     # calculate & store term's idf
-                    idf =  numpy.log(1 + num_frames / (self.index.get_term_frequency(term, hit.searched_field) + 1))
-                    try: 
+                    idf = numpy.log(1 + num_frames / (self.index.get_term_frequency(term, hit.searched_field) + 1))
+                    try:
                         self.idfs[hit.searched_field][term] = idf
-                    except KeyError: 
+                    except KeyError:
                         self.idfs[hit.searched_field] = {term: idf}
                 score += term_weights[hit.searched_field][term] * tf * idf
             hit.score = score

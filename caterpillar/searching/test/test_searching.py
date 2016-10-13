@@ -47,15 +47,16 @@ def test_searching_alice(index_dir):
             assert searcher.count(QSQ('*ing', 'text')) == 512
             assert searcher.count(QSQ("Alice and (thought or little)", 'text')) == \
                 searcher.count(QSQ("Alice and thought or Alice and little", 'text')) == 95 == \
-                searcher.count(MatchAllQuery([QSQ('Alice', 'text'), MatchSomeQuery([QSQ('thought', 'text'), QSQ('little', 'text')])]))
+                searcher.count(MatchAllQuery([QSQ('Alice', 'text'),
+                               MatchSomeQuery([QSQ('thought', 'text'), QSQ('little', 'text')])]))
             assert searcher.count(QSQ("thistermdoesntexist", 'text')) == 0
             assert searcher.count(QSQ('Mock Turtle', 'text')) == 51
             assert searcher.count(QSQ('*t? R*b??', 'text')) == searcher.count(QSQ('White Rabbit', 'text'))
 
             # Test that filtering, counts and searching all return the same number of results.
             assert searcher.count(QSQ("King", 'text')) == \
-                   len(searcher.filter(QSQ("King", 'text'))) == \
-                   searcher.search(QSQ("King", 'text')).num_matches
+                len(searcher.filter(QSQ("King", 'text'))) == \
+                searcher.search(QSQ("King", 'text')).num_matches
 
             assert "jury" in searcher.search(QSQ("jury", 'text'), limit=1)[0].data['text']
 
@@ -93,7 +94,7 @@ def test_searching_alice(index_dir):
             results = searcher.search(QSQ("King not (court or evidence)", 'text'))
             assert len(results) == 25
             assert len(results.term_weights) == 1
-            assert results.num_matches == 53 == searcher.count(MatchAllQuery([QSQ('King', 'text')], 
+            assert results.num_matches == 53 == searcher.count(MatchAllQuery([QSQ('King', 'text')],
                                                                [QSQ('court or evidence', 'text')]))
             for hit in results:
                 assert "evidence" not in hit.data['text']
@@ -181,7 +182,7 @@ def test_searching_twitter(index_dir):
             assert searcher.count(QSQ('@NYSenate', 'text')) == 1
             assert searcher.count(QSQ('summerdays@gmail.com', 'text')) == 1
             assert searcher.count(QSQ('sentiment=positive', 'text')) + \
-                   searcher.count(QSQ('sentiment=negative', 'text')) == reader.get_frame_count('text')
+                searcher.count(QSQ('sentiment=negative', 'text')) == reader.get_frame_count('text')
 
 
 def test_searching_nps(index_dir):
@@ -225,16 +226,17 @@ def test_searching_nps(index_dir):
 
             # Metadata field searching
             assert searcher.count(QSQ('nps=10 and store=DANNEVIRKE', 'liked')) + \
-                   searcher.count(QSQ('nps=10 and store=DANNEVIRKE', 'disliked')) + \
-                   searcher.count(QSQ('nps=10 and store=DANNEVIRKE', 'would_like')) == 6
+                searcher.count(QSQ('nps=10 and store=DANNEVIRKE', 'disliked')) + \
+                searcher.count(QSQ('nps=10 and store=DANNEVIRKE', 'would_like')) == 6
 
             num_christchurch = searcher.count(QSQ('region=Christchurch', 'liked'))
 
-            num_null_nps_christchurch = num_christchurch - searcher.count(QSQ('region=Christchurch and nps > 0', 'liked'))
+            num_null_nps_christchurch = num_christchurch - searcher.count(QSQ('region=Christchurch and nps > 0',
+                                                                              'liked'))
 
             assert num_christchurch == searcher.count(QSQ('region=Christchurch and nps < 8', 'liked')) + \
-                                       searcher.count(QSQ('region=Christchurch and nps >= 8', 'liked')) + \
-                                       num_null_nps_christchurch
+                searcher.count(QSQ('region=Christchurch and nps >= 8', 'liked')) + \
+                num_null_nps_christchurch
 
             assert searcher.count(QSQ('region=Christchurch and nps>7 and (reliable or quick)', 'disliked')) \
                 == searcher.count(QSQ('region = Christchurch and nps>7', 'disliked')) \
@@ -286,7 +288,8 @@ def test_searching_reserved_words(index_dir):
 
         with IndexReader(index_dir) as reader:
             searcher = reader.searcher()
-            assert searcher.count(QSQ('"and"', 'text')) == sum(1 for _ in reader.get_term_positions('and', 'text')) == 469
+            assert searcher.count(QSQ('"and"', 'text')) == \
+                sum(1 for _ in reader.get_term_positions('and', 'text')) == 469
             assert searcher.count(QSQ('"or"', 'text')) == 0
             assert searcher.count(QSQ('"not"', 'text')) == 117
 

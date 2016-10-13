@@ -23,7 +23,7 @@ def test_match_all():
     """Test match all query."""
     # Simple match all
 
-    r = MatchAllQuery([MockTestQuery([1, 2, 3], term_weights={'a': 1}), 
+    r = MatchAllQuery([MockTestQuery([1, 2, 3], term_weights={'a': 1}),
                        MockTestQuery([1, 3], term_weights={'b': 99})]).evaluate(None)
     assert r.frame_ids['text'] == set([1, 3])
     assert r.term_weights['text'] == {'a': 1, 'b': 99}
@@ -34,20 +34,20 @@ def test_match_all():
 
     # Match all with exclude queries from different fields.
     r = MatchAllQuery([MockTestQuery([1, 2, 3]), MockTestQuery([1, 2, 3])],
-                      [MockTestQuery([1],text_field='text2'), MockTestQuery([2])]).evaluate(None)
+                      [MockTestQuery([1], text_field='text2'), MockTestQuery([2])]).evaluate(None)
     assert r.frame_ids['text'] == set([1, 3])
 
     # Combining queries on different fields should result in empty sets.
-    r = MatchAllQuery([MockTestQuery([1, 2, 3], term_weights={'a': 1}, text_field='text1'), 
+    r = MatchAllQuery([MockTestQuery([1, 2, 3], term_weights={'a': 1}, text_field='text1'),
                        MockTestQuery([1, 3], term_weights={'b': 99}, text_field='text2')]).evaluate(None)
-    assert r.frame_ids['text1'] == set()     
-    assert r.frame_ids['text2'] == set() 
+    assert r.frame_ids['text1'] == set()
+    assert r.frame_ids['text2'] == set()
 
 
 def test_match_some():
     """Test match some query."""
     # Simple match some
-    r = MatchSomeQuery([MockTestQuery([1, 3, 5], term_weights={'a': 1}), 
+    r = MatchSomeQuery([MockTestQuery([1, 3, 5], term_weights={'a': 1}),
                         MockTestQuery([2, 4, 6], term_weights={'a': 1.5})]).evaluate(None)
     assert r.frame_ids['text'] == set([1, 2, 3, 4, 5, 6])
     assert r.term_weights['text'] == {'a': 1.5}
@@ -57,7 +57,7 @@ def test_match_some():
     assert r.frame_ids['text'] == set([3])
 
     # Test with different text_fields in each query.
-    r = MatchSomeQuery([MockTestQuery([1, 2, 3], term_weights={'a': 1}, text_field='text1'), 
+    r = MatchSomeQuery([MockTestQuery([1, 2, 3], term_weights={'a': 1}, text_field='text1'),
                        MockTestQuery([1, 3], term_weights={'b': 99}, text_field='text2')]).evaluate(None)
-    assert r.frame_ids['text1'] == set([1, 2, 3])     
-    assert r.frame_ids['text2'] == set([1, 3])  
+    assert r.frame_ids['text1'] == set([1, 2, 3])
+    assert r.frame_ids['text2'] == set([1, 3])

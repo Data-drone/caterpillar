@@ -20,7 +20,7 @@ class SearchHit(object):
         if '_text' in frame:
             self.data[frame['_field']] = frame['_text']  # Make the text available at it's original field name
             self.text_field = frame['_field']
-        self.searched_field = search_field # The searched text field leading to this hit.
+        self.searched_field = search_field  # The searched text field leading to this hit.
 
 
 class SearchResults(list):

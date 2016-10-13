@@ -55,7 +55,7 @@ def test_querystring_query_advanced(index_dir):
     # Metadata
     with IndexReader(index_dir) as reader:
         # Test presence of terms for each text_field
-        # liked:
+        # field: "liked":
         assert len(QueryStringQuery('age=80', 'liked').evaluate(reader).frame_ids['liked']) == 1
         assert len(QueryStringQuery('age<80', 'liked').evaluate(reader).frame_ids['liked']) == 3
         assert len(QueryStringQuery('age>=20', 'liked').evaluate(reader).frame_ids['liked']) == 4
@@ -63,7 +63,7 @@ def test_querystring_query_advanced(index_dir):
         assert len(QueryStringQuery('product not gender=*male', 'liked').evaluate(reader).frame_ids['liked']) == 0
         assert 'disliked' not in QueryStringQuery('age=80', 'liked').evaluate(reader).frame_ids
 
-        #disliked:
+        # field: "disliked":
         assert len(QueryStringQuery('age=80', 'disliked').evaluate(reader).frame_ids['disliked']) == 1
         assert len(QueryStringQuery('age<80', 'disliked').evaluate(reader).frame_ids['disliked']) == 3
         assert len(QueryStringQuery('age>=20', 'disliked').evaluate(reader).frame_ids['disliked']) == 4
@@ -71,6 +71,7 @@ def test_querystring_query_advanced(index_dir):
         assert len(QueryStringQuery('product not gender=*male', 'disliked').evaluate(reader).frame_ids['disliked']) == 0
         assert 'liked' not in QueryStringQuery('age=80', 'disliked').evaluate(reader).frame_ids
 
-        # Text field
+        # Extras
         assert len(QueryStringQuery('product', 'liked').evaluate(reader).frame_ids['liked']) == 2
-        assert len(QueryStringQuery('gender=female not product', 'disliked').evaluate(reader).frame_ids['disliked']) == 1
+        assert len(QueryStringQuery('gender=female not product',
+                                    'disliked').evaluate(reader).frame_ids['disliked']) == 1

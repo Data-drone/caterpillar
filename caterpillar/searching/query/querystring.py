@@ -44,7 +44,8 @@ class QueryStringQuery(BaseQuery):
         if self.text_field not in metadata:
             raise QueryError("Specified text field {} doesn't exist".format(self.text_field))
 
-        frame_ids, term_weights = _QueryStringParser(index_reader, self.text_field, metadata).parse_and_evaluate(self.query_str)
+        frame_ids, term_weights = _QueryStringParser(index_reader,
+                                                     self.text_field, metadata).parse_and_evaluate(self.query_str)
         # Ensure that only frames of the specified text_field are included.
         # Metadata only queries might return frames for other text fields.
         frame_ids.intersection_update(set(metadata[self.text_field]['_text']))
@@ -100,7 +101,7 @@ class _QueryStringParser(object):
         """
         try:
             query_tree = _QueryStringGrammar.parse(query, tree_factory=self)
-        except ParseError, e:
+        except ParseError:
             raise QueryError("Invalid query syntax.")
 
         # Only pass on term weights for terms that were a positive match

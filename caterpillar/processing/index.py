@@ -117,6 +117,7 @@ class IndexConfig(object):
     This class might be extended later to store other things.
 
     """
+
     def __init__(self, storage_cls, schema):
         self._storage_cls = storage_cls
         self._schema = schema
@@ -161,6 +162,7 @@ class IndexConfig(object):
 
 
 class IndexWriter(object):
+
     """
     Write to an existing index or create a new index and write to it.
 
@@ -227,7 +229,7 @@ class IndexWriter(object):
     ASSOCIATIONS_CONTAINER = "associations_{}"
 
     # How much data to buffer before a flush
-    RAM_BUFFER_SIZE = 100*1024*1024  # 100 MB
+    RAM_BUFFER_SIZE = 100 * 1024 * 1024  # 100 MB
 
     # Where is the config?
     CONFIG_FILE = "index.config"
@@ -348,13 +350,13 @@ class IndexWriter(object):
             fields = self.__schema.get_indexed_text_fields()
 
             # Inverted term positions index:: field_name --> {term -> [(start, end,), (star,end,), ...]}
-            positions = {field_name: {} for field_name in fields}  
+            positions = {field_name: {} for field_name in fields}
             # Inverted term co-occurrence index:: field_name --> {term -> other_term -> count
-            associations = {field_name: {} for field_name in fields}    
+            associations = {field_name: {} for field_name in fields}
             # Inverted term frequency index:: field_name --> {term -> count
-            frequencies = {field_name:nltk.probability.FreqDist() for field_name in fields}   
+            frequencies = {field_name: nltk.probability.FreqDist() for field_name in fields}
             # Inverted frame metadata:: field_name -> {field_value -> [frame1, frame2]}
-            metadata = {field_name: {} for field_name in fields}   
+            metadata = {field_name: {} for field_name in fields}
 
             # If there are no new frames, return with empty structures
             if len(frames.keys()) == 0:
@@ -380,7 +382,7 @@ class IndexWriter(object):
                                 continue
                             try:
                                 associations[text_field_name][term][other_term] = \
-                                associations[text_field_name][term].get(other_term, 0) + 1
+                                    associations[text_field_name][term].get(other_term, 0) + 1
                             except KeyError:
                                 associations[text_field_name][term] = {other_term: 1}
                     # Metadata
@@ -414,10 +416,10 @@ class IndexWriter(object):
 
         for text_field in text_fields:
             try:
-                rm_frames[text_field] = {k: json.loads(v) if v else {} 
+                rm_frames[text_field] = {k: json.loads(v) if v else {}
                                          for k, v in self.__storage.get_container_items(
                                          IndexWriter.FRAMES_CONTAINER.format(text_field),
-                                         keys = self.__rm_frames[text_field])} 
+                                         keys=self.__rm_frames[text_field])}
             except KeyError:
                 rm_frames[text_field] = {}
 
@@ -430,21 +432,21 @@ class IndexWriter(object):
         frequencies_index = {}
 
         for text_field in text_fields:
-            positions_index[text_field] = {k: json.loads(v) if v else {} 
+            positions_index[text_field] = {k: json.loads(v) if v else {}
                                            for k, v in self.__storage.get_container_items(
-                                           IndexWriter.POSITIONS_CONTAINER.format(text_field), 
-                                           keys=new_positions[text_field].viewkeys() | 
-                                           rm_positions[text_field].viewkeys())}            
-            assocs_index[text_field] = {k: json.loads(v) if v else {} 
-                                       for k, v in self.__storage.get_container_items(
-                                       IndexWriter.ASSOCIATIONS_CONTAINER.format(text_field), 
-                                       keys=new_positions[text_field].viewkeys() | 
-                                       rm_positions[text_field].viewkeys())}
-            frequencies_index[text_field] = {k: json.loads(v) if v else 0
-                                           for k, v in self.__storage.get_container_items(
-                                           IndexWriter.FREQUENCIES_CONTAINER.format(text_field), 
-                                           keys=new_positions[text_field].viewkeys() | 
+                                           IndexWriter.POSITIONS_CONTAINER.format(text_field),
+                                           keys=new_positions[text_field].viewkeys() |
                                            rm_positions[text_field].viewkeys())}
+            assocs_index[text_field] = {k: json.loads(v) if v else {}
+                                        for k, v in self.__storage.get_container_items(
+                IndexWriter.ASSOCIATIONS_CONTAINER.format(text_field),
+                keys=new_positions[text_field].viewkeys() |
+                rm_positions[text_field].viewkeys())}
+            frequencies_index[text_field] = {k: json.loads(v) if v else 0
+                                             for k, v in self.__storage.get_container_items(
+                IndexWriter.FREQUENCIES_CONTAINER.format(text_field),
+                keys=new_positions[text_field].viewkeys() |
+                rm_positions[text_field].viewkeys())}
 
         metadata_index = {k: json.loads(v) if v else {} for k, v in self.__storage.get_container_items(
             IndexWriter.METADATA_CONTAINER, new_metadata.viewkeys() | rm_metadata.viewkeys())}
@@ -460,7 +462,8 @@ class IndexWriter(object):
             for term, indices in new_positions[text_field].iteritems():
                 for frame_id, index in indices.iteritems():
                     try:
-                        positions_index[text_field][term][frame_id] = positions_index[text_field][term][frame_id] + index
+                        positions_index[text_field][term][frame_id] = positions_index[
+                            text_field][term][frame_id] + index
                     except KeyError:
                         positions_index[text_field][term][frame_id] = index
             for term, indices in rm_positions[text_field].iteritems():
@@ -477,7 +480,8 @@ class IndexWriter(object):
         for text_field in text_fields:
             for term, value in new_associations[text_field].iteritems():
                 for other_term, count in value.iteritems():
-                    assocs_index[text_field][term][other_term] = assocs_index[text_field][term].get(other_term, 0) + count
+                    assocs_index[text_field][term][other_term] = assocs_index[
+                        text_field][term].get(other_term, 0) + count
             for term, value in rm_associations[text_field].iteritems():
                 for other_term, count in value.iteritems():
                     assocs_index[text_field][term][other_term] = assocs_index[text_field][term][other_term] - count
@@ -518,28 +522,35 @@ class IndexWriter(object):
             # Positions
             for key in positions_index[text_field]:
                 positions_index[text_field][key] = json.dumps(positions_index[text_field][key])
-            self.__storage.set_container_items(IndexWriter.POSITIONS_CONTAINER.format(text_field), positions_index[text_field])
-            self.__storage.delete_container_items(IndexWriter.POSITIONS_CONTAINER.format(text_field), delete_positions_keys)
+            self.__storage.set_container_items(
+                IndexWriter.POSITIONS_CONTAINER.format(text_field), positions_index[text_field])
+            self.__storage.delete_container_items(
+                IndexWriter.POSITIONS_CONTAINER.format(text_field), delete_positions_keys)
             # Associations
             for key in assocs_index[text_field]:
                 assocs_index[text_field][key] = json.dumps(assocs_index[text_field][key])
-            self.__storage.set_container_items(IndexWriter.ASSOCIATIONS_CONTAINER.format(text_field), assocs_index[text_field])
-            self.__storage.delete_container_items(IndexWriter.ASSOCIATIONS_CONTAINER.format(text_field), delete_assoc_keys)
+            self.__storage.set_container_items(
+                IndexWriter.ASSOCIATIONS_CONTAINER.format(text_field), assocs_index[text_field])
+            self.__storage.delete_container_items(
+                IndexWriter.ASSOCIATIONS_CONTAINER.format(text_field), delete_assoc_keys)
             # Frequencies
             for key in frequencies_index[text_field]:
                 frequencies_index[text_field][key] = json.dumps(frequencies_index[text_field][key])
-            self.__storage.set_container_items(IndexWriter.FREQUENCIES_CONTAINER.format(text_field), frequencies_index[text_field])
-            self.__storage.delete_container_items(IndexWriter.FREQUENCIES_CONTAINER.format(text_field), delete_frequencies_keys)
+            self.__storage.set_container_items(IndexWriter.FREQUENCIES_CONTAINER.format(
+                text_field), frequencies_index[text_field])
+            self.__storage.delete_container_items(
+                IndexWriter.FREQUENCIES_CONTAINER.format(text_field), delete_frequencies_keys)
             # Frames
             try:
                 self.__storage.set_container_items(IndexWriter.FRAMES_CONTAINER.format(text_field),
-                                               {k: json.dumps(v) for k, v in self.__new_frames[text_field].iteritems()})
+                                                   {k: json.dumps(v) for k, v
+                                                    in self.__new_frames[text_field].iteritems()})
             except KeyError:
                 pass
-            try: 
-                self.__storage.delete_container_items(IndexWriter.FRAMES_CONTAINER.format(text_field), 
+            try:
+                self.__storage.delete_container_items(IndexWriter.FRAMES_CONTAINER.format(text_field),
                                                       self.__rm_frames[text_field])
-            except KeyError: # No frames in that field to delete
+            except KeyError:  # No frames in that field to delete
                 pass
         self.__new_frames = {}
         self.__rm_frames = {}
@@ -630,7 +641,7 @@ class IndexWriter(object):
         # Build the frames by performing required analysis.
         frames = {}  # Frame data:: field_name -> {frame_id -> {key: value}}
         metadata = {}  # Inverted frame metadata:: field_name -> field_value
-        frame_ids = {} # List of frame_id's across all fields.
+        frame_ids = {}  # List of frame_id's across all fields.
 
         # Shell frame includes all non-indexed and categorical fields
         shell_frame = {}
@@ -679,7 +690,8 @@ class IndexWriter(object):
                     # Next we need the sentences grouped by frame
                     if frame_size > 0:
                         sentences = sentence_tokenizer.tokenize(paragraph.value, realign_boundaries=True)
-                        sentences_by_frames = [sentences[i:i+frame_size] for i in xrange(0, len(sentences), frame_size)]
+                        sentences_by_frames = [sentences[i:i + frame_size]
+                                               for i in xrange(0, len(sentences), frame_size)]
                     else:
                         sentences_by_frames = [[paragraph.value]]
                     for sentence_list in sentences_by_frames:
@@ -847,22 +859,22 @@ class IndexWriter(object):
         frequencies_index = {
             k: json.loads(v) if v else 0
             for k, v in self.__storage.get_container_items(IndexWriter.FREQUENCIES_CONTAINER.format(text_field))
-            }
+        }
 
         associations_index = {
             k: json.loads(v) if v else {}
             for k, v in self.__storage.get_container_items(IndexWriter.ASSOCIATIONS_CONTAINER.format(text_field))
-            }
+        }
 
         positions_index = {
             k: json.loads(v) if v else {}
             for k, v in self.__storage.get_container_items(IndexWriter.POSITIONS_CONTAINER.format(text_field))
-            }
+        }
 
         frames = {
             k: json.loads(v)
             for k, v in self.__storage.get_container_items(IndexWriter.FRAMES_CONTAINER.format(text_field))
-            }
+        }
 
         for old_term, new_term in merges:
             logger.debug('Merging {} into {}'.format(old_term, new_term))
@@ -1163,6 +1175,7 @@ class IndexWriter(object):
 
 
 class IndexReader(object):
+
     """
     Read information from an existing index.
 
@@ -1198,6 +1211,7 @@ class IndexReader(object):
     some of it's own caching but that is transparent to us.
 
     """
+
     def __init__(self, path):
         """
         Open a new IndexReader for the index at ``path`` (str).
@@ -1307,7 +1321,8 @@ class IndexReader(object):
 
     def get_term_association(self, term, association, field):
         """Returns a count of term associations between ``term`` (str) and ``association`` (str)."""
-        return json.loads(self.__storage.get_container_item(IndexWriter.ASSOCIATIONS_CONTAINER.format(field), term))[association]
+        return json.loads(self.__storage.get_container_item(IndexWriter.ASSOCIATIONS_CONTAINER.format(field),
+                                                            term))[association]
 
     def get_frequencies(self, field):
         """

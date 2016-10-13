@@ -16,10 +16,11 @@ class QueryResult(object):
 
     The result of a query is a dict of text_field: set(frame_ids) and text_field: term_weights.
 
-    All term weightings default to 1 unless they are modified explicitly by the query. Their purpose is to facilitate 
+    All term weightings default to 1 unless they are modified explicitly by the query. Their purpose is to facilitate
     scoring a query result, based on the query that returned it.
 
     """
+
     def __init__(self, frame_ids, term_weights, text_field):
         self.frame_ids = {text_field: set(frame_ids)}
         self.term_weights = {text_field: term_weights}
@@ -44,7 +45,6 @@ class QueryResult(object):
                         self.term_weights[text_field] = {term: weight}
         return self
 
-
     def __iand__(self, other_query):
         """ Intersection of this query and other_query. """
 
@@ -60,7 +60,6 @@ class QueryResult(object):
                 self.frame_ids[text_field] &= frame_ids
             except KeyError:
                 self.frame_ids[text_field] = set()
-
 
         for text_field, term_weights in other_query.term_weights.iteritems():
             for term, weight in term_weights.iteritems():
@@ -84,7 +83,6 @@ class QueryResult(object):
                 pass
         # Exclusions are treated as boolean only, and do not affect term weighting for scoring.
         return self
-
 
 
 class QueryError(Exception):

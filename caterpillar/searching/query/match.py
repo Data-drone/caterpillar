@@ -11,7 +11,7 @@ Callers should use either :class:`MatchAllQuery`` or :class:`MatchSomeQuery` to 
 Also note that it is possible to nest ``MatchAllQuery`` and ``MatchSomeQuery`` objects within themselves and each other.
 
 """
-from caterpillar.searching.query import BaseQuery, QueryResult, QueryError
+from caterpillar.searching.query import BaseQuery
 
 
 class _MatchQuery(BaseQuery):
@@ -32,7 +32,7 @@ class _MatchQuery(BaseQuery):
         self.exclude_queries = exclude_queries
 
     def evaluate(self, index):
-        """Evaluate all queries and combine the results into a single query. 
+        """Evaluate all queries and combine the results into a single query.
 
         """
         results = (q.evaluate(index) for q in self.queries)

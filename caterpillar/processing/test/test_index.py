@@ -23,10 +23,10 @@ def test_index_open(index_dir):
         data = f.read()
         analyser = TestAnalyser()
         writer = IndexWriter(index_dir, IndexConfig(SqliteStorage,
-                             Schema(text1=TEXT(analyser=analyser), 
+                             Schema(text1=TEXT(analyser=analyser),
                                     text2=TEXT(analyser=analyser),
                                     document=TEXT(analyser=analyser, indexed=False),
-                                    flag=FieldType(analyser=EverythingAnalyser(), 
+                                    flag=FieldType(analyser=EverythingAnalyser(),
                                     indexed=True, categorical=True))))
         with writer:
             writer.add_document(text1=data, text2=data, document='alice.txt', flag=True, frame_size=2)
@@ -34,7 +34,7 @@ def test_index_open(index_dir):
         # Identical text fields should generate the same frames and frequencies
         with IndexReader(index_dir) as reader:
             assert sum(1 for _ in reader.get_frequencies('text1')) == 500
-            assert sum(1 for _ in reader.get_frequencies('text2')) == 500 
+            assert sum(1 for _ in reader.get_frequencies('text2')) == 500
             assert reader.get_term_frequency('Alice', 'text1') == 23
             assert reader.get_term_frequency('Alice', 'text2') == 23
             assert reader.get_document_count() == 1
@@ -119,12 +119,13 @@ def test_index_alice(index_dir):
                                          ref=123, frame_size=2)
 
         with IndexReader(index_dir) as reader:
-            x = reader.get_term_positions('nice', 'text')
             assert sum(1 for _ in reader.get_term_positions('nice', 'text')) == 3
             assert sum(1 for _ in reader.get_term_positions('key', 'text')) == 5
 
-            assert reader.get_term_association('Alice', 'poor', 'text') == reader.get_term_association('poor', 'Alice', 'text') == 3
-            assert reader.get_term_association('key', 'golden', 'text') == reader.get_term_association('golden', 'key', 'text') == 3
+            assert reader.get_term_association('Alice', 'poor', 'text') == \
+                reader.get_term_association('poor', 'Alice', 'text') == 3
+            assert reader.get_term_association('key', 'golden', 'text') == \
+                reader.get_term_association('golden', 'key', 'text') == 3
 
             assert reader.get_vocab_size('text') == sum(1 for _ in reader.get_frequencies('text')) == 500
             assert reader.get_term_frequency('Alice', 'text') == 23
@@ -330,9 +331,7 @@ def test_index_alice_merge_bigram(index_dir):
                 assert bigrams.get_term_frequency('golden', 'text') == 1
                 assert bigrams.get_term_frequency('key', 'text') == 3
                 merge_frequencies = {k: v for k, v in merges.get_frequencies('text')}
-                bigram_frequencies = {k: v for k, v in bigrams.get_frequencies('text')}
                 merge_associations = {k: v for k, v in merges.get_associations_index('text')}
-                bigram_associations = {k: v for k, v in bigrams.get_associations_index('text')}
                 for term, frequency in bigrams.get_frequencies('text'):
                     assert merge_frequencies[term] == frequency
                 # Associations
@@ -385,14 +384,16 @@ def test_index_moby_case_folding(index_dir):
             with pytest.raises(KeyError):
                 assert not reader.get_term_frequency('flask', 'text')
             assert reader.get_term_frequency('Flask', 'text') == 88
-            assert reader.get_term_association('Flask', 'person', 'text') == reader.get_term_association('person', 'Flask', 'text') == 2
+            assert reader.get_term_association('Flask', 'person', 'text') == \
+                reader.get_term_association('person', 'Flask', 'text') == 2
 
             with pytest.raises(KeyError):
                 reader.get_term_positions('Well', 'text')
             with pytest.raises(KeyError):
                 assert not reader.get_term_frequency('Well', 'text')
             assert reader.get_term_frequency('well', 'text') == 194
-            assert reader.get_term_association('well', 'whale', 'text') == reader.get_term_association('whale', 'well', 'text') == 20
+            assert reader.get_term_association('well', 'whale', 'text') == \
+                reader.get_term_association('whale', 'well', 'text') == 20
 
             with pytest.raises(KeyError):
                 reader.get_term_positions('Whale', 'text')
