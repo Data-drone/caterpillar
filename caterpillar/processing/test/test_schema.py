@@ -9,9 +9,11 @@ from caterpillar.storage.sqlite import SqliteStorage
 
 import pytest
 
+from caterpillar.processing.analysis.analyse import DateTimeAnalyser
 from caterpillar.processing import schema
 from caterpillar.processing.index import IndexWriter, IndexReader, IndexConfig
-from caterpillar.processing.schema import BOOLEAN, FieldType, ID, NUMERIC, Schema, TEXT, FieldConfigurationError
+from caterpillar.processing.schema import BOOLEAN, FieldType, ID, NUMERIC, Schema, TEXT, FieldConfigurationError, \
+    DATETIME
 from caterpillar.searching.query.querystring import QueryStringQuery
 
 
@@ -61,6 +63,16 @@ def test_schema():
 
     f = NUMERIC(num_type=float)
     assert f.equals('1', '1.0')
+
+    dt = DATETIME(analyser=DateTimeAnalyser(datetime_format='HH:mm DD/MM/YYYY'))
+    assert dt.value_of('10:05 01/12/2016') == '2016-12-01T10:05:00z'
+    assert dt.equals('10:05 01/12/2016', '10:05 01/12/2016')
+    assert dt.gt('10:06 01/12/2016', '10:05 01/12/2016')
+    assert dt.gte('10:05 01/12/2016', '10:05 01/12/2016')
+    assert dt.gte('10:05 02/12/2016', '10:05 01/12/2016')
+    assert dt.lt('01:05 01/12/2016', '10:05 01/12/2016')
+    assert dt.lte('10:05 01/12/2016', '10:05 01/12/2016')
+    assert dt.lte('10:05 01/12/2015', '10:05 01/12/2016')
 
     assert list(BOOLEAN().analyse('1'))[0].value is True
 

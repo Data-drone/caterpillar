@@ -35,6 +35,7 @@ requires = [
     'numpy',
     'regex',
     'ujson',
+    'arrow',
 ]
 
 setup(

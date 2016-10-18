@@ -13,7 +13,8 @@ import sys
 
 import regex
 
-from caterpillar.processing.analysis.analyse import BiGramAnalyser, EverythingAnalyser, DefaultAnalyser
+from caterpillar.processing.analysis.analyse import BiGramAnalyser, EverythingAnalyser, \
+    DefaultAnalyser, DateTimeAnalyser
 from caterpillar.processing.analysis.tokenize import Token
 
 
@@ -195,6 +196,38 @@ class CATEGORICAL_TEXT(CategoricalFieldType):
 
     def equals_wildcard(self, value, wildcard_value):
         return re.match(wildcard_value, value) is not None
+
+
+class DATETIME(FieldType):
+    """Field type for datetimes.
+
+    Datetimes are stored as ISO8601 strings down to a resolution of 1 second. All datetimes are either datetime
+    unaware (no UTC offset) or datetime aware and stored as UTC (explicit offset +00:00). This means all datetimes
+    are lexicographically comparable.
+
+    """
+
+    def __init__(self, analyser=DateTimeAnalyser(), indexed=False, stored=True):
+        super(DATETIME, self).__init__(analyser=analyser, indexed=indexed, stored=stored, categorical=False)
+
+    def value_of(self, raw_value):
+        """Return the value of ``raw_value`` after being processed by this field type's analyse method."""
+        return list(self.analyse(raw_value))[0].value
+
+    def gt(self, value1, value2):
+        return self.value_of(value1) > self.value_of(value2)
+
+    def gte(self, value1, value2):
+        return self.value_of(value1) >= self.value_of(value2)
+
+    def lt(self, value1, value2):
+        return self.value_of(value1) < self.value_of(value2)
+
+    def lte(self, value1, value2):
+        return self.value_of(value1) <= self.value_of(value2)
+
+    def equals(self, value1, value2):
+        return self.value_of(value1) == self.value_of(value2)
 
 
 class Schema(object):
