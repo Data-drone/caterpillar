@@ -149,10 +149,10 @@ class DateTimeAnalyser(Analyser):
     """
     _filters = []
 
-    def __init__(self, datetime_format=None, ignore_tz=False):
-        self.datetime_format = datetime_format
+    def __init__(self, datetime_formats=None, ignore_tz=False):
+        self.datetime_formats = datetime_formats
         self.ignore_tz = ignore_tz
-        self._tokenizer = DateTimeTokenizer(datetime_format, ignore_tz)
+        self._tokenizer = DateTimeTokenizer(datetime_formats, ignore_tz)
 
     def get_tokenizer(self):
         return self._tokenizer

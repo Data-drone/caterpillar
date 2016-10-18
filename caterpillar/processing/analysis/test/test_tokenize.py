@@ -152,14 +152,14 @@ def test_datetime_tokenizer():
     # Test ignore_tz
     for dt_format, dt_string in zip(product(date_format_examples, time_format_examples),
                                     product(date_examples, time_examples)):
-        dt_tokenizer = DateTimeTokenizer(datetime_format=' '.join(dt_format), ignore_tz=True)
+        dt_tokenizer = DateTimeTokenizer(datetime_formats=[' '.join(dt_format)], ignore_tz=True)
         value = next(dt_tokenizer.tokenize(' '.join(dt_string))).value
         assert value == canonical_repr_naive
 
     # Test with timezone:
     for dt_format, dt_string in zip(product(date_format_examples, time_format_examples),
                                     product(date_examples, time_examples)):
-        dt_tokenizer = DateTimeTokenizer(datetime_format=' '.join(dt_format), ignore_tz=False)
+        dt_tokenizer = DateTimeTokenizer(datetime_formats=[' '.join(dt_format)], ignore_tz=False)
         value = next(dt_tokenizer.tokenize(' '.join(dt_string))).value
         assert value == canonical_repr_utc
 
@@ -167,6 +167,6 @@ def test_datetime_tokenizer():
     for dt_format, dt_string, canonical_repr in zip(product(date_format_examples, time_format_examples, offset_format),
                                                     product(date_examples, time_examples, utc_offsets),
                                                     product(date_examples, time_examples, offset_canonical_repr)):
-        dt_tokenizer = DateTimeTokenizer(datetime_format=' '.join(dt_format), ignore_tz=False)
+        dt_tokenizer = DateTimeTokenizer(datetime_formats=[' '.join(dt_format)], ignore_tz=False)
         value = next(dt_tokenizer.tokenize(' '.join(dt_string))).value
         assert value == canonical_repr[2]

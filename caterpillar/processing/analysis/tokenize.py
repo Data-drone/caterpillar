@@ -237,22 +237,24 @@ class DateTimeTokenizer(Tokenizer):
     false the input timezone offset will be used. If no timezone information is available the timezone is assumed
     to be UTC.
 
-    A ``datetime_format`` string or list of datetime format strings can be passed. If no format is specified
-    an attempt will be made to parse the string automatically. It is recommended to explicitly specify the
-    input formats, as the automatic parsing may not match the user intention in ambiguous cases.
+    A ``datetime_formats`` list of datetime format strings can be passed. If no strings are specified, only
+    ISO8601 format strings in the form 'YYYY-MM-DDTHH:mm:ss', 'YYYY-MM-DDTHH:mm:ssz' will be accepted. These two
+    formats are always accepted, so that searching is always possible in a standard format.
 
     """
-    def __init__(self, datetime_format=None, ignore_tz=False):
-        self.datetime_format = datetime_format
+    ISO_FORMATS = ['YYYY-MM-DDTHH:mm:ss', 'YYYY-MM-DDTHH:mm:ssz']
+
+    def __init__(self, datetime_formats=None, ignore_tz=False):
+        if datetime_formats is None:
+            self.datetime_formats = self.ISO_FORMATS
+        else:
+            self.datetime_formats = datetime_formats + self.ISO_FORMATS
         self.ignore_tz = ignore_tz
 
     def tokenize(self, value):
         t = Token()
 
-        if self.datetime_format is not None:
-            datetime = arrow.get(value, self.datetime_format)
-        else:
-            datetime = arrow.get(value)
+        datetime = arrow.get(value, self.datetime_formats)
 
         if self.ignore_tz:
             # ISO8601, without timezone. Uses the standard library datetime string formats

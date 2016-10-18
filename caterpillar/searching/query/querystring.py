@@ -273,7 +273,7 @@ class _QueryStringGrammar(Grammar):
     and_op = expr << Token(re=r'(?i)(?<!=")and(?!")') << expr
     not_op = expr << Token(re=r'(?i)(?<!=")not(?!")') << expr
     or_op = expr << Token(re=r'(?i)(?<!=")or(?!")') << expr
-    term = Token(re=r'[^\s^()=<>:]+')
+    term = Token(re=r'[^\s^()=<>]+')
     operand = Repeat(term, 1)
     weighting = operand << Token(re=r'\^[0-9]*\.?[0-9]+')
     field = operand + Tokens('= < > <= >=') + operand

@@ -64,7 +64,7 @@ def test_schema():
     f = NUMERIC(num_type=float)
     assert f.equals('1', '1.0')
 
-    dt = DATETIME(analyser=DateTimeAnalyser(datetime_format='HH:mm DD/MM/YYYY'))
+    dt = DATETIME(analyser=DateTimeAnalyser(datetime_formats=['HH:mm DD/MM/YYYY']))
     assert dt.value_of('10:05 01/12/2016') == '2016-12-01T10:05:00z'
     assert dt.equals('10:05 01/12/2016', '10:05 01/12/2016')
     assert dt.gt('10:06 01/12/2016', '10:05 01/12/2016')

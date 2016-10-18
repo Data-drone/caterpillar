@@ -208,7 +208,7 @@ class DATETIME(FieldType):
     """
 
     def __init__(self, analyser=DateTimeAnalyser(), indexed=False, stored=True):
-        super(DATETIME, self).__init__(analyser=analyser, indexed=indexed, stored=stored, categorical=False)
+        super(DATETIME, self).__init__(analyser=analyser, indexed=indexed, stored=stored, categorical=True)
 
     def value_of(self, raw_value):
         """Return the value of ``raw_value`` after being processed by this field type's analyse method."""
