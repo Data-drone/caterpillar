@@ -30,12 +30,12 @@ with open(version_file, encoding='utf-8') as fh:
 
 requires = [
     'apsw',
+    'arrow',
     'lrparsing',
     'nltk>=2.0,<2.1',
     'numpy',
     'regex',
     'ujson',
-    'arrow',
 ]
 
 setup(
