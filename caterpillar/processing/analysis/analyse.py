@@ -4,7 +4,8 @@
 from caterpillar.processing.analysis import stopwords
 from caterpillar.processing.analysis.filter import StopFilter, PositionalLowercaseWordFilter, BiGramFilter, \
     PotentialBiGramFilter, OuterPunctuationFilter, PossessiveContractionFilter
-from caterpillar.processing.analysis.tokenize import WordTokenizer, EverythingTokenizer, SimpleWordTokenizer
+from caterpillar.processing.analysis.tokenize import WordTokenizer, EverythingTokenizer, \
+    SimpleWordTokenizer, DateTimeTokenizer
 
 
 class Analyser(object):
@@ -133,6 +134,25 @@ class EverythingAnalyser(Analyser):
     """
     _tokenizer = EverythingTokenizer()
     _filters = []
+
+    def get_tokenizer(self):
+        return self._tokenizer
+
+    def get_filters(self):
+        return self._filters
+
+
+class DateTimeAnalyser(Analyser):
+    """
+    Analyser for ``DATETIME`` fields. Returns an ISO8601 format datetime string.
+
+    """
+    _filters = []
+
+    def __init__(self, datetime_formats=None, ignore_tz=False):
+        self.datetime_formats = datetime_formats
+        self.ignore_tz = ignore_tz
+        self._tokenizer = DateTimeTokenizer(datetime_formats, ignore_tz)
 
     def get_tokenizer(self):
         return self._tokenizer

@@ -4,6 +4,8 @@
 from nltk.internals import convert_regexp_to_nongrouping
 import regex
 
+import arrow
+
 
 class Token(object):
     """
@@ -225,3 +227,40 @@ class EverythingTokenizer(Tokenizer):
     def tokenize(self, value):
         t = Token()
         yield t.update(value, stopped=False, position=0, index=(0, len(str(value)) if value else 0,))
+
+
+class DateTimeTokenizer(Tokenizer):
+    """
+    Returns an ISO8601 format datetime string in either naive or UTC format.
+
+    If ``ignore_tz`` is ``True`` a string will be returned without timezone information. If ``ignore_tz`` is
+    false the input timezone offset will be used. If no timezone information is available the timezone is assumed
+    to be UTC.
+
+    A ``datetime_formats`` list of datetime format strings can be passed. If no strings are specified, only
+    ISO8601 format strings in the form 'YYYY-MM-DDTHH:mm:ss', 'YYYY-MM-DDTHH:mm:ssz' will be accepted. These two
+    formats are always accepted, so that searching is always possible in a standard format.
+
+    """
+    ISO_FORMATS = ['YYYY-MM-DDTHH:mm:ss', 'YYYY-MM-DDTHH:mm:ssz']
+
+    def __init__(self, datetime_formats=None, ignore_tz=False):
+        if datetime_formats is None:
+            self.datetime_formats = self.ISO_FORMATS
+        else:
+            self.datetime_formats = datetime_formats + self.ISO_FORMATS
+        self.ignore_tz = ignore_tz
+
+    def tokenize(self, value):
+        t = Token()
+
+        datetime = arrow.get(value, self.datetime_formats)
+
+        if self.ignore_tz:
+            # ISO8601, without timezone. Uses the standard library datetime string formats
+            output = datetime.naive.strftime('%Y-%m-%dT%H:%M:%S')
+        else:
+            # Uses the format modifiers from the arrow library.
+            output = datetime.to('UTC').format('YYYY-MM-DDTHH:mm:ssz')
+
+        yield t.update(output, stopped=False, position=0, index=(0, len(output) if output else 0))

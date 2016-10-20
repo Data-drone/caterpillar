@@ -3,6 +3,8 @@
 """Tests for the caterpillar.processing.analysis.tokenize module."""
 import os
 import pytest
+from arrow.parser import ParserError
+from itertools import product
 from caterpillar.processing.analysis.tokenize import *
 
 
@@ -128,3 +130,43 @@ def test_word_tokenizer_url():
 def test_everything_tokenizer():
     token = list(EverythingTokenizer().tokenize("Test"))[0]
     assert token.value == 'Test'
+
+
+def test_datetime_tokenizer():
+    # Construct a cross product of the same time in different formats
+    date_format_examples = ['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD']
+    time_format_examples = ['HH:mm:ss', 'HH:mm', 'H:mm a', 'H:mm:ssA']
+    date_examples = ['21/02/2014', '02/21/2014', '2014-02-21']
+    time_examples = ['13:00:00', '13:00', '1:00 pm', '1:00:00PM']
+
+    canonical_repr_utc = '2014-02-21T13:00:00z'
+    canonical_repr_naive = canonical_repr_utc[:-1]
+
+    utc_offsets = ['+0{}:00'.format(i) for i in range(10)]
+    offset_format = ['ZZ'] * 10
+    offset_canonical_repr = ['2014-02-21T{:02}:00:00z'.format(13 - i) for i in range(10)]
+
+    with pytest.raises(ParserError):
+        next(DateTimeTokenizer().tokenize('Not a date'))
+
+    # Test ignore_tz
+    for dt_format, dt_string in zip(product(date_format_examples, time_format_examples),
+                                    product(date_examples, time_examples)):
+        dt_tokenizer = DateTimeTokenizer(datetime_formats=[' '.join(dt_format)], ignore_tz=True)
+        value = next(dt_tokenizer.tokenize(' '.join(dt_string))).value
+        assert value == canonical_repr_naive
+
+    # Test with timezone:
+    for dt_format, dt_string in zip(product(date_format_examples, time_format_examples),
+                                    product(date_examples, time_examples)):
+        dt_tokenizer = DateTimeTokenizer(datetime_formats=[' '.join(dt_format)], ignore_tz=False)
+        value = next(dt_tokenizer.tokenize(' '.join(dt_string))).value
+        assert value == canonical_repr_utc
+
+    # Test with UTC offsets in the import string
+    for dt_format, dt_string, canonical_repr in zip(product(date_format_examples, time_format_examples, offset_format),
+                                                    product(date_examples, time_examples, utc_offsets),
+                                                    product(date_examples, time_examples, offset_canonical_repr)):
+        dt_tokenizer = DateTimeTokenizer(datetime_formats=[' '.join(dt_format)], ignore_tz=False)
+        value = next(dt_tokenizer.tokenize(' '.join(dt_string))).value
+        assert value == canonical_repr[2]
