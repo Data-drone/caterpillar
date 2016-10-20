@@ -665,12 +665,19 @@ def test_index_multi_document_delete(index_dir):
             assert reader.get_document_count() == 0
 
 
-def test_metadata_only_retrieval(index_dir):
+def test_metadata_only_retrieval_deletion(index_dir):
     """Test we can retrieve metadata only documents"""
-    config = IndexConfig(SqliteStorage, schema=Schema(num=NUMERIC(indexed=True)))
+    config = IndexConfig(SqliteStorage, schema=Schema(num=NUMERIC(indexed=True), text=TEXT))
     with IndexWriter(index_dir, config) as writer:
-        writer.add_document(num=1)
+        doc_id = writer.add_document(num=1)
 
     with IndexReader(index_dir) as reader:
         searcher = reader.searcher()
         assert searcher.count(QueryStringQuery('num=1')) == 1
+
+    with IndexWriter(index_dir, config) as writer:
+        writer.delete_document(doc_id)
+
+    with IndexReader(index_dir) as reader:
+        assert reader.get_frame_count('') == 0
+        assert reader.get_document_count() == 0

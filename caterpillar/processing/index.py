@@ -323,8 +323,7 @@ class IndexWriter(object):
                 # Catch all container for surrogate frames generated in the case of no text fields.
                 # This is a workaround to the limitation of the current index structure which allows
                 # searching only by frame and not by documents.
-                if len(text_fields) == 0:
-                    storage.add_container(IndexWriter.FRAMES_CONTAINER.format(''))
+                storage.add_container(IndexWriter.FRAMES_CONTAINER.format(''))
                 # Index settings
                 storage.set_container_item(IndexWriter.INFO_CONTAINER, 'derived', json.dumps(False))
                 # Revision
@@ -425,16 +424,17 @@ class IndexWriter(object):
         # Generate the index content of the frames to be removed, to exclude from the merging set
         rm_frames = {}
 
-        for text_field in text_fields:
+        # Remember to include the '' field for metadata only surrogate frames.
+        for field in self.__rm_frames.keys():
             try:
-                rm_frames[text_field] = {
+                rm_frames[field] = {
                     k: json.loads(v) if v else {}
                     for k, v in self.__storage.get_container_items(
-                        IndexWriter.FRAMES_CONTAINER.format(text_field), keys=self.__rm_frames[text_field]
+                        IndexWriter.FRAMES_CONTAINER.format(field), keys=self.__rm_frames[field]
                     )
                 }
             except KeyError:
-                rm_frames[text_field] = {}
+                rm_frames[field] = {}
 
         new_positions, new_associations, new_frequencies, new_metadata = index_frames(self.__new_frames)
         rm_positions, rm_associations, rm_frequencies, rm_metadata = index_frames(rm_frames)
@@ -571,18 +571,24 @@ class IndexWriter(object):
                 text_field), frequencies_index[text_field])
             self.__storage.delete_container_items(
                 IndexWriter.FREQUENCIES_CONTAINER.format(text_field), delete_frequencies_keys)
-            # Frames
+
+        # Use the actual fields for adding the frames - to handle the surrogate frames created when no
+        # text field is present.
+        for field in self.__new_frames.keys():
             try:
-                self.__storage.set_container_items(IndexWriter.FRAMES_CONTAINER.format(text_field),
+                self.__storage.set_container_items(IndexWriter.FRAMES_CONTAINER.format(field),
                                                    {k: json.dumps(v) for k, v
-                                                    in self.__new_frames[text_field].iteritems()})
+                                                    in self.__new_frames[field].iteritems()})
             except KeyError:
                 pass
+
+        for field in self.__rm_frames.keys():
             try:
-                self.__storage.delete_container_items(IndexWriter.FRAMES_CONTAINER.format(text_field),
-                                                      self.__rm_frames[text_field])
+                self.__storage.delete_container_items(IndexWriter.FRAMES_CONTAINER.format(field),
+                                                      self.__rm_frames[field])
             except KeyError:  # No frames in that field to delete
                 pass
+
         self.__new_frames = {}
         self.__rm_frames = {}
         # Metadata
@@ -766,13 +772,14 @@ class IndexWriter(object):
             frame_id = "{}-{}".format(document_id, frame_count)
             frame = {
                 '_id': frame_id,
-                '_field': None,  # There is no text field
+                '_field': '',  # There is no text field
                 '_positions': {},
                 '_sequence_number': frame_count,
                 '_doc_id': document_id,
             }
             frame.update(shell_frame)
             frames[''] = {frame_id: frame}
+            frame_ids[''] = [frame_id]
 
         # Store the complete metadata in each item
         for field_name, values in frames.iteritems():
