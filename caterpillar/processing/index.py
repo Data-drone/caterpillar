@@ -426,15 +426,12 @@ class IndexWriter(object):
 
         # Remember to include the '' field for metadata only surrogate frames.
         for field in self.__rm_frames.keys():
-            try:
-                rm_frames[field] = {
-                    k: json.loads(v) if v else {}
-                    for k, v in self.__storage.get_container_items(
-                        IndexWriter.FRAMES_CONTAINER.format(field), keys=self.__rm_frames[field]
-                    )
-                }
-            except KeyError:
-                rm_frames[field] = {}
+            rm_frames[field] = {
+                k: json.loads(v) if v else {}
+                for k, v in self.__storage.get_container_items(
+                    IndexWriter.FRAMES_CONTAINER.format(field), keys=self.__rm_frames[field]
+                )
+            }
 
         new_positions, new_associations, new_frequencies, new_metadata = index_frames(self.__new_frames)
         rm_positions, rm_associations, rm_frequencies, rm_metadata = index_frames(rm_frames)
@@ -575,19 +572,16 @@ class IndexWriter(object):
         # Use the actual fields for adding the frames - to handle the surrogate frames created when no
         # text field is present.
         for field in self.__new_frames.keys():
-            try:
-                self.__storage.set_container_items(IndexWriter.FRAMES_CONTAINER.format(field),
-                                                   {k: json.dumps(v) for k, v
-                                                    in self.__new_frames[field].iteritems()})
-            except KeyError:
-                pass
+            self.__storage.set_container_items(
+                IndexWriter.FRAMES_CONTAINER.format(field), {
+                    k: json.dumps(v) for k, v in self.__new_frames[field].iteritems()
+                }
+            )
 
         for field in self.__rm_frames.keys():
-            try:
-                self.__storage.delete_container_items(IndexWriter.FRAMES_CONTAINER.format(field),
-                                                      self.__rm_frames[field])
-            except KeyError:  # No frames in that field to delete
-                pass
+            self.__storage.delete_container_items(
+                IndexWriter.FRAMES_CONTAINER.format(field), self.__rm_frames[field]
+            )
 
         self.__new_frames = {}
         self.__rm_frames = {}
