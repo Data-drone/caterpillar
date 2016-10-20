@@ -15,6 +15,7 @@ from caterpillar.storage.sqlite import SqliteStorage
 from caterpillar.processing.analysis.analyse import EverythingAnalyser
 from caterpillar.processing.index import *
 from caterpillar.processing.schema import ID, NUMERIC, TEXT, FieldType, Schema
+from caterpillar.searching.query.querystring import QueryStringQuery
 from caterpillar.test_util import TestAnalyser, TestBiGramAnalyser
 
 
@@ -662,3 +663,14 @@ def test_index_multi_document_delete(index_dir):
         with IndexReader(index_dir) as reader:
             assert reader.get_frame_count('text') == 0
             assert reader.get_document_count() == 0
+
+
+def test_metadata_only_retrieval(index_dir):
+    """Test we can retrieve metadata only documents"""
+    config = IndexConfig(SqliteStorage, schema=Schema(num=NUMERIC(indexed=True)))
+    with IndexWriter(index_dir, config) as writer:
+        writer.add_document(num=1)
+
+    with IndexReader(index_dir) as reader:
+        searcher = reader.searcher()
+        assert searcher.count(QueryStringQuery('num=1')) == 1

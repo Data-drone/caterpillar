@@ -311,12 +311,20 @@ class IndexWriter(object):
                 storage.add_container(IndexWriter.SETTINGS_CONTAINER)
                 storage.add_container(IndexWriter.INFO_CONTAINER)
                 storage.add_container(IndexWriter.METADATA_CONTAINER)
+
+                text_fields = self.__schema.get_indexed_text_fields()
                 # Set of containers for each indexed text field
-                for field_name in self.__schema.get_indexed_text_fields():
+                for field_name in text_fields:
                     storage.add_container(IndexWriter.POSITIONS_CONTAINER.format(field_name))
                     storage.add_container(IndexWriter.ASSOCIATIONS_CONTAINER.format(field_name))
                     storage.add_container(IndexWriter.FRAMES_CONTAINER.format(field_name))
                     storage.add_container(IndexWriter.FREQUENCIES_CONTAINER.format(field_name))
+
+                # Catch all container for surrogate frames generated in the case of no text fields.
+                # This is a workaround to the limitation of the current index structure which allows
+                # searching only by frame and not by documents.
+                if len(text_fields) == 0:
+                    storage.add_container(IndexWriter.FRAMES_CONTAINER.format(''))
                 # Index settings
                 storage.set_container_item(IndexWriter.INFO_CONTAINER, 'derived', json.dumps(False))
                 # Revision
@@ -728,6 +736,20 @@ class IndexWriter(object):
                         # Build the final frame and add to the index
                         frame.update(shell_frame)
                         frames[field_name][frame_id] = frame
+
+        # Currently only frames are searchable. That means if a schema contains no text fields it isn't searchable
+        # at all. This block constructs a surrogate frame for storage in a catchall container to handle this case.
+        if not frames and metadata:
+            frame_id = "{}-{}".format(document_id, frame_count)
+            frame = {
+                '_id': frame_id,
+                '_field': None,  # There is no text field
+                '_positions': {},
+                '_sequence_number': frame_count,
+                '_doc_id': document_id,
+            }
+            frame.update(shell_frame)
+            frames[''] = {frame_id: frame}
 
         # Store the complete metadata in each item
         for field_name, values in frames.iteritems():

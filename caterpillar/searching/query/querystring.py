@@ -32,23 +32,29 @@ class QueryStringQuery(BaseQuery):
     """
     This class allows term and metadata based querying via raw query string passed to ``query_str``.
 
-    Optionally restricts query to the specified ``text_field``.
+    If a ``text_field`` is not specified, only metadata lookups will be evaluated: text search terms
+    will be silently ignored.
 
     """
-    def __init__(self, query_str, text_field):
+    def __init__(self, query_str, text_field=None):
         self.query_str = query_str
         self.text_field = text_field
 
     def evaluate(self, index_reader):
         metadata = {k: v for k, v in index_reader.get_metadata()}
-        if self.text_field not in metadata:
+
+        if self.text_field is not None and self.text_field not in metadata:
             raise QueryError("Specified text field {} doesn't exist".format(self.text_field))
 
         frame_ids, term_weights = _QueryStringParser(index_reader,
-                                                     self.text_field, metadata).parse_and_evaluate(self.query_str)
-        # Ensure that only frames of the specified text_field are included.
-        # Metadata only queries might return frames for other text fields.
-        frame_ids.intersection_update(set(metadata[self.text_field]['_text']))
+                                                     self.text_field,
+                                                     metadata).parse_and_evaluate(self.query_str)
+
+        if self.text_field is not None:
+            # Ensure that only frames of the specified text_field are included.
+            # Metadata only queries might return frames for other text fields.
+            frame_ids.intersection_update(set(metadata[self.text_field]['_text']))
+
         return QueryResult(frame_ids, term_weights, self.text_field)
 
 
@@ -61,7 +67,10 @@ class _QueryStringParser(object):
         self.index = index
         self.schema = index.get_schema()
         self.metadata = metadata
-        self.terms = [term for term, count in index.get_frequencies(text_field)]
+        if text_field is not None:
+            self.terms = [term for term, count in index.get_frequencies(text_field)]
+        else:
+            self.terms = []
         self.text_field = text_field
 
     def __call__(self, node):
@@ -186,34 +195,35 @@ class _QueryStringParser(object):
         Evaluate operand (term) node via lookup in the term positions index.
 
         """
-        value = self._extract_term_value(node)
-        if value == '*':
-            # Single wildcard matches all frames
-            node.frame_ids = set(self.index.get_frame_ids(self.text_field))
-        else:
-            wildcard = False
-            if '?' in value:
-                # Insert regex pattern for single character wildcard
-                value = value.replace('?', r'\S')
-                wildcard = True
-            if '*' in value:
-                # Insert regex pattern for multiple character wildcard
-                value = value.replace('*', r'[\S]*')
-                wildcard = True
-            if wildcard:
-                re = regex.compile('^' + value + '$')
-                for term in self.terms:
-                    # Search for terms that match wildcard query
-                    if re.match(term):
-                        node.frame_ids.update(set(self.index.get_term_positions(term, self.text_field).keys()))
-                        node.matched_terms.add(term)
+        if self.text_field is not None:
+            value = self._extract_term_value(node)
+            if value == '*':
+                # Single wildcard matches all frames
+                node.frame_ids = set(self.index.get_frame_ids(self.text_field))
             else:
-                try:
-                    node.frame_ids.update(set(self.index.get_term_positions(value, self.text_field).keys()))
-                    node.matched_terms.add(value)
-                except KeyError:
-                    # Term not matched in index
-                    pass
+                wildcard = False
+                if '?' in value:
+                    # Insert regex pattern for single character wildcard
+                    value = value.replace('?', r'\S')
+                    wildcard = True
+                if '*' in value:
+                    # Insert regex pattern for multiple character wildcard
+                    value = value.replace('*', r'[\S]*')
+                    wildcard = True
+                if wildcard:
+                    re = regex.compile('^' + value + '$')
+                    for term in self.terms:
+                        # Search for terms that match wildcard query
+                        if re.match(term):
+                            node.frame_ids.update(set(self.index.get_term_positions(term, self.text_field).keys()))
+                            node.matched_terms.add(term)
+                else:
+                    try:
+                        node.frame_ids.update(set(self.index.get_term_positions(value, self.text_field).keys()))
+                        node.matched_terms.add(value)
+                    except KeyError:
+                        # Term not matched in index
+                        pass
 
     def _evaluate_weighting(self, node):
         """
