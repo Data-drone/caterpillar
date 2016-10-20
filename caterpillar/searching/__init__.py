@@ -32,7 +32,7 @@ class IndexSearcher(object):
 
     def filter(self, query):
         """
-        Return a list of (frame_id, field) pairs for frames that match the specified ``query`` (must be of type
+        Return a list of (field, frame_id) pairs for frames that match the specified ``query`` (must be of type
         `BaseQuery <caterpillar.searching.query.BaseQuery>`_).
 
         """
