@@ -640,3 +640,25 @@ def test_index_writer_buffer_flush(index_dir):
                 fake_flush.assert_called_with()
 
     IndexWriter.RAM_BUFFER_SIZE = old_buffer
+
+
+def test_index_multi_document_delete(index_dir):
+    """Sanity test for deleting multiple documents."""
+    with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
+        data = f.read()
+        doc_ids = []
+        with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT))) as writer:
+            doc_ids.append(writer.add_document(text=data))
+            doc_ids.append(writer.add_document(text=data))
+
+        with IndexReader(index_dir) as reader:
+            assert reader.get_frame_count('text') == 104
+            assert reader.get_document_count() == 2
+
+        with IndexWriter(index_dir) as writer:
+            for doc_id in doc_ids:
+                writer.delete_document(doc_id)
+
+        with IndexReader(index_dir) as reader:
+            assert reader.get_frame_count('text') == 0
+            assert reader.get_document_count() == 0

@@ -774,7 +774,12 @@ class IndexWriter(object):
             doc = json.decode(self.__storage.get_container_item(IndexWriter.DOCUMENTS_CONTAINER, d_id))
         except KeyError:
             raise DocumentNotFoundError("No such document {}".format(d_id))
-        self.__rm_frames = doc['_frames']
+
+        for field, frames in doc['_frames'].iteritems():
+            try:
+                self.__rm_frames[field] += frames
+            except KeyError:
+                self.__rm_frames[field] = frames
         self.__rm_documents.add(d_id)
 
     def fold_term_case(self, text_field, merge_threshold=0.7):
