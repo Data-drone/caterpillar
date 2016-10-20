@@ -143,11 +143,11 @@ def test_index_stored_fields():
                                                      test=NUMERIC(stored=True),
                                                      test2=BOOLEAN(stored=False)))) as writer:
             doc_id = writer.add_document(text="hello world", test=777, test2=True,
-                                         frame_size=2, fold_case=False, update_index=True)
+                                         frame_size=2)
 
         with IndexReader(tmp_dir) as reader:
             searcher = reader.searcher()
-            hit = searcher.search(QueryStringQuery("*"), limit=1)[0]
+            hit = searcher.search(QueryStringQuery("*", 'text'), limit=1)[0]
             assert 'text' not in hit.data
             assert 'test2' not in hit.data
             assert hit.data['test'] == 777

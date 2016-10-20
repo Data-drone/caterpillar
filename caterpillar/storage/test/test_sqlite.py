@@ -91,6 +91,8 @@ def test_sqlite_storage_container(tmp_dir):
     storage.commit()
     assert sum(1 for _ in storage.get_container_items("test")) == 2
     assert sum(1 for _ in storage.get_container_items("test", keys=('2', '3', '4', '5'))) == 4
+    # Test that an empty set of keys returns no rows
+    assert sum(1 for _ in storage.get_container_items("test", keys=[])) == 0
 
     storage.begin()
     storage.delete_container("test")

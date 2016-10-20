@@ -20,7 +20,7 @@ class IndexSearcher(object):
     """
     def __init__(self, index_reader, scorer_cls=TfidfScorer):
         self.index_reader = index_reader
-        self.scorer = scorer_cls(index_reader)
+        self.scorer = scorer_cls
 
     def count(self, query):
         """
@@ -28,15 +28,18 @@ class IndexSearcher(object):
         `BaseQuery <caterpillar.searching.query.BaseQuery>`_).
 
         """
-        return len(self._do_query(query).frame_ids)
+        return sum(len(frame_ids) for field, frame_ids in self._do_query(query).frame_ids.iteritems())
 
     def filter(self, query):
         """
-        Return a list of ids for frames that match the specified ``query`` (must be of type
+        Return a list of (field, frame_id) pairs for frames that match the specified ``query`` (must be of type
         `BaseQuery <caterpillar.searching.query.BaseQuery>`_).
 
         """
-        return self._do_query(query).frame_ids
+        results = []
+        for field, frame_ids in self._do_query(query).frame_ids.iteritems():
+            results.extend([(field, frame_id) for frame_id in frame_ids])
+        return results
 
     def search(self, query, start=0, limit=25):
         """
@@ -49,11 +52,17 @@ class IndexSearcher(object):
         ``start`` and ``limit`` define pagination of results, which defaults to the first 25 frames.
 
         """
+        query_scorer = self.scorer(self.index_reader)
         query_result = self._do_query(query)
-        hits = [SearchHit(fid, self.index_reader.get_frame(fid)) for fid in query_result.frame_ids]
+
+        hits = []
+        for text_field, frame_ids in query_result.frame_ids.iteritems():
+            for fid in frame_ids:
+                hits.append(SearchHit(fid, text_field, self.index_reader.get_frame(fid, text_field)))
+
         num_matches = len(hits)
         if num_matches > 0:
-            hits = self.scorer.score_and_rank(hits, query_result.term_weights)[start:]
+            hits = query_scorer.score_and_rank(hits, query_result.term_weights)[start:]
 
         if limit:
             hits = hits[:limit]
