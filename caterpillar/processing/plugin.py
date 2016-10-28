@@ -5,24 +5,47 @@ import abc
 
 class AnalyticsPlugin(object):
     """
+    An ``AnalyticsPlugin`` provides a mechanism to provide additional functionality on top of the operations already
+    defined by an ``IndexReader``. Plugins also allow for saving and restoring plugin state within the index.
 
-    - What is an analytics plugin?
-    - What is it used for?
-    - what are the limitations?
-    - How do you use a plugin?
-    - How do you implement a plugin?
+    Usage::
 
-    Plugins are registered on an index and allow external pieces of analytics to run on the index and store their
-    results in a container.
+        # Instantiate a plugin object
+        plugin = ExamplePlugin(reader, alpha=2)
 
-    Plugins are run by the index and get passed an instance of the index with which to work. This allows them to access
-    the underlying data structures of the index if they desire. They are expected to return a dict from
-    string -> dict (string -> string) which will be stored on the index. Each item in the returned dict will be added as
-    a container to the storage object of the index.
+        # Run the plugin over the provided ``IndexReader``
+        plugin.run()
 
-    Plugins must define a run() method by which they will be called. The method must return a dict of
-    string -> dict(string -> string). They are also responsible for giving access to the underlying data structures they
-    store on the index. How they do this is up to them.
+        # Store the results in the index with an ``IndexWriter``
+        writer.set_plugin_state(plugin)
+
+        # Later on restore the state of the plugin
+        plugin = ExamplePlugin(reader, alpha=2)
+        plugin.load()
+
+        # Use plugin functionality as provided by the methods and attributes of the plugin instance
+        results = plugin.useful_function(argument1, argument2)
+        x = plugin.precalculated_statistic
+
+    Implementation:
+
+        Plugins need to provide four things:
+
+        1. An __init__ method that takes at least an ``IndexReader`` as an argument.
+        2. A serialised representation of the plugin's name and settings, to uniquely identify an instance of a plugin.
+        3. A run method to act as a consistent entrypoint. The plugin should be ready after calling this method.
+        4. A serialised representation of the plugin's state, and the means to restore from that representation.
+
+        These are provided by providing implementations for the abstract methds of this ``AnalyticsPlugin`` class.
+
+    Limitations:
+
+        - Plugins are designed for calculations that fit in memory and storage of small amounts of data. The plugin
+          data store is not especially optimised for cases where large amounts of data need to be stored.
+        - Plugins are responsible for serialising and deserialising their own state.
+        - Care needs to taken with serialising the settings of a plugin, as the serialised representation is used as
+          a key in the plugin registry to identify unique plugin instances. This means that, for example, Python
+          dictionaries should not be directly used as the order of keys is not guaranteed.
 
     """
     __metaclass__ = abc.ABCMeta
@@ -51,7 +74,8 @@ class AnalyticsPlugin(object):
         Run this instance of the plugin. This should perform all necessary calculations for the plugin to provide
         any functionality.
 
-        Note that this run method can be called at any time after object instantiation - if necessary a
+        Note that this run method can be called at any time after object instantiation - since storing a plugin
+        is separate from running the plugin on an index the run method can work incrementally.
 
         """
         return
@@ -61,6 +85,9 @@ class AnalyticsPlugin(object):
         """
         Restore this plugin instance to the state provided. The state is a dictionary of key-value pairs, as
         returned by the get_state method of the plugin.
+
+        The plugin instance is responsible for appropriately serialising and deserialising a representation
+        of its own state.
 
         """
         return

@@ -1160,7 +1160,7 @@ class IndexWriter(object):
     def set_plugin_state(self, plugin):
         """ Write the state of the given plugin to the index.
 
-        Any existing state for this plugin will be overwritten.
+        Any existing state for this plugin instance will be overwritten.
 
         """
         # low level calls to plugin storage subsystem.
@@ -1172,7 +1172,7 @@ class IndexWriter(object):
         """
         Delete the state corresponding to the given plugin or plugin name from store.
 
-        Either a plugin instance or a name of a plugin must be specified. The plugin will
+        Either a plugin instance or a name of a plugin must be specified. The plugin instance will
         take priority of both are specified.
 
         """
@@ -1517,7 +1517,9 @@ class IndexReader(object):
         return dict(self.__storage.get_plugin_state(plugin.get_name(), plugin.get_settings()))
 
     def list_plugins(self):
-        """List all plugins and settings that have been stored in this index. """
+        """
+        List all plugin instances that have been stored in this index.
+        """
         return self.__storage.list_known_plugins()
 
 
