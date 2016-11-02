@@ -18,7 +18,7 @@ from caterpillar.storage import Storage, StorageNotFoundError, DuplicateContaine
 logger = logging.getLogger(__name__)
 
 
-plugin_table = """
+_plugin_table = """
 begin;
 create table plugin_registry (
     name text,
@@ -77,7 +77,7 @@ class SqliteStorage(Storage):
                            .format(SqliteStorage.CONTAINERS_TABLE))
 
             # Setup plugin data tables
-            cursor.execute(plugin_table)
+            cursor.execute(_plugin_table)
 
         elif readonly:
             self._db_connection = apsw.Connection(db, flags=apsw.SQLITE_OPEN_READONLY)
@@ -228,11 +228,16 @@ class SqliteStorage(Storage):
         """"""
         if plugin_settings is not None:
             self._execute(
-                "pragma foreign_keys=ON; delete from plugin_registry where name = ? and settings = ?",
+                "pragma foreign_keys=ON;"
+                "delete from plugin_registry where name = ? and settings = ?;"
+                "pragma foreign_keys=OFF;",
                 [plugin_name, plugin_settings]
             )
         else:
-            self._execute("pragma foreign_keys=ON; delete from plugin_registry where name = ?", [plugin_name])
+            self._execute("pragma foreign_keys=ON; "
+                          "delete from plugin_registry where name = ?;"
+                          "pragma foreign_keys=OFF;",
+                          [plugin_name])
 
     def list_known_plugins(self):
         """ Return a list of (name, settings) pairs for each plugin stored in the index. """
