@@ -77,13 +77,13 @@ def test_plugin(index_dir):
 
         # Delete plugin data from the index
         with IndexWriter(index_dir) as writer:
-            writer.delete_plugin_state(plugin=restore_plugin)
+            writer.delete_plugin_instance(restore_plugin)
 
         with IndexReader(index_dir) as reader:
             assert len(reader.list_plugins()) == 8
 
         with IndexWriter(index_dir) as writer:
-            writer.delete_plugin_state(plugin_name='trivial_test_plugin')
+            writer.delete_plugin(plugin_name='trivial_test_plugin')
 
         with IndexReader(index_dir) as reader:
             assert len(reader.list_plugins()) == 0

@@ -1168,18 +1168,19 @@ class IndexWriter(object):
                                         plugin.get_settings(),
                                         plugin.get_state())
 
-    def delete_plugin_state(self, plugin=None, plugin_name=None):
+    def delete_plugin_instance(self, plugin):
         """
-        Delete the state corresponding to the given plugin or plugin name from store.
-
-        Either a plugin instance or a name of a plugin must be specified. The plugin instance will
-        take priority of both are specified.
+        Delete the state corresponding to the given plugin instance.
 
         """
-        if plugin is not None:
-            self.__storage.delete_plugin_state(plugin.get_name(), plugin_settings=plugin.get_settings())
-        elif plugin_name is not None:
-            self.__storage.delete_plugin_state(plugin_name)
+        self.__storage.delete_plugin_state(plugin.get_name(), plugin_settings=plugin.get_settings())
+
+    def delete_plugin(self, plugin_name):
+        """
+        Delete all plugin data corresponding to the given plugin name.
+
+        """
+        self.__storage.delete_plugin_state(plugin_name)
 
     def add_fields(self, **fields):
         """
