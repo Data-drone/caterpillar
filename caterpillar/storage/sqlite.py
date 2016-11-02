@@ -18,6 +18,10 @@ from caterpillar.storage import Storage, StorageNotFoundError, DuplicateContaine
 logger = logging.getLogger(__name__)
 
 
+# Note that the foreign key constrains are currently not usable because of the structure of the IndexWriter:
+# calling writer.begin() opens a transaction, and it isn't closed until writer.close() is called. Foreign key
+# constraints cannot be enabled during a transaction, so it is not currently possible to use the referential
+# integrity at the database layer...
 _plugin_table = """
 begin;
 create table plugin_registry (
@@ -215,9 +219,18 @@ class SqliteStorage(Storage):
 
         Existing plugin state will be replaced.
         """
+        # Check if there's an existing instance
+        plugin_id = self._execute("select plugin_id from plugin_registry where name = ? and settings = ?",
+                                  (plugin_name, plugin_settings)).fetchone()
+
+        if plugin_id is not None:  # Clear all the data for this plugin instance
+            self._execute("delete from plugin_data where plugin_id = ?; "
+                          "delete from plugin_registry where plugin_id = ? ",
+                          data=(plugin_id[0], plugin_id[0]))
+
         # Insert into the plugin registry
         plugin_id = self._execute(
-            "insert into plugin_registry(name, settings) values (?, ?);"
+            "insert into plugin_registry(name, settings) values (?, ?); "
             "select last_insert_rowid();",
             (plugin_name, plugin_settings)
         ).fetchone()[0]
@@ -227,17 +240,16 @@ class SqliteStorage(Storage):
     def delete_plugin_state(self, plugin_name, plugin_settings=None):
         """"""
         if plugin_settings is not None:
-            self._execute(
-                "pragma foreign_keys=ON;"
-                "delete from plugin_registry where name = ? and settings = ?;"
-                "pragma foreign_keys=OFF;",
-                [plugin_name, plugin_settings]
-            )
+            self._execute("delete from plugin_data "
+                          "where plugin_id in (select plugin_id from plugin_registry where name = ? and settings = ?);",
+                          [plugin_name, plugin_settings])
+            self._execute("delete from plugin_registry where name = ? and settings = ?;",
+                          [plugin_name, plugin_settings])
         else:
-            self._execute("pragma foreign_keys=ON; "
-                          "delete from plugin_registry where name = ?;"
-                          "pragma foreign_keys=OFF;",
+            self._execute("delete from plugin_data "
+                          "where plugin_id in (select plugin_id from plugin_registry where name = ?);",
                           [plugin_name])
+            self._execute("delete from plugin_registry where name = ?;", [plugin_name])
 
     def list_known_plugins(self):
         """ Return a list of (name, settings) pairs for each plugin stored in the index. """

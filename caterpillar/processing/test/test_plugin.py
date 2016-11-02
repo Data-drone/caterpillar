@@ -69,6 +69,14 @@ def test_plugin(index_dir):
             restore_plugin.load()
             assert test_plugins[0].internal_state == restore_plugin.internal_state
 
+        # Make sure we can overwrite a plugin:
+        with IndexWriter(index_dir) as writer:
+            for i, plugin in enumerate(test_plugins):
+                writer.set_plugin_state(plugin)
+
+        with IndexReader(index_dir) as reader:
+            assert len(reader.list_plugins()) == 9
+
         # Raise an error if plugin's name-settings combination not found
         with pytest.raises(PluginNotFoundError):
             with IndexReader(index_dir) as reader:
@@ -87,6 +95,8 @@ def test_plugin(index_dir):
 
         with IndexReader(index_dir) as reader:
             assert len(reader.list_plugins()) == 0
+            # Ensure there is no dangling plugin data
+            assert reader._IndexReader__storage._execute('select count(*) from plugin_data;').fetchone()[0] == 0
 
 
 def test_plugin_abc():
