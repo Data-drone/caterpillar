@@ -214,6 +214,14 @@ class SqliteStorage(Storage):
             for row in plugin_state:
                 yield row
 
+    def get_plugin_by_id(self, plugin_id):
+        """Return the settings and state of the plugin identified by ID."""
+        settings = self._execute('select settings from plugin_registry where plugin_id = ?', [plugin_id]).fetchone()[0]
+        if settings is None:
+            raise PluginNotFoundError
+        state = self._execute("select key, value from plugin_data where plugin_id = ?", [plugin_id]).fetchall()
+        return settings, state
+
     def set_plugin_state(self, plugin_name, plugin_settings, plugin_state):
         """ Set the plugin state in the index to the given state.
 
@@ -228,11 +236,11 @@ class SqliteStorage(Storage):
                           "delete from plugin_registry where plugin_id = ? ",
                           data=(plugin_id[0], plugin_id[0]))
 
-        # Insert into the plugin registry
+        # Insert into the plugin registry. If plugin_id already existed, reuse it.
         plugin_id = self._execute(
-            "insert into plugin_registry(name, settings) values (?, ?); "
+            "insert into plugin_registry(name, settings, plugin_id) values (?, ?, ?); "
             "select last_insert_rowid();",
-            (plugin_name, plugin_settings)
+            (plugin_name, plugin_settings, plugin_id[0] if plugin_id is not None else None)
         ).fetchone()[0]
         insert_rows = ((plugin_id, key, value) for key, value in plugin_state.iteritems())
         self._executemany("insert into plugin_data values (?, ?, ?);", insert_rows)
@@ -252,8 +260,9 @@ class SqliteStorage(Storage):
             self._execute("delete from plugin_registry where name = ?;", [plugin_name])
 
     def list_known_plugins(self):
-        """ Return a list of (name, settings) pairs for each plugin stored in the index. """
-        return [row for row in self._execute("select name, settings from plugin_registry;") if row is not None]
+        """ Return a list of (name, settings, id) triples for each plugin stored in the index. """
+        return [row for row in self._execute("select name, settings, plugin_id from plugin_registry;")
+                if row is not None]
 
     def _get_containers(self):
         """Return list of all containers regardless of storage type."""

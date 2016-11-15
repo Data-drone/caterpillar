@@ -181,6 +181,11 @@ class Storage(object):
         return
 
     @abc.abstractmethod
+    def get_plugin_by_id(self, plugin_id):
+        """Return the settings and state of the plugin identified by ID."""
+        return
+
+    @abc.abstractmethod
     def delete_plugin_state(self, plugin_name, plugin_settings=None):
         """Delete all plugin data for ``plugin_name``, or optionally only the data for the ``plugin_settings`` instance.
 
@@ -189,5 +194,5 @@ class Storage(object):
 
     @abc.abstractmethod
     def list_known_plugins(self):
-        """Return a list of (plugin_name, plugin_settings) stored in this index."""
+        """Return a list of (plugin_name, plugin_settings, plugin_id) stored in this index."""
         return

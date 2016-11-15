@@ -1517,6 +1517,14 @@ class IndexReader(object):
         """
         return dict(self.__storage.get_plugin_state(plugin.get_name(), plugin.get_settings()))
 
+    def get_plugin_by_id(self, plugin_id):
+        """
+        Returns the settings and state corresponding to the given plugin_id.
+
+        """
+        settings, state = self.__storage.get_plugin_by_id(plugin_id)
+        return settings, dict(state)
+
     def list_plugins(self):
         """
         List all plugin instances that have been stored in this index.
