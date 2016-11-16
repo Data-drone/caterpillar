@@ -216,11 +216,11 @@ class SqliteStorage(Storage):
 
     def get_plugin_by_id(self, plugin_id):
         """Return the settings and state of the plugin identified by ID."""
-        settings = self._execute('select settings from plugin_registry where plugin_id = ?', [plugin_id]).fetchone()[0]
+        settings = self._execute('select settings from plugin_registry where plugin_id = ?', [plugin_id]).fetchone()
         if settings is None:
             raise PluginNotFoundError
         state = self._execute("select key, value from plugin_data where plugin_id = ?", [plugin_id]).fetchall()
-        return settings, state
+        return settings[0], state
 
     def set_plugin_state(self, plugin_name, plugin_settings, plugin_state):
         """ Set the plugin state in the index to the given state.

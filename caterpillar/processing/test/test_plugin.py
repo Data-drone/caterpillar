@@ -75,7 +75,13 @@ def test_plugin(index_dir):
                 writer.set_plugin_state(plugin)
 
         with IndexReader(index_dir) as reader:
-            assert len(reader.list_plugins()) == 9
+            plugin_list = reader.list_plugins()
+            assert len(plugin_list) == 9
+            # Load each of the plugins by ID
+            for details in plugin_list:
+                state, settings = reader.get_plugin_by_id(details[2])
+            with pytest.raises(PluginNotFoundError):
+                reader.get_plugin_by_id(20)
 
         # Raise an error if plugin's name-settings combination not found
         with pytest.raises(PluginNotFoundError):
