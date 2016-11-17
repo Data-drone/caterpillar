@@ -233,7 +233,9 @@ def test_index_alice_bigram_discovery(index_dir):
             writer.add_document(text=data, frame_size=2)
 
         with IndexReader(index_dir) as reader:
-            bi_grams = find_bi_gram_words(reader.get_frames())
+            frames = list(reader.get_frames())
+            frames.append([[], {}])  # Add an empty frame to be malicious :)
+            bi_grams = find_bi_gram_words(frames)
             assert len(bi_grams) == 3
             assert 'golden key' in bi_grams
 

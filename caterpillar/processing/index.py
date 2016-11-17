@@ -1440,6 +1440,9 @@ def find_bi_gram_words(frames, min_bi_gram_freq=3, min_bi_gram_coverage=0.65):
     bi_gram_analyser = PotentialBiGramAnalyser()
     sentence_tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
     for _, frame in frames:
+        if '_text' not in frame:
+            # Skip non-text frames
+            continue
         for sentence in sentence_tokenizer.tokenize(frame['_text'], realign_boundaries=True):
             terms_seen = set()
             for token_list in bi_gram_analyser.analyse(sentence):
