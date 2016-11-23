@@ -1520,11 +1520,11 @@ class IndexReader(object):
 
     def get_plugin_by_id(self, plugin_id):
         """
-        Returns the settings and state corresponding to the given plugin_id.
+        Returns the plugin_name, settings and state corresponding to the given plugin_id.
 
         """
-        settings, state = self.__storage.get_plugin_by_id(plugin_id)
-        return settings, dict(state)
+        plugin_name, settings, state = self.__storage.get_plugin_by_id(plugin_id)
+        return plugin_name, settings, dict(state)
 
     def list_plugins(self):
         """

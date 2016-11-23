@@ -79,7 +79,7 @@ def test_plugin(index_dir):
             assert len(plugin_list) == 9
             # Load each of the plugins by ID
             for details in plugin_list:
-                state, settings = reader.get_plugin_by_id(details[2])
+                name, state, settings = reader.get_plugin_by_id(details[2])
             with pytest.raises(PluginNotFoundError):
                 reader.get_plugin_by_id(20)
 
