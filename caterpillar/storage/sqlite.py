@@ -244,6 +244,7 @@ class SqliteStorage(Storage):
         ).fetchone()[0]
         insert_rows = ((plugin_id, key, value) for key, value in plugin_state.iteritems())
         self._executemany("insert into plugin_data values (?, ?, ?);", insert_rows)
+        return plugin_id
 
     def delete_plugin_state(self, plugin_name, plugin_settings=None):
         """"""

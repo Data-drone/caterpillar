@@ -1164,9 +1164,10 @@ class IndexWriter(object):
 
         """
         # low level calls to plugin storage subsystem.
-        self.__storage.set_plugin_state(plugin.get_name(),
-                                        plugin.get_settings(),
-                                        plugin.get_state())
+        plugin_id = self.__storage.set_plugin_state(plugin.get_name(),
+                                                    plugin.get_settings(),
+                                                    plugin.get_state())
+        return plugin_id
 
     def delete_plugin_instance(self, plugin):
         """
