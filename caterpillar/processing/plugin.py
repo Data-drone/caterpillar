@@ -29,12 +29,13 @@ class AnalyticsPlugin(object):
 
     Implementation:
 
-        Plugins need to provide four things:
+        Plugins need to provide five things:
 
         1. An __init__ method that takes at least an ``IndexReader`` as an argument.
-        2. A serialised representation of the plugin's name and settings, to uniquely identify an instance of a plugin.
-        3. A run method to act as a consistent entrypoint. The plugin should be ready after calling this method.
-        4. A serialised representation of the plugin's state, and the means to restore from that representation.
+        2. A string identifying the plugin_type. This is effectively a name for a family of plugin instances.
+        3. A serialised representation of the plugin's settings, to uniquely identify an instance of a plugin.
+        4. A run method to act as a consistent entrypoint. The plugin should be ready after calling this method.
+        5. A serialised representation of the plugin's state, and the means to restore from that representation.
 
         These are provided by providing implementations for the abstract methds of this ``AnalyticsPlugin`` class.
 
@@ -93,9 +94,9 @@ class AnalyticsPlugin(object):
         return
 
     @abc.abstractmethod
-    def get_name(self):
+    def get_type(self):
         """
-        Get the name of this plugin. Used when storing the output of a plugin on an ``Index``.
+        Get the string identifying the type of this plugin. Used when storing the output of a plugin on an ``Index``.
 
         """
         return

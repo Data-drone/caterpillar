@@ -25,10 +25,10 @@ logger = logging.getLogger(__name__)
 _plugin_table = """
 begin;
 create table plugin_registry (
-    name text,
+    plugin_type text,
     settings text,
     plugin_id integer primary key,
-    constraint unique_plugin unique (name, settings) on conflict replace);
+    constraint unique_plugin unique (plugin_type, settings) on conflict replace);
 
 create table plugin_data (
     plugin_id integer,
@@ -200,10 +200,10 @@ class SqliteStorage(Storage):
         """Add the dict of key/value tuples to container ``c_id`` (str)."""
         self._executemany("INSERT OR REPLACE INTO {} VALUES (?,?)".format(c_id), (items.items()))
 
-    def get_plugin_state(self, plugin_name, plugin_settings):
+    def get_plugin_state(self, plugin_type, plugin_settings):
         """ """
-        plugin_id = self._execute("select plugin_id from plugin_registry where name = ? and settings = ?",
-                                  (plugin_name, plugin_settings)).fetchone()
+        plugin_id = self._execute("select plugin_id from plugin_registry where plugin_type = ? and settings = ?",
+                                  (plugin_type, plugin_settings)).fetchone()
 
         if plugin_id is None:
             raise PluginNotFoundError('Plugin not found in this index')
@@ -216,21 +216,23 @@ class SqliteStorage(Storage):
 
     def get_plugin_by_id(self, plugin_id):
         """Return the settings and state of the plugin identified by ID."""
-        row = self._execute('select name, settings from plugin_registry where plugin_id = ?', [plugin_id]).fetchone()
+        row = self._execute(
+            'select plugin_type, settings from plugin_registry where plugin_id = ?', [plugin_id]
+        ).fetchone()
         if row is None:
             raise PluginNotFoundError
-        name, settings = row
+        plugin_type, settings = row
         state = self._execute("select key, value from plugin_data where plugin_id = ?", [plugin_id]).fetchall()
-        return name, settings, state
+        return plugin_type, settings, state
 
-    def set_plugin_state(self, plugin_name, plugin_settings, plugin_state):
+    def set_plugin_state(self, plugin_type, plugin_settings, plugin_state):
         """ Set the plugin state in the index to the given state.
 
         Existing plugin state will be replaced.
         """
         # Check if there's an existing instance
-        plugin_id = self._execute("select plugin_id from plugin_registry where name = ? and settings = ?",
-                                  (plugin_name, plugin_settings)).fetchone()
+        plugin_id = self._execute("select plugin_id from plugin_registry where plugin_type = ? and settings = ?",
+                                  (plugin_type, plugin_settings)).fetchone()
 
         if plugin_id is not None:  # Clear all the data for this plugin instance
             self._execute("delete from plugin_data where plugin_id = ?; "
@@ -239,31 +241,36 @@ class SqliteStorage(Storage):
 
         # Insert into the plugin registry. If plugin_id already existed, reuse it.
         plugin_id = self._execute(
-            "insert into plugin_registry(name, settings, plugin_id) values (?, ?, ?); "
+            "insert into plugin_registry(plugin_type, settings, plugin_id) values (?, ?, ?); "
             "select last_insert_rowid();",
-            (plugin_name, plugin_settings, plugin_id[0] if plugin_id is not None else None)
+            (plugin_type, plugin_settings, plugin_id[0] if plugin_id is not None else None)
         ).fetchone()[0]
         insert_rows = ((plugin_id, key, value) for key, value in plugin_state.iteritems())
         self._executemany("insert into plugin_data values (?, ?, ?);", insert_rows)
         return plugin_id
 
-    def delete_plugin_state(self, plugin_name, plugin_settings=None):
+    def delete_plugin_state(self, plugin_type, plugin_settings=None):
         """"""
         if plugin_settings is not None:
-            self._execute("delete from plugin_data "
-                          "where plugin_id in (select plugin_id from plugin_registry where name = ? and settings = ?);",
-                          [plugin_name, plugin_settings])
-            self._execute("delete from plugin_registry where name = ? and settings = ?;",
-                          [plugin_name, plugin_settings])
+            self._execute(
+                "delete from plugin_data "
+                "where plugin_id in (select plugin_id from plugin_registry where plugin_type = ? and settings = ?);",
+                [plugin_type, plugin_settings]
+            )
+            self._execute(
+                "delete from plugin_registry where plugin_type = ? and settings = ?;", [plugin_type, plugin_settings]
+            )
         else:
-            self._execute("delete from plugin_data "
-                          "where plugin_id in (select plugin_id from plugin_registry where name = ?);",
-                          [plugin_name])
-            self._execute("delete from plugin_registry where name = ?;", [plugin_name])
+            self._execute(
+                "delete from plugin_data "
+                "where plugin_id in (select plugin_id from plugin_registry where plugin_type = ?);",
+                [plugin_type]
+            )
+            self._execute("delete from plugin_registry where plugin_type = ?;", [plugin_type])
 
     def list_known_plugins(self):
-        """ Return a list of (name, settings, id) triples for each plugin stored in the index. """
-        return [row for row in self._execute("select name, settings, plugin_id from plugin_registry;")
+        """ Return a list of (plugin_type, settings, id) triples for each plugin stored in the index. """
+        return [row for row in self._execute("select plugin_type, settings, plugin_id from plugin_registry;")
                 if row is not None]
 
     def _get_containers(self):

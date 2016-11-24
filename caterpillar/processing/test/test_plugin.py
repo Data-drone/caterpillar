@@ -24,7 +24,7 @@ class TestPlugin(AnalyticsPlugin):
         self.arbitrary_integer = arbitrary_integer
 
     @staticmethod
-    def get_name():
+    def get_type():
         return 'trivial_test_plugin'
 
     def run(self):
@@ -79,11 +79,11 @@ def test_plugin(index_dir):
             assert len(plugin_list) == 9
             # Load each of the plugins by ID
             for details in plugin_list:
-                name, state, settings = reader.get_plugin_by_id(details[2])
+                plugin_type, state, settings = reader.get_plugin_by_id(details[2])
             with pytest.raises(PluginNotFoundError):
                 reader.get_plugin_by_id(20)
 
-        # Raise an error if plugin's name-settings combination not found
+        # Raise an error if plugin's type-settings combination not found
         with pytest.raises(PluginNotFoundError):
             with IndexReader(index_dir) as reader:
                 plugin_not_stored = TestPlugin(reader, 10)
@@ -97,7 +97,7 @@ def test_plugin(index_dir):
             assert len(reader.list_plugins()) == 8
 
         with IndexWriter(index_dir) as writer:
-            writer.delete_plugin(plugin_name='trivial_test_plugin')
+            writer.delete_plugin_type(plugin_type='trivial_test_plugin')
 
         with IndexReader(index_dir) as reader:
             assert len(reader.list_plugins()) == 0

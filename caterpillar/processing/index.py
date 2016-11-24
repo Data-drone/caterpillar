@@ -1164,7 +1164,7 @@ class IndexWriter(object):
 
         """
         # low level calls to plugin storage subsystem.
-        plugin_id = self.__storage.set_plugin_state(plugin.get_name(),
+        plugin_id = self.__storage.set_plugin_state(plugin.get_type(),
                                                     plugin.get_settings(),
                                                     plugin.get_state())
         return plugin_id
@@ -1174,14 +1174,14 @@ class IndexWriter(object):
         Delete the state corresponding to the given plugin instance.
 
         """
-        self.__storage.delete_plugin_state(plugin.get_name(), plugin_settings=plugin.get_settings())
+        self.__storage.delete_plugin_state(plugin.get_type(), plugin_settings=plugin.get_settings())
 
-    def delete_plugin(self, plugin_name):
+    def delete_plugin_type(self, plugin_type):
         """
-        Delete all plugin data corresponding to the given plugin name.
+        Delete all plugins and corresponding data of the specified ``plugin_type``.
 
         """
-        self.__storage.delete_plugin_state(plugin_name)
+        self.__storage.delete_plugin_state(plugin_type)
 
     def add_fields(self, **fields):
         """
@@ -1516,15 +1516,15 @@ class IndexReader(object):
         Returns the state of the given plugin stored in the index.
 
         """
-        return dict(self.__storage.get_plugin_state(plugin.get_name(), plugin.get_settings()))
+        return dict(self.__storage.get_plugin_state(plugin.get_type(), plugin.get_settings()))
 
     def get_plugin_by_id(self, plugin_id):
         """
-        Returns the plugin_name, settings and state corresponding to the given plugin_id.
+        Returns the plugin_type, settings and state corresponding to the given plugin_id.
 
         """
-        plugin_name, settings, state = self.__storage.get_plugin_by_id(plugin_id)
-        return plugin_name, settings, dict(state)
+        plugin_type, settings, state = self.__storage.get_plugin_by_id(plugin_id)
+        return plugin_type, settings, dict(state)
 
     def list_plugins(self):
         """
