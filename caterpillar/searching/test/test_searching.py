@@ -197,7 +197,8 @@ def test_searching_nps(index_dir):
                                                           would_like=schema.TEXT(analyser=analyser),
                                                           nps=schema.NUMERIC(indexed=True),
                                                           fake=schema.NUMERIC(indexed=True),
-                                                          fake2=schema.CATEGORICAL_TEXT(indexed=True)))
+                                                          fake2=schema.CATEGORICAL_TEXT(indexed=True),
+                                                          fake3=schema.CATEGORICAL_TEXT(indexed=True)))
         with IndexWriter(index_dir, config) as writer:
             csv_reader = csv.reader(f)
             csv_reader.next()  # Skip header
@@ -206,8 +207,7 @@ def test_searching_nps(index_dir):
                 if len(row[3]) + len(row[4]) + len(row[5]) == 0:
                     empty_rows += 1
                 writer.add_document(respondant=row[0], region=row[1], store=row[2], liked=row[3],
-                                    disliked=row[4], would_like=row[5], nps=row[6], fake2=None)
-
+                                    disliked=row[4], would_like=row[5], nps=row[6], fake2=None, fake3=' spaces ')
         with IndexReader(index_dir) as reader:
             searcher = reader.searcher()
             assert searcher.count(QSQ('point*', 'would_like'))\
@@ -247,6 +247,7 @@ def test_searching_nps(index_dir):
             assert searcher.count(QSQ('fake=1', 'liked')) == 0
             assert searcher.count(QSQ('fake2=something', 'liked')) == 0
             assert searcher.count(QSQ('region=nonexistentregion', 'liked')) == 0
+            assert searcher.count(QSQ('fake3= spaces ', 'liked')) == reader.get_frame_count('liked')
 
             # Check all incorrect usages of metadata field searching
             with pytest.raises(QueryError):
