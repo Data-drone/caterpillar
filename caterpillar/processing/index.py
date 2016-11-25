@@ -72,7 +72,7 @@ from .analysis.tokenize import ParagraphTokenizer, Token
 from caterpillar import VERSION
 from caterpillar.locking import PIDLockFile, LockTimeout, AlreadyLocked
 from caterpillar.searching import TfidfScorer, IndexSearcher
-from caterpillar.storage import StorageNotFoundError, DuplicateContainerError
+from caterpillar.storage import StorageNotFoundError
 
 
 logger = logging.getLogger(__name__)
@@ -1157,44 +1157,31 @@ class IndexWriter(object):
         frequencies[new_term] = len(ngram_positions)
         positions[new_term] = ngram_positions
 
-    def run_plugin(self, cls, **args):
-        """
-        Instantiates and runs the :class:`plugin.AnalyticsPlugin` type in ``cls`` on this index.
+    def set_plugin_state(self, plugin):
+        """ Write the state of the given plugin to the index.
 
-        Creates an instance of the plugin by passing it the path of this index before calling its run method passing
-        ``**args`` and saving the result into container(s) prefixed with the plugins name.
-
-        Any keyword arguments passed to this method in args are passed onto the run method of the plugin.
-
-        Returns the plugin instance.
+        Any existing state for this plugin instance will be overwritten.
 
         """
-        with IndexReader(self._path) as reader:
-            plugin = cls(reader)
-            logger.debug('Running {} plugin.'.format(plugin.get_name()))
-            result = plugin.run(**args)
+        # low level calls to plugin storage subsystem.
+        plugin_id = self.__storage.set_plugin_state(plugin.get_type(),
+                                                    plugin.get_settings(),
+                                                    plugin.get_state())
+        return plugin_id
 
-            for container, value in result.iteritems():
-                # Max sure the container exists and is clear
-                container_id = IndexWriter._plugin_container_name(plugin.get_name(), container)
-                try:
-                    self.__storage.add_container(container_id)
-                except DuplicateContainerError:
-                    self.__storage.clear_container(container_id)
+    def delete_plugin_instance(self, plugin):
+        """
+        Delete the state corresponding to the given plugin instance.
 
-                # Make sure items are seralised
-                for key, data in value.items():
-                    value[key] = json.dumps(value[key])
+        """
+        self.__storage.delete_plugin_state(plugin.get_type(), plugin_settings=plugin.get_settings())
 
-                # Store items
-                self.__storage.set_container_items(container_id, value)
+    def delete_plugin_type(self, plugin_type):
+        """
+        Delete all plugins and corresponding data of the specified ``plugin_type``.
 
-            return plugin
-
-    @staticmethod
-    def _plugin_container_name(plugin, container):
-        """Naming convention for plugin containers."""
-        return '{}__{}'.format(plugin, container)
+        """
+        self.__storage.delete_plugin_state(plugin_type)
 
     def add_fields(self, **fields):
         """
@@ -1524,20 +1511,26 @@ class IndexReader(object):
             if v:
                 yield (k, json.loads(v))
 
-    def get_plugin_data(self, plugin, container, keys=None):
+    def get_plugin_state(self, plugin):
         """
-        All data stored for ``plugin`` :class:`AnalyticsPlugin <caterpillar.processing.plugin.AnalyticsPlugin` from
-        ``container`` (str).
-
-        If not None, the key/value pairs returned will be limited to those with a key in ``keys`` (list).
-
-        This method is an generator that yields key/value tuples.
+        Returns the state of the given plugin stored in the index.
 
         """
-        for k, v in self.__storage.get_container_items(IndexWriter._plugin_container_name(
-                plugin.get_name(), container), keys):
-            if v:
-                yield (k, v)
+        return dict(self.__storage.get_plugin_state(plugin.get_type(), plugin.get_settings()))
+
+    def get_plugin_by_id(self, plugin_id):
+        """
+        Returns the plugin_type, settings and state corresponding to the given plugin_id.
+
+        """
+        plugin_type, settings, state = self.__storage.get_plugin_by_id(plugin_id)
+        return plugin_type, settings, dict(state)
+
+    def list_plugins(self):
+        """
+        List all plugin instances that have been stored in this index.
+        """
+        return self.__storage.list_known_plugins()
 
 
 def find_bi_gram_words(frames, min_count=5, threshold=40.0):

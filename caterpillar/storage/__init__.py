@@ -31,6 +31,10 @@ class StorageNotFoundError(StorageError):
     """No storage object found at the specified location."""
 
 
+class PluginNotFoundError(StorageError):
+    """No data for found for this plugin."""
+
+
 class Storage(object):
     """
     Abstract class used to store key/value data on disk.
@@ -164,4 +168,31 @@ class Storage(object):
     @abc.abstractmethod
     def clear(self):
         """Clears this storage object of all data."""
+        return
+
+    @abc.abstractmethod
+    def set_plugin_state(self, plugin_name, plugin_settings, plugin_state):
+        """Save the state of the given plugin"""
+        return
+
+    @abc.abstractmethod
+    def get_plugin_state(self, plugin_name, plugin_settings):
+        """Return a dictionary of key-value pairs identifying that state of this plugin."""
+        return
+
+    @abc.abstractmethod
+    def get_plugin_by_id(self, plugin_id):
+        """Return the settings and state of the plugin identified by ID."""
+        return
+
+    @abc.abstractmethod
+    def delete_plugin_state(self, plugin_name, plugin_settings=None):
+        """Delete all plugin data for ``plugin_name``, or optionally only the data for the ``plugin_settings`` instance.
+
+         """
+        return
+
+    @abc.abstractmethod
+    def list_known_plugins(self):
+        """Return a list of (plugin_name, plugin_settings, plugin_id) stored in this index."""
         return

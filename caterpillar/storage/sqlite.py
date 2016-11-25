@@ -12,10 +12,31 @@ import os
 import apsw
 
 from caterpillar.storage import Storage, StorageNotFoundError, DuplicateContainerError, ContainerNotFoundError, \
-    DuplicateStorageError
+    DuplicateStorageError, PluginNotFoundError
 
 
 logger = logging.getLogger(__name__)
+
+
+# Note that the foreign key constrains are currently not usable because of the structure of the IndexWriter:
+# calling writer.begin() opens a transaction, and it isn't closed until writer.close() is called. Foreign key
+# constraints cannot be enabled during a transaction, so it is not currently possible to use the referential
+# integrity at the database layer...
+_plugin_table = """
+begin;
+create table plugin_registry (
+    plugin_type text,
+    settings text,
+    plugin_id integer primary key,
+    constraint unique_plugin unique (plugin_type, settings) on conflict replace);
+
+create table plugin_data (
+    plugin_id integer,
+    key text,
+    value text,
+    primary key(plugin_id, key) on conflict replace,
+    foreign key(plugin_id) references plugin_registry(plugin_id) on delete cascade);
+commit; """
 
 
 class SqliteStorage(Storage):
@@ -58,6 +79,10 @@ class SqliteStorage(Storage):
             # Setup containers table
             cursor.execute("BEGIN; CREATE TABLE {} (id VARCHAR PRIMARY KEY); COMMIT;"
                            .format(SqliteStorage.CONTAINERS_TABLE))
+
+            # Setup plugin data tables
+            cursor.execute(_plugin_table)
+
         elif readonly:
             self._db_connection = apsw.Connection(db, flags=apsw.SQLITE_OPEN_READONLY)
         else:
@@ -174,6 +199,79 @@ class SqliteStorage(Storage):
     def set_container_items(self, c_id, items):
         """Add the dict of key/value tuples to container ``c_id`` (str)."""
         self._executemany("INSERT OR REPLACE INTO {} VALUES (?,?)".format(c_id), (items.items()))
+
+    def get_plugin_state(self, plugin_type, plugin_settings):
+        """ """
+        plugin_id = self._execute("select plugin_id from plugin_registry where plugin_type = ? and settings = ?",
+                                  (plugin_type, plugin_settings)).fetchone()
+
+        if plugin_id is None:
+            raise PluginNotFoundError('Plugin not found in this index')
+
+        else:
+            plugin_state = self._execute("select key, value from plugin_data where plugin_id = ?;",
+                                         plugin_id)
+            for row in plugin_state:
+                yield row
+
+    def get_plugin_by_id(self, plugin_id):
+        """Return the settings and state of the plugin identified by ID."""
+        row = self._execute(
+            'select plugin_type, settings from plugin_registry where plugin_id = ?', [plugin_id]
+        ).fetchone()
+        if row is None:
+            raise PluginNotFoundError
+        plugin_type, settings = row
+        state = self._execute("select key, value from plugin_data where plugin_id = ?", [plugin_id]).fetchall()
+        return plugin_type, settings, state
+
+    def set_plugin_state(self, plugin_type, plugin_settings, plugin_state):
+        """ Set the plugin state in the index to the given state.
+
+        Existing plugin state will be replaced.
+        """
+        # Check if there's an existing instance
+        plugin_id = self._execute("select plugin_id from plugin_registry where plugin_type = ? and settings = ?",
+                                  (plugin_type, plugin_settings)).fetchone()
+
+        if plugin_id is not None:  # Clear all the data for this plugin instance
+            self._execute("delete from plugin_data where plugin_id = ?; "
+                          "delete from plugin_registry where plugin_id = ? ",
+                          data=(plugin_id[0], plugin_id[0]))
+
+        # Insert into the plugin registry. If plugin_id already existed, reuse it.
+        plugin_id = self._execute(
+            "insert into plugin_registry(plugin_type, settings, plugin_id) values (?, ?, ?); "
+            "select last_insert_rowid();",
+            (plugin_type, plugin_settings, plugin_id[0] if plugin_id is not None else None)
+        ).fetchone()[0]
+        insert_rows = ((plugin_id, key, value) for key, value in plugin_state.iteritems())
+        self._executemany("insert into plugin_data values (?, ?, ?);", insert_rows)
+        return plugin_id
+
+    def delete_plugin_state(self, plugin_type, plugin_settings=None):
+        """"""
+        if plugin_settings is not None:
+            self._execute(
+                "delete from plugin_data "
+                "where plugin_id in (select plugin_id from plugin_registry where plugin_type = ? and settings = ?);",
+                [plugin_type, plugin_settings]
+            )
+            self._execute(
+                "delete from plugin_registry where plugin_type = ? and settings = ?;", [plugin_type, plugin_settings]
+            )
+        else:
+            self._execute(
+                "delete from plugin_data "
+                "where plugin_id in (select plugin_id from plugin_registry where plugin_type = ?);",
+                [plugin_type]
+            )
+            self._execute("delete from plugin_registry where plugin_type = ?;", [plugin_type])
+
+    def list_known_plugins(self):
+        """ Return a list of (plugin_type, settings, id) triples for each plugin stored in the index. """
+        return [row for row in self._execute("select plugin_type, settings, plugin_id from plugin_registry;")
+                if row is not None]
 
     def _get_containers(self):
         """Return list of all containers regardless of storage type."""
