@@ -224,4 +224,5 @@ class EverythingTokenizer(Tokenizer):
     """
     def tokenize(self, value):
         t = Token()
-        yield t.update(value, stopped=False, position=0, index=(0, len(str(value)) if value else 0,))
+        length = len(value) if isinstance(value, unicode) else len(str(value))
+        yield t.update(value, stopped=False, position=0, index=(0, length if value else 0,))
