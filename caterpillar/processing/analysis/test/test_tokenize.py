@@ -131,6 +131,11 @@ def test_everything_tokenizer():
     token = list(EverythingTokenizer().tokenize("Test"))[0]
     assert token.value == 'Test'
 
+    # Now with unicode:
+    test = u"\u2019"
+    token = list(EverythingTokenizer().tokenize(test))[0]
+    assert token.value == test
+
 
 def test_datetime_tokenizer():
     # Construct a cross product of the same time in different formats
