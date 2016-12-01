@@ -681,3 +681,16 @@ def test_metadata_only_retrieval_deletion(index_dir):
     with IndexReader(index_dir) as reader:
         assert reader.get_frame_count('') == 0
         assert reader.get_document_count() == 0
+
+
+def test_field_names(index_dir):
+    """Test we can retrieve metadata only documents"""
+    schema = {"Don't Like": TEXT, "Would Like": TEXT}
+    document1 = {"Don't Like": 'The scenery was unpleasant.', "Would Like": 'More cats.'}
+    config = IndexConfig(SqliteStorage, schema=Schema(**schema))
+
+    with IndexWriter(index_dir, config) as writer:
+        writer.add_document(document1)
+
+    with IndexReader(index_dir) as reader:
+        assert reader.get_document_count() == 1
