@@ -194,6 +194,9 @@ class CATEGORICAL_TEXT(CategoricalFieldType):
     def __init__(self, indexed=False, stored=True):
         super(CATEGORICAL_TEXT, self).__init__(indexed=indexed, stored=stored)
 
+    def analyse(self, value):
+        yield Token(value.strip())
+
     def equals_wildcard(self, value, wildcard_value):
         return re.match(wildcard_value, value) is not None
 
