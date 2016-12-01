@@ -8,6 +8,7 @@ The only class is :class:`.SqliteStorage` which uses sqlite in WAL mode to achie
 """
 import logging
 import os
+import hashlib
 
 import apsw
 
@@ -37,6 +38,10 @@ create table plugin_data (
     primary key(plugin_id, key) on conflict replace,
     foreign key(plugin_id) references plugin_registry(plugin_id) on delete cascade);
 commit; """
+
+
+def _hash_container_name(c_id):
+    return hashlib.md5(c_id).hexdigest()
 
 
 class SqliteStorage(Storage):
@@ -112,44 +117,51 @@ class SqliteStorage(Storage):
         Raises :exc:`DuplicateContainerError` if there is already a container called ``c_id`` (str).
 
         """
+        c_id = _hash_container_name(c_id)
         containers = self._get_containers()
         if c_id in containers:
             raise DuplicateContainerError('\'{}\' container already exists'.format(c_id))
-        self._execute("CREATE TABLE {} (key VARCHAR PRIMARY KEY, value TEXT NOT NULL)".format(c_id))
-        self._execute("INSERT INTO {} VALUES (?)".format(SqliteStorage.CONTAINERS_TABLE), (c_id,))
+        self._execute("CREATE TABLE \"{}\" (key VARCHAR PRIMARY KEY, value TEXT NOT NULL)".format(c_id))
+        self._execute("INSERT INTO \"{}\" VALUES (?)".format(SqliteStorage.CONTAINERS_TABLE), (c_id,))
 
     def clear(self):
         """Clear all containers from storage."""
         for c_id in self._get_containers():
-            self._execute("DROP TABLE {}".format(c_id))
+            self._execute("DROP TABLE \"{}\"".format(c_id))
         # Clear containers list
-        self._execute("DELETE FROM {}".format(self.CONTAINERS_TABLE))
+        self._execute("DELETE FROM \"{}\"".format(self.CONTAINERS_TABLE))
 
     def clear_container(self, c_id):
         """Clear all data in container ``c_id`` (str)."""
-        self._execute("DELETE FROM {}".format(c_id))
+        c_id = _hash_container_name(c_id)
+        self._execute("DELETE FROM \"{}\"".format(c_id))
 
     def delete_container(self, c_id):
         """Delete container ``c_id`` (str)."""
-        self._execute("DROP TABLE {}".format(c_id))
-        self._execute("DELETE FROM {} WHERE id = ?".format(self.CONTAINERS_TABLE), (c_id,))
+        c_id = _hash_container_name(c_id)
+        self._execute("DROP TABLE \"{}\"".format(c_id))
+        self._execute("DELETE FROM \"{}\" WHERE id = ?".format(self.CONTAINERS_TABLE), (c_id,))
 
     def delete_container_item(self, c_id, key):
         """Delete item ``key`` (str) from container ``c_id`` (str)."""
-        self._execute("DELETE FROM {} WHERE key = ?".format(c_id), (key,))
+        c_id = _hash_container_name(c_id)
+        self._execute("DELETE FROM \"{}\" WHERE key = ?".format(c_id), (key,))
 
     def delete_container_items(self, c_id, keys):
         """Delete items ``keys`` (str) from container ``c_id`` (str)."""
-        self._executemany("DELETE FROM {} WHERE key = ?".format(c_id), ((k,) for k in keys))
+        c_id = _hash_container_name(c_id)
+        self._executemany("DELETE FROM \"{}\" WHERE key = ?".format(c_id), ((k,) for k in keys))
 
     def get_container_len(self, c_id):
         """Get the number of rows in container ``c_id`` (str)."""
-        cursor = self._execute("SELECT COUNT(*) FROM {}".format(c_id))
+        c_id = _hash_container_name(c_id)
+        cursor = self._execute("SELECT COUNT(*) FROM \"{}\"".format(c_id))
         return cursor.fetchone()[0]
 
     def get_container_keys(self, c_id):
         """Generator of keys from container ``c_id`` (str)."""
-        cursor = self._execute("SELECT key FROM {}".format(c_id))
+        c_id = _hash_container_name(c_id)
+        cursor = self._execute("SELECT key FROM \"{}\"".format(c_id))
         while True:
             item = cursor.fetchone()
             if item is None:
@@ -158,7 +170,8 @@ class SqliteStorage(Storage):
 
     def get_container_item(self, c_id, key):
         """Get item at ``key`` (str) from container ``c_id`` (str)."""
-        cursor = self._execute("SELECT value FROM {} WHERE key = ?".format(c_id), (key,))
+        c_id = _hash_container_name(c_id)
+        cursor = self._execute("SELECT value FROM \"{}\" WHERE key = ?".format(c_id), (key,))
         item = cursor.fetchone()
         if not item:
             raise KeyError("Key '{}' not found for container '{}'".format(key, c_id))
@@ -171,10 +184,11 @@ class SqliteStorage(Storage):
         If ``keys`` is None, iterates all items.
 
         """
+        c_id = _hash_container_name(c_id)
         if keys is not None:  # If keys is none, return all keys, if keys is an empty set, return nothing
             keys = list(keys)
             for k in self._chunks(keys):
-                cursor = self._execute("SELECT * FROM {} WHERE key IN ({})".format(c_id, ','.join(['?'] * len(k))), k)
+                cursor = self._execute("SELECT * FROM \"{}\" WHERE key IN ({})".format(c_id, ','.join(['?'] * len(k))), k)
                 while True:
                     item = cursor.fetchone()
                     if item is None:
@@ -185,7 +199,7 @@ class SqliteStorage(Storage):
             for k in keys:
                 yield (k, None,)
         else:
-            cursor = self._execute("SELECT * FROM {}".format(c_id))
+            cursor = self._execute("SELECT * FROM \"{}\"".format(c_id))
             while True:
                 item = cursor.fetchone()
                 if item is None:
@@ -194,11 +208,13 @@ class SqliteStorage(Storage):
 
     def set_container_item(self, c_id, key, value):
         """Add ``key``/``value`` pair to container ``c_id`` (str)."""
-        self._execute("INSERT OR REPLACE INTO {} VALUES (?, ?)".format(c_id), (key, value))
+        c_id = _hash_container_name(c_id)
+        self._execute("INSERT OR REPLACE INTO \"{}\" VALUES (?, ?)".format(c_id), (key, value))
 
     def set_container_items(self, c_id, items):
         """Add the dict of key/value tuples to container ``c_id`` (str)."""
-        self._executemany("INSERT OR REPLACE INTO {} VALUES (?,?)".format(c_id), (items.items()))
+        c_id = _hash_container_name(c_id)
+        self._executemany("INSERT OR REPLACE INTO \"{}\" VALUES (?,?)".format(c_id), (items.items()))
 
     def get_plugin_state(self, plugin_type, plugin_settings):
         """ """
