@@ -698,12 +698,16 @@ def test_field_names(index_dir):
         assert reader.get_document_count() == 1
 
 
-def _acquire_write_single_doc(x):
-    i, index_dir = x
-    writer = IndexWriter(index_dir)
-    with writer:
+def _acquire_write_single_doc(index_dir):
+    """Write a single document."""
+    with IndexWriter(index_dir) as writer:
         writer.add_document(field1='test some text')
-    return i
+
+
+def _read_document_count(index_dir):
+    """Read something from the reader"""
+    with IndexReader(index_dir) as reader:
+        reader.get_document_count()
 
 
 def test_concurrent_write_contention(index_dir):
@@ -718,10 +722,33 @@ def test_concurrent_write_contention(index_dir):
     # Easier case: contention from threads in the same process
     n = 100
     pool = mt.Pool(16)
-    pool.map(_acquire_write_single_doc, zip(range(n), [index_dir] * n))
+    pool.map(_acquire_write_single_doc, [index_dir] * n)
     pool.close()
 
     # Attempt high contention document writes
     pool = mp.Pool(16)
-    pool.map(_acquire_write_single_doc, zip(range(n), [index_dir] * n))
+    pool.map(_acquire_write_single_doc, [index_dir] * n)
+    pool.close()
+
+    with IndexReader(index_dir) as reader:
+        assert reader.get_document_count() == 200
+
+
+def test_concurrent_read_write_contention(index_dir):
+    """Test that high contention for write lock can still proceed. """
+
+    config = IndexConfig(SqliteStorage, schema=Schema(field1=TEXT))
+
+    # initialise
+    with IndexWriter(index_dir, config):
+        pass
+
+    # Start writing a document, and at the same time, attempt to read
+    # multiple times in parallel. Eventually one of these will overlap
+    # the writer closing.
+    pool = mp.Pool(16)
+
+    for i in range(100):
+        pool.apply_async(_acquire_write_single_doc, (index_dir,))
+        pool.map(_read_document_count, [index_dir] * 100)
     pool.close()

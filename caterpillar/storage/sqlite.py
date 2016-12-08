@@ -93,6 +93,12 @@ class SqliteStorage(Storage):
         else:
             self._db_connection = apsw.Connection(db, flags=apsw.SQLITE_OPEN_READWRITE)
 
+        # We serialise writers during a write lock, and in normal cases the WAL mode avoids writers blocking
+        # readers. Setting this is used to handle the one case in our normal operations that WAL mode requires
+        # an exclusive lock for cleaning up the WAL file and associated shared-memory index.
+        # See section 8 for the edge cases: https://www.sqlite.org/wal.html
+        self._db_connection.setbusytimeout(1000)
+
     def begin(self):
         """Begin a transaction."""
         self._db_connection.cursor().execute('BEGIN')
