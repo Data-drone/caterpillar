@@ -8,6 +8,8 @@ import pickle
 import shutil
 import tempfile
 import mock
+import multiprocessing as mp
+import multiprocessing.dummy as mt  # threading dummy with same interface as multiprocessing
 
 import pytest
 
@@ -694,3 +696,32 @@ def test_field_names(index_dir):
 
     with IndexReader(index_dir) as reader:
         assert reader.get_document_count() == 1
+
+
+def _acquire_write_single_doc(x):
+    i, index_dir = x
+    writer = IndexWriter(index_dir)
+    with writer:
+        writer.add_document(field1='test some text')
+    return i
+
+
+def test_concurrent_write_contention(index_dir):
+    """Test that high contention for write lock can still proceed. """
+
+    config = IndexConfig(SqliteStorage, schema=Schema(field1=TEXT))
+
+    # initialise
+    with IndexWriter(index_dir, config):
+        pass
+
+    # Easier case: contention from threads in the same process
+    n = 100
+    pool = mt.Pool(16)
+    pool.map(_acquire_write_single_doc, zip(range(n), [index_dir] * n))
+    pool.close()
+
+    # Attempt high contention document writes
+    pool = mp.Pool(16)
+    pool.map(_acquire_write_single_doc, zip(range(n), [index_dir] * n))
+    pool.close()

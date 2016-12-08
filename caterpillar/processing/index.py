@@ -624,12 +624,14 @@ class IndexWriter(object):
         if not self.__committed:
             logger.info('IndexWriter transaction wasn\'t committed, rolling back....')
             self.rollback()
-        # Release the lock
-        logger.debug("Releasing index write lock for {}....".format(self._path))
-        self.__lock.release()
+
         # Close the storage connection
         self.__storage.close()
         self.__storage = None
+
+        # Release the lock
+        logger.debug("Releasing index write lock for {}....".format(self._path))
+        self.__lock.release()
 
     def add_document(self, frame_size=2, encoding='utf-8', encoding_errors='strict', **fields):
         """
