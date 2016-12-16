@@ -61,7 +61,7 @@ def test_plugin(index_dir):
                 for i, plugin in enumerate(test_plugins):
                     writer.set_plugin_state(plugin)
 
-            assert len(reader.list_plugins()) == 9
+            assert len(reader.list_plugins()) == 9 == len(writer.last_updated_plugins)
 
         # Restore the plugin from the index
         with IndexReader(index_dir) as reader:
@@ -73,6 +73,8 @@ def test_plugin(index_dir):
         with IndexWriter(index_dir) as writer:
             for i, plugin in enumerate(test_plugins):
                 writer.set_plugin_state(plugin)
+
+        assert len(writer.last_updated_plugins) == len(test_plugins)
 
         with IndexReader(index_dir) as reader:
             plugin_list = reader.list_plugins()

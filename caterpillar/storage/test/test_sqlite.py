@@ -6,9 +6,11 @@ import shutil
 import tempfile
 
 import pytest
+import json
+import apsw
 
-from caterpillar.storage import *
-from caterpillar.storage.sqlite import SqliteStorage
+from caterpillar.storage import StorageNotFoundError, DuplicateStorageError
+from caterpillar.storage.sqlite import SqliteReader, SqliteWriter
 
 
 @pytest.fixture
@@ -24,108 +26,217 @@ def tmp_dir(request):
     return new_path
 
 
-def test_sqlite_storage_container(tmp_dir):
-    storage = SqliteStorage(tmp_dir, create=True)
+def test_add_get_delete_fields(tmp_dir):
+    """ Test adding indexed fields to the schema. """
+    writer = SqliteWriter(tmp_dir, create=True)
 
-    storage.begin()
-    storage.add_container("test")
-    storage.set_container_item("test", "A", "Z")
-    storage.commit()
-    assert sum(1 for _ in storage.get_container_items("test")) == storage.get_container_len("test") == 1
-    assert [k for k in storage.get_container_keys("test")] == ['A']
+    add_fields1 = ['test', 'test2']
+    add_fields2 = ['test1', '']
+    writer.begin()
+    writer.add_structured_fields(add_fields1)
+    writer.add_unstructured_fields(add_fields2)
+    writer.commit()
 
-    storage.begin()
-    storage.clear_container("test")
-    storage.commit()
-    assert {k: v for k, v in storage.get_container_items("test")} == {}
+    reader = SqliteReader(tmp_dir)
+    reader.begin()
+    structured = reader.structured_fields
+    unstructured = reader.unstructured_fields
+    reader.commit()
 
-    storage.begin()
-    storage.set_container_item("test", "abc", "def")
-    storage.set_container_item("test", "1", "2")
-    storage.commit()
-    assert sum(1 for _ in storage.get_container_items("test")) == 2
-    assert storage.get_container_item("test", "abc") == "def"
+    for field in structured:
+        assert field in add_fields1
+    for field in unstructured:
+        assert field in add_fields2
 
-    # Clear storage
-    storage.begin()
-    storage.clear()
-    storage.commit()
 
-    with pytest.raises(ContainerNotFoundError):
-        sum(1 for _ in storage.get_container_items("test"))  # is a generator so unless we call next, no exception
-    with pytest.raises(ContainerNotFoundError):
-        storage.get_container_len("fake")
+def test_nonexistent_path(tmp_dir):
+    with pytest.raises(StorageNotFoundError):
+        SqliteWriter(tmp_dir + '/nonexistent_dir')
 
-    storage.begin()
-    with pytest.raises(ContainerNotFoundError):
-        storage.clear_container("test")
-    with pytest.raises(ContainerNotFoundError):
-        storage.delete_container("fake")
-    with pytest.raises(ContainerNotFoundError):
-        sum(1 for _ in storage.get_container_keys("fake"))
-    with pytest.raises(ContainerNotFoundError):
-        storage.delete_container_item("fake", "bad")
-    with pytest.raises(ContainerNotFoundError):
-        storage.get_container_item("fake", "bad")
-    with pytest.raises(ContainerNotFoundError):
-        storage.set_container_item("fake", "bad", "bad")
-    with pytest.raises(ContainerNotFoundError):
-        sum(1 for _ in storage.set_container_items("fake", {"bad": "bad"}))
-    with pytest.raises(ContainerNotFoundError):
-        storage.delete_container_items("fake", ["bad"])
-    storage.rollback()
 
-    storage.begin()
-    with pytest.raises(DuplicateContainerError):
-        storage.add_container("test")
-        storage.add_container("test")
-    storage.commit()
+def test_alternate_document_format(tmp_dir):
+    pass
 
-    storage.begin()
-    storage.set_container_items("test", {
-        1: 'test',
-        2: 'test2',
-        3: 'test3'
-    })
-    storage.delete_container_item("test", 1)
-    storage.commit()
-    assert sum(1 for _ in storage.get_container_items("test")) == 2
-    assert sum(1 for _ in storage.get_container_items("test", keys=('2', '3', '4', '5'))) == 4
-    # Test that an empty set of keys returns no rows
-    assert sum(1 for _ in storage.get_container_items("test", keys=[])) == 0
 
-    storage.begin()
-    storage.delete_container("test")
-    with pytest.raises(ContainerNotFoundError):
-        sum(1 for _ in storage.get_container_items("test"))
-    storage.commit()
+def test_bad_document_format(tmp_dir):
+    writer = SqliteWriter(tmp_dir, create=True)
 
-    storage.begin()
-    storage.add_container("test")
-    storage.set_container_item("test", "abc", "efg")
-    storage.clear_container("test")
-    with pytest.raises(KeyError):
-        storage.get_container_item("test", "abc")
-    storage.commit()
+    bad_document = [
+        'A badly formatted document',
+        {},
+        {'text': ['An example', 'document without', 'anything fancy'],
+         'invalid_field': []},
+        {'text': [
+            {'An': [[0, 10]], 'example': [[0, 10]]},
+            {'document': [[0, 10]], 'without': [[0, 10]]},
+            {'anything': [[0, 10]], 'fancy': [[0, 10]]}
+        ]}
+    ]
+
+    writer.begin()
+    writer.add_unstructured_fields(['text'])
+
+    # Non matching fields
+    with pytest.raises(ValueError):
+        writer.add_analyzed_document('v1', bad_document)
+
+    # Non matching numbers of frames and positions:
+    bad_document[2] = {'text': ['An example', 'frame']}
+    with pytest.raises(ValueError):
+        writer.add_analyzed_document('v1', bad_document)
+
+    with pytest.raises(ValueError):
+        writer.add_analyzed_document('unknown_format', bad_document)
+
+    writer.close()
+
+
+def test_add_get_document(tmp_dir):
+
+    sample_format_document = (
+        'An example document without anything fancy',
+        {'test_field': 1, 'other_field': 'other'},
+        {'text': ['An example', 'document without', 'anything fancy']},
+        {'text': [
+            {'An': [[0, 10]], 'example': [[0, 10]]},
+            {'document': [[0, 10]], 'without': [[0, 10]]},
+            {'anything': [[0, 10]], 'fancy': [[0, 10]]}
+        ]}
+    )
+
+    writer = SqliteWriter(tmp_dir, create=True)
+
+    # Add one document
+    writer.begin()
+    writer.add_structured_fields(['test_field', 'other_field'])
+    writer.add_unstructured_fields(['text'])
+    writer.add_analyzed_document('v1', sample_format_document)
+
+    with pytest.raises(apsw.SQLError):
+        writer._execute('select * from nonexistent_table')
+    with pytest.raises(apsw.SQLError):
+        writer._executemany('insert into nonexistent_table values(?)', [(None,)])
+
+    writer.commit()
+
+    reader_transaction = SqliteReader(tmp_dir)
+    reader_transaction.begin()
+
+    reader = SqliteReader(tmp_dir)
+
+    with pytest.raises(apsw.SQLError):
+        reader._execute('select * from nonexistent_table')
+    with pytest.raises(apsw.SQLError):
+        reader._executemany('insert into nonexistent_table values(?)', [(None,)])
+
+    doc = list(reader.iterate_documents([1]))[0]  # Cheating with sequential document_id's here
+    assert doc[1] == sample_format_document[0]
+    assert reader.count_documents() == 1 == reader_transaction.count_documents()
+    assert reader.count_vocabulary() == 6 == reader_transaction.count_vocabulary()
+
+    # Add 100 more documents:
+    writer.begin()
+    for i in range(100):
+        writer.add_analyzed_document('v1', sample_format_document)
+    writer.commit()
+
+    assert reader.count_documents() * 3 == 303 == reader.count_frames()
+    assert reader_transaction.count_documents() == 1
+    assert reader.count_vocabulary() == 6
+    assert sum(i[1] for i in reader.iterate_term_frequencies()) == 606
+
+    reader_transaction.commit()
+    assert reader_transaction.count_documents() == 101
+
+    meta = list(reader.iterate_metadata())
+    assert len(meta) == 2
+
+    # Term associations
+    associations = {term: values for term, values in reader.iterate_associations()}
+    assert len(associations) == 6
+    assert all([freq == 101 for values in associations.values() for freq in values.values()])
+
+    # Delete all the documents
+    writer.begin()
+    writer.delete_documents([d_id for d_id, _ in reader.iterate_documents()])
+    writer.commit()
+
+    assert reader.count_documents() == 0 == reader.count_frames()
+    assert reader.count_vocabulary() == 6
+    assert sum(i[1] for i in reader.iterate_term_frequencies()) == 0
+
+
+def test_iterators(tmp_dir):
+
+    sample_format_document = (
+        'An example document without anything fancy',
+        {'test_field': 1, 'other_field': 'other'},
+        {'text': ['An example', 'document without', 'anything fancy']},
+        {'text': [
+            {'An': [[0, 10]], 'example': [[0, 10]]},
+            {'document': [[0, 10]], 'without': [[0, 10]]},
+            {'anything': [[0, 10]], 'fancy': [[0, 10]]}
+        ]}
+    )
+
+    writer = SqliteWriter(tmp_dir, create=True)
+
+    # Add many documents.
+    writer.begin()
+    writer.add_structured_fields(['test_field', 'other_field'])
+    writer.add_unstructured_fields(['text'])
+    for i in range(100):
+        writer.add_analyzed_document('v1', sample_format_document)
+    writer.commit()
+
+    assert len(writer._SqliteWriter__last_added_documents) == 100
+
+    reader = SqliteReader(tmp_dir)
+    reader.begin()
+
+    positions = reader._iterate_positions(include_fields=['text'])
+    assert sum(1 for _ in positions) == 6
+    positions = reader._iterate_positions(exclude_fields=['text'])
+    assert sum(1 for _ in positions) == 0
+    positions = reader._iterate_positions()
+    assert sum(1 for _ in positions) == 6
+
+    positions = reader._iterate_positions(include_fields=['unknown field'])
+    # If the field is not indexed, raise an error
+    with pytest.raises(ValueError):
+        list(reader._iterate_positions(include_fields=['unknown field']))
+
+    metadata_frames = [
+        (field, values, documents) for field, values, documents in reader.iterate_metadata(frames=True)
+    ]
+    assert sum(1 for _ in metadata_frames) == 2
+    assert sum(len(i[2]) for i in metadata_frames) == 600
+
+    # Get documents corresponding to the metadata instead of just the frames.
+    metadata_documents = [
+        (field, values, documents) for field, values, documents in reader.iterate_metadata(frames=False)
+    ]
+    assert sum(1 for _ in metadata_documents) == 2
+    assert sum(len(i[2]) for i in metadata_documents) == 200
+
+    metadata_text = [
+        (field, values, documents) for field, values, documents
+        in reader.iterate_metadata(text_field='text', include_fields=['test_field'])
+    ]
+    assert sum(1 for _ in metadata_text) == 1
+    assert sum(len(i[2]) for i in metadata_text) == 300
+
+    metadata_field = [
+        (field, values, documents) for field, values, documents
+        in reader.iterate_metadata(include_fields=['test_field'])
+    ]
+    assert sum(1 for _ in metadata_field) == 1
+    assert sum(len(i[2]) for i in metadata_field) == 300
+
+    reader.close()
 
 
 def test_duplicate_database(tmp_dir):
-    SqliteStorage(tmp_dir, create=True)
+    SqliteWriter(tmp_dir, create=True)
     with pytest.raises(DuplicateStorageError):
-        SqliteStorage(tmp_dir, create=True)
-
-
-def test_open(tmp_dir):
-    storage = SqliteStorage(tmp_dir, create=True)
-
-    storage.begin()
-    storage.add_container("test")
-    storage.set_container_item("test", "1", "2")
-    storage.commit()
-    storage.close()
-
-    storage = SqliteStorage(tmp_dir)
-    assert storage.get_container_item("test", "1") == "2"
-
-    with pytest.raises(StorageNotFoundError):
-        SqliteStorage("fake")
+        SqliteWriter(tmp_dir, create=True)

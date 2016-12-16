@@ -13,7 +13,8 @@ install:
 - python -m nltk.downloader punkt
 - pip install coverage
 - pip install coveralls
-script: coverage run --source=caterpillar -m py.test caterpillar
+- pip install pytest-cov
+script: py.test --cov=caterpillar caterpillar
 after_success: coveralls
 notifications:
   slack:

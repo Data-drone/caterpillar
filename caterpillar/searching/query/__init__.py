@@ -8,6 +8,7 @@ The design intends that the ``BaseQuery`` class is extended to provide specific 
 
 """
 import abc
+from copy import deepcopy
 
 
 class QueryResult(object):
@@ -21,12 +22,16 @@ class QueryResult(object):
 
     """
 
-    def __init__(self, frame_ids, term_weights, text_field):
+    def __init__(self, frame_ids, term_weights, text_field, term_frequencies):
         self.frame_ids = {text_field: set(frame_ids)}
         self.term_weights = {text_field: term_weights}
+        self.term_frequencies = {text_field: term_frequencies}
 
-    def __ior__(self, other_query):
+    def __or__(self, other_query):
         """ Union of this query and other_query. """
+        other_query = deepcopy(other_query)
+        self = deepcopy(self)
+
         for text_field, frame_ids in other_query.frame_ids.iteritems():
             try:
                 self.frame_ids[text_field] |= frame_ids
@@ -43,10 +48,23 @@ class QueryResult(object):
                         self.term_weights[text_field][term] = weight
                     except KeyError:
                         self.term_weights[text_field] = {term: weight}
+
+        for text_field, term_frequencies in other_query.term_frequencies.iteritems():
+            for frame_id, term_freqs in term_frequencies.iteritems():
+                try:
+                    self.term_frequencies[text_field][frame_id].update(term_freqs)
+                except KeyError:
+                    try:
+                        self.term_frequencies[text_field][frame_id] = term_freqs
+                    except KeyError:
+                        self.term_frequencies[text_field] = {frame_id: term_freqs}
+
         return self
 
-    def __iand__(self, other_query):
+    def __and__(self, other_query):
         """ Intersection of this query and other_query. """
+        other_query = deepcopy(other_query)
+        self = deepcopy(self)
 
         # Need to combine in both directions, otherwise fields in self but not other_query will be missed.
         for text_field, frame_ids in self.frame_ids.iteritems():
@@ -72,10 +90,29 @@ class QueryResult(object):
                     except KeyError:
                         self.term_weights[text_field] = {term: weight}
 
+        # Merge included term_frequencies, then remove deleted frames.
+        for text_field, term_frequencies in other_query.term_frequencies.iteritems():
+            for frame_id, term_freqs in term_frequencies.iteritems():
+                if frame_id in self.frame_ids[text_field]:
+                    self.term_frequencies[text_field][frame_id].update(term_freqs)
+
+        for text_field, frame_ids in self.frame_ids.iteritems():
+            if text_field in self.term_frequencies:
+                delete_frames = {
+                    frame_id for frame_id in self.term_frequencies[text_field] if frame_id not in frame_ids
+                }
+                for frame_id in delete_frames:
+                    del self.term_frequencies[text_field][frame_id]
+            else:
+                self.term_frequencies[text_field] = {}
+
         return self
 
-    def __isub__(self, other_query):
+    def __sub__(self, other_query):
         """Remove other_query results from this query"""
+        other_query = deepcopy(other_query)
+        self = deepcopy(self)
+
         for text_field, frame_ids in other_query.frame_ids.iteritems():
             try:
                 self.frame_ids[text_field] -= frame_ids
