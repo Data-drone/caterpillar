@@ -113,7 +113,6 @@ class SqliteStorage(Storage):
         """Commit a transaction."""
         if writer:
             self._cache.cursor().execute(_flush_cache, [self._db])
-            self._cache.cursor().execute('commit')
         else:
             self._db_connection.cursor().execute('commit')
 
@@ -126,23 +125,33 @@ class SqliteStorage(Storage):
         if writer:
             self._cache.close()
             self._cache = None
+        else:
+            self._db_connection.close()
+            self._db_connection = None
 
-        self._db_connection.close()
-        self._db_connection = None
-
-    def add_structured_field(self, field_name):
+    def add_structured_fields(self, field_names):
         """Register a structured field on the index. """
-        self._execute(self._cache, 'insert into structured_field(name) ?', [field_name])
+        for f in field_names:
+            self._execute(self._cache, 'insert into structured_field(name) values(?)', [f])
 
-    def add_unstructured_field(self, field_name):
+    def add_unstructured_fields(self, field_names):
         """Register an unstructured field on the index. """
-        self._execute(self._cache, 'insert into unstructured_field(name) ?', [field_name])
+        for f in field_names:
+            self._execute(self._cache, 'insert into unstructured_field(name) values(?)', [f])
 
-    def delete_structured_field(self, field_name):
+    def get_structured_fields(self):
+        """Get a list of the structured field names on this index."""
+        return list(self._execute(self._db_connection, 'select name from structured_field'))
+
+    def get_unstructured_fields(self):
+        """Get a list of the unstructured field names on this index."""
+        return list(self._execute(self._db_connection, 'select name from unstructured_field'))
+
+    def delete_structured_fields(self, field_names):
         """Delete a structured field and the associated data from the index."""
         return
 
-    def delete_unstructured_field(self, field_name):
+    def delete_unstructured_fields(self, field_names):
         """Delete an unstructured field from the index."""
         return
 
@@ -334,7 +343,7 @@ class SqliteStorage(Storage):
                 if row is not None]
 
     def _execute(self, conn, query, data=None):
-        cursor = self._db_connection.cursor()
+        cursor = conn.cursor()
         try:
             return cursor.execute(query, data)
         except apsw.SQLError as e:
@@ -342,7 +351,7 @@ class SqliteStorage(Storage):
             raise e
 
     def _executemany(self, conn, query, data=None):
-        cursor = self._db_connection.cursor()
+        cursor = conn.cursor()
         try:
             return cursor.executemany(query, data)
         except apsw.SQLError as e:
@@ -619,5 +628,8 @@ insert into disk_index.unstructured_field(name) select * from unstructured_field
     -- Insert postings
 -- Update the statistics
 -- Update the plugins
+
+commit;
+detach database disk_index;
 
 """

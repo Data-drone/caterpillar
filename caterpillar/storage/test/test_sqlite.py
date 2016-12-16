@@ -27,8 +27,22 @@ def tmp_dir(request):
 def test_sqlite_storage_container(tmp_dir):
     storage = SqliteStorage(tmp_dir, create=True)
 
+    add_fields1 = ['test', 'test2']
+    add_fields2 = ['test1']
     storage.begin(writer=True)
+    storage.add_structured_fields(add_fields1)
+    storage.add_unstructured_fields(add_fields2)
     storage.commit(writer=True)
+
+    storage.begin()
+    structured = storage.get_structured_fields()
+    unstructured = storage.get_unstructured_fields()
+    storage.commit()
+
+    for row in structured:
+        assert row[0] in add_fields1
+    for row in unstructured:
+        assert row[0] in add_fields2
 
 
 def old():
