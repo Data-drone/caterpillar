@@ -15,16 +15,8 @@ class StorageError(Exception):
     """Base for all Storage exceptions."""
 
 
-class DuplicateContainerError(StorageError):
-    """A container by the same name already exists."""
-
-
 class DuplicateStorageError(StorageError):
     """A storage object already exists at the specified location."""
-
-
-class ContainerNotFoundError(StorageError):
-    """No container by that name exists."""
 
 
 class StorageNotFoundError(StorageError):
@@ -65,12 +57,12 @@ class Storage(object):
         return
 
     @abc.abstractmethod
-    def begin(self):
+    def begin(self, writer=False):
         """Begin a transaction."""
         return
 
     @abc.abstractmethod
-    def commit(self):
+    def commit(self, writer=False):
         """Commit a transaction"""
         return
 
@@ -80,94 +72,18 @@ class Storage(object):
         return
 
     @abc.abstractmethod
-    def close(self):
+    def close(self, writer=False):
         """Close this storage session and release all resources."""
         return
 
     @abc.abstractmethod
-    def add_container(self, c_id):
-        """
-        Add a container with ``c_id`` (str) to this Storage.
-
-        Throws a :exc:`DuplicateContainer` error if there is already a container with this ``c_id``.
-
-        """
+    def add_processed_document(self, document):
+        """Take a document analyzed by an analyzer, and store it. """
         return
 
     @abc.abstractmethod
-    def delete_container(self, c_id):
-        """
-        Delete a container with ``c_id`` (str) from this Storage.
-
-        Throws a :exc:`ContainerNotFound` error if the ``c_id`` doesn't match a stored container.
-
-        """
-        return
-
-    @abc.abstractmethod
-    def get_container_len(self, c_id):
-        """Retrieve count of items in container with ``c_id`` (str)."""
-        return
-
-    @abc.abstractmethod
-    def get_container_keys(self, c_id):
-        """Generator across all keys from container with ``c_id`` (str)."""
-        return
-
-    @abc.abstractmethod
-    def get_container_item(self, c_id, key):
-        """Retrieve a single item with ``key`` from container with ``c_id``."""
-        return
-
-    @abc.abstractmethod
-    def get_container_items(self, c_id, keys=None):
-        """
-        Generator across some or all the items stored in a container identified by ``c_id`` (str) depending on the value
-        of ``keys`` (list).
-
-        If ``keys`` is ``None`` this method fetches all items otherwise this method fetches the items matching the keys
-        in the ``keys`` list.
-
-        """
-        return
-
-    @abc.abstractmethod
-    def set_container_item(self, c_id, key, value):
-        """
-        Add a single key/value pair to container ``c_id`` (str). Both ``key`` and ``value`` will be coerced to strings
-        by calling :meth:`str`.
-
-        """
-        return
-
-    @abc.abstractmethod
-    def set_container_items(self, c_id, items):
-        """
-        Add numerous key value pairs to container ``c_id`` (str).
-
-        ``items`` should be an iterable of string key/value pairs.
-
-        """
-        return
-
-    @abc.abstractmethod
-    def delete_container_item(self, c_id, key):
-        """Delete the key/value pair from container ``c_id`` (str) identified by ``key`` (str)."""
-        return
-
-    @abc.abstractmethod
-    def delete_container_items(self, c_id, keys):
-        """Delete multiple key/value pairs from container ``c_id`` (str) using the iterable of ``keys``."""
-        return
-
-    @abc.abstractmethod
-    def clear_container(self, c_id):
-        """Clear all values from container ``c_id`` (str)."""
-        return
-
-    @abc.abstractmethod
-    def clear(self):
-        """Clears this storage object of all data."""
+    def delete_document(self, document_id):
+        """Delete the given document."""
         return
 
     @abc.abstractmethod

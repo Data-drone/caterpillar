@@ -5,6 +5,15 @@ An sqlite implementation of :class:`caterpillar.storage.Storage`.
 
 The only class is :class:`.SqliteStorage` which uses sqlite in WAL mode to achieve reader/writer isolation.
 
+All changes to an index are first staged to a temporary in-memory database, the main storage file is not
+updated until commit is called. At this point all of the contents of the index are flushed to the file. By
+leaving the final flush operation as a single SQL script we can drop the GIL and allow concurrent operation
+in multiple threads.
+
+Note that document deletes are 'soft' deletes. Wherever possible the document data is deleted, however in
+the document_data and term_posting tables a hard delete requires a full table scan, so this is not ordinarily
+performed.
+
 """
 import logging
 import os
@@ -18,26 +27,15 @@ from caterpillar.storage import Storage, StorageNotFoundError, DuplicateContaine
 
 logger = logging.getLogger(__name__)
 
+# Three search cases:
+# 1. Canonical representation
+# 2. Canonical representation with some overrides
+# 3. Complete vocabulary substitution.
 
-# Note that the foreign key constrains are currently not usable because of the structure of the IndexWriter:
-# calling writer.begin() opens a transaction, and it isn't closed until writer.close() is called. Foreign key
-# constraints cannot be enabled during a transaction, so it is not currently possible to use the referential
-# integrity at the database layer...
-_plugin_table = """
-begin;
-create table plugin_registry (
-    plugin_type text,
-    settings text,
-    plugin_id integer primary key,
-    constraint unique_plugin unique (plugin_type, settings) on conflict replace);
-
-create table plugin_data (
-    plugin_id integer,
-    key text,
-    value text,
-    primary key(plugin_id, key) on conflict replace,
-    foreign key(plugin_id) references plugin_registry(plugin_id) on delete cascade);
-commit; """
+# IndexReader.search.match_any(
+#    terms, include_fields=None, exclude_fields=None,
+#    lookup_variant=None, representation_variant=None
+# )
 
 
 def _hash_container_name(c_id):
@@ -68,30 +66,26 @@ class SqliteStorage(Storage):
 
         """
         self._db_path = path
-        db = os.path.join(path, 'storage.db')
+        self._db = os.path.join(path, 'storage.db')
 
-        if not create and not os.path.exists(db):
+        if not create and not os.path.exists(self._db):
             raise StorageNotFoundError('Can\'t find the resources required by SQLiteStorage. Is it corrupt?')
-        elif create and os.path.exists(db):
+        elif create and os.path.exists(self._db):
             raise DuplicateStorageError('There already appears to be something stored at {}'.format(path))
 
         if create:
-            self._db_connection = apsw.Connection(db, flags=apsw.SQLITE_OPEN_READWRITE | apsw.SQLITE_OPEN_CREATE)
+            self._db_connection = apsw.Connection(self._db, flags=apsw.SQLITE_OPEN_READWRITE | apsw.SQLITE_OPEN_CREATE)
             cursor = self._db_connection.cursor()
             # Enable WAL
-            cursor.execute("PRAGMA journal_mode = WAL")
-
-            # Setup containers table
-            cursor.execute("BEGIN; CREATE TABLE {} (id VARCHAR PRIMARY KEY); COMMIT;"
-                           .format(SqliteStorage.CONTAINERS_TABLE))
+            cursor.execute("PRAGMA journal_mode = WAL;")
 
             # Setup plugin data tables
-            cursor.execute(_plugin_table)
+            cursor.execute(_schema)
 
         elif readonly:
-            self._db_connection = apsw.Connection(db, flags=apsw.SQLITE_OPEN_READONLY)
+            self._db_connection = apsw.Connection(self._db, flags=apsw.SQLITE_OPEN_READONLY)
         else:
-            self._db_connection = apsw.Connection(db, flags=apsw.SQLITE_OPEN_READWRITE)
+            self._db_connection = apsw.Connection(self._db, flags=apsw.SQLITE_OPEN_READWRITE)
 
         # We serialise writers during a write lock, and in normal cases the WAL mode avoids writers blocking
         # readers. Setting this is used to handle the one case in our normal operations that WAL mode requires
@@ -99,22 +93,51 @@ class SqliteStorage(Storage):
         # See section 8 for the edge cases: https://www.sqlite.org/wal.html
         self._db_connection.setbusytimeout(1000)
 
-    def begin(self):
-        """Begin a transaction."""
-        self._db_connection.cursor().execute('BEGIN')
+    def begin(self, writer=False):
+        """
+        Begin a transaction.
 
-    def commit(self):
+        The write flag indicates if this is a transaction for a reader or a writer.
+
+        For a writer a temporary in-memory database is created to cache results, which
+        is destroyed after the commit or rollback methods are called.
+
+        """
+
+        if writer:
+            self._cache = apsw.Connection(':memory:')
+            self._cache.cursor().execute('begin immediate')
+        else:
+            self._db_connection.cursor().execute('begin')
+
+    def commit(self, writer=False):
         """Commit a transaction."""
-        self._db_connection.cursor().execute('COMMIT')
+        if writer:
+            self._cache.cursor.execute(_flush_cache)
+            self._cache.cursor().execute('commit')
+        else:
+            self._db_connection.cursor().execute('commit')
 
     def rollback(self):
-        """Rollback a transaction."""
-        self._db_connection.cursor().execute('ROLLBACK')
+        """Rollback a transaction on an IndexWriter."""
+        self._cache.cursor().execute('rollback')
 
-    def close(self):
+    def close(self, writer=False):
         """Close this storage object and all its resources, rendering it UNUSABLE."""
+        if writer:
+            self._cache.close()
+            self._cache = None
+
         self._db_connection.close()
         self._db_connection = None
+
+    def add_processed_document(self, document):
+        """Add a processed (passed through an analyzer) document to the index. """
+        return None
+
+    def delete_document(self, document_id):
+        """Delete a document with the given id from the index. """
+        return None
 
     def add_container(self, c_id):
         """
@@ -323,3 +346,202 @@ class SqliteStorage(Storage):
         l = list(l)
         for i in xrange(0, len(l), n):
             yield l[i:i+n]
+
+
+_schema = """
+begin;
+
+create table structured_field (
+    id integer primary key,
+    name text unique,
+    type text
+);
+
+create table unstructured_field (
+    id integer primary key,
+    name text unique,
+    type text
+);
+
+/*
+The core vocabulary table assigns an integer ID to every unique term in the index.
+
+In the future we may extend this to include additional information, such as a parts of speech
+identifier.
+*/
+create table vocabulary (
+    id integer primary key,
+    token text unique
+);
+
+
+/* A whitelist of vocabulary variant columns in the vocabulary table.
+
+When a variation is first registered a column is created in the table for that name.*/
+create table vocabulary_variant(
+    id integer primary key,
+    name text
+);
+
+/* The source table for the document representation. */
+create table document (
+    id integer primary key,
+    representation text -- This should be a text serialised representation of the document, such as JSON.
+);
+
+/*
+Storage for 'indexed' structured fields in the schema.
+
+- designed for sparse data and extensible schema's
+- primary design purpose is for returning lists of document ID's
+- takes advantage of SQLite's permissive type system
+
+*/
+create table document_data (
+    document_id integer,
+    field_id integer,
+    value,
+    primary key(field_id, value, document_id),
+    foreign key(document_id references document(id)),
+    foreign key(field_id references structured_field(id))
+);
+
+/* Deleted document_id's for soft deletion. Wherever possible the document content is deleted, but it is
+not always possible to do so efficiently. */
+create table deleted_document (
+    document_id integer primary key
+);
+
+create table frame (
+    id integer primary key,
+    document_id integer,
+    field_id integer,
+    sequence integer,
+    unique constraint
+);
+
+create table term_statistics (
+    term_id integer,
+    field_id integer,
+    frequency integer,
+    frames_occuring integer,
+    documents_occuring integer,
+    primary key(term_id, field_id) on conflict replace,
+    foreign key(term_id) references term(id),
+    foreign key(field_id) references field(id),
+);
+
+/* Postings organised by term, allowing search operations. */
+create table term_posting (
+    term_id integer,
+    frame_id integer,
+    frequency integer,
+    primary key(term_id, frame_id),
+    foreign key(term_id) references term.id,
+    foreign key(frame_id) references frame.id
+)
+without rowid;
+
+/* Postings organised by frame, for term-frequency vector representations of documents and frames. */
+create table frame_posting (
+    frame_id integer,
+    term_id integer,
+    frequency integer,
+    primary key(frame_id, term_id),
+    foreign key(term_id) references term(id) on delete cascade
+    foreign key(frame_id) references frame(id) on delete cascade
+)
+without rowid;
+
+create table plugin_registry (
+    plugin_type text,
+    settings text,
+    plugin_id integer primary key,
+    constraint unique_plugin unique (plugin_type, settings) on conflict replace
+);
+
+create table plugin_data (
+    plugin_id integer,
+    key text,
+    value text,
+    primary key(plugin_id, key) on conflict replace,
+    foreign key(plugin_id) references plugin_registry(plugin_id) on delete cascade
+);
+
+/*
+An internal representation of the state of the index documents.
+
+Each count is incremented by one when a document is added or deleted. Both numbers are
+monotonically increasing and the system is serialised: these numbers can be used to represent
+the current state of the system, and can be used to measure some degree of change between
+different versions.
+
+For example, if a plugin was run at revision (100, 4), and the current state of the index is
+(200, 50), then there is a significant difference between the corpus at the time the plugin
+was run and now.
+
+*/
+create table index_revision (
+    added_document_count integer,
+    deleted_document_count integer
+)
+
+/*
+A convenience view to simplify writing search queries.
+
+If we move to a segmented or otherwise optimised index structure this view will
+combine the tables, so queries should use this in preference to direct table references.
+
+Note that this view uses the canonical representation of the term to represent variants.
+*/
+
+create view search_posting as (
+    select *
+    from term_posting
+    inner join vocabulary
+        on term_posting.term_id = vocabulary.id
+    inner join frame
+        on term_posting.frame_id = frame.id
+    inner join field
+        on frame.field_id = field.id
+    where document_id not in (select document_id from deleted_documents)
+);
+
+commit;
+
+"""
+
+# This is the schema for the staging database
+_cache_schema = """
+document
+
+frame
+
+frame_posting
+
+term_posting
+
+document_data
+
+term_statistics
+"""
+
+_flush_cache = """
+-- Generate final views into all of the temporary data structures
+    -- Term-document_id ordering
+    -- Term statistics summary
+    -- Generate necessary indexes
+-- Generate statistics of deleted documents for removal
+-- Delete the documents
+    -- Delete documents
+    -- delete frames
+    -- Add a tombstone for that document_id
+-- Update the vocabulary
+-- Insert new documents
+    -- Insert document
+    -- Insert frames
+    -- Insert postings
+-- Update the statistics
+-- Update the plugins
+
+"""
