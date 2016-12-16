@@ -254,15 +254,15 @@ class IndexWriter(object):
         self.__rm_documents = set()
 
     def __enter__(self):
-        self.begin(writer=True)
+        self.begin()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         if exc_type:
             self.rollback()
         else:
-            self.commit(writer=True)
-        self.close(writer=True)
+            self.commit()
+        self.close()
 
     def begin(self, timeout=None):
         """
@@ -574,11 +574,7 @@ class IndexWriter(object):
 
     def commit(self):
         """Commit changes made by this writer by calling :meth:`.flush` then ``commit()`` on the storage instance."""
-        self.flush()
-        # Update index revision
-        self.__storage.set_container_item(IndexWriter.INFO_CONTAINER, 'revision',
-                                          json.dumps(random.SystemRandom().randint(0, 10**10)))
-        self.__storage.commit()
+        self.__storage.commit(writer=True)
         self.__committed = True
 
     def rollback(self):
@@ -599,7 +595,7 @@ class IndexWriter(object):
             self.rollback()
 
         # Close the storage connection
-        self.__storage.close()
+        self.__storage.close(writer=True)
         self.__storage = None
 
         # Release the lock
@@ -777,33 +773,14 @@ class IndexWriter(object):
 
         self.__new_documents[document_id] = doc_fields
 
-        # Flush buffers if needed
-        current_buffer_size = sys.getsizeof(self.__new_documents) + sys.getsizeof(self.__new_frames) + \
-            sys.getsizeof(self.__rm_frames) + sys.getsizeof(self.__rm_documents)
-        if current_buffer_size > IndexWriter.RAM_BUFFER_SIZE:
-            logger.debug('Flushing index writer buffers')
-            self.flush()
-
-        return document_id
-
     def delete_document(self, d_id):
         """
         Delete the document with given ``d_id`` (str).
 
-        Raises a :exc:`DocumentNotFound` exception if the d_id doesn't match any document.
+        If the document does not exist, no error will be raised.
 
         """
-        try:
-            doc = json.decode(self.__storage.get_container_item(IndexWriter.DOCUMENTS_CONTAINER, d_id))
-        except KeyError:
-            raise DocumentNotFoundError("No such document {}".format(d_id))
-
-        for field, frames in doc['_frames'].iteritems():
-            try:
-                self.__rm_frames[field] += frames
-            except KeyError:
-                self.__rm_frames[field] = frames
-        self.__rm_documents.add(d_id)
+        self.__storage.delete_document(d_id)
 
     def fold_term_case(self, text_field, merge_threshold=0.7):
         """

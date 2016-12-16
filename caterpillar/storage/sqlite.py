@@ -53,8 +53,6 @@ class SqliteStorage(Storage):
 
     """
 
-    CONTAINERS_TABLE = "containers"
-
     def __init__(self, path, create=False, readonly=False):
         """
         Initialise a new instance of this storage at ``path`` (str).
@@ -78,7 +76,7 @@ class SqliteStorage(Storage):
             cursor = self._db_connection.cursor()
 
             # Setup schema and necessary pragmas
-            cursor.execute(_schema)
+            list(cursor.execute(_schema))
 
         elif readonly:
             self._db_connection = apsw.Connection(self._db, flags=apsw.SQLITE_OPEN_READONLY)
@@ -103,7 +101,10 @@ class SqliteStorage(Storage):
         """
 
         if writer:
+            # If we're opening for writing, don't connect to the index directly.
+            # Instead setup a temporary in memory database with the minimal schema.
             self._cache = apsw.Connection(':memory:')
+            list(self._cache.cursor().execute(_cache_schema))
             self._cache.cursor().execute('begin immediate')
         else:
             self._db_connection.cursor().execute('begin')
@@ -111,7 +112,7 @@ class SqliteStorage(Storage):
     def commit(self, writer=False):
         """Commit a transaction."""
         if writer:
-            self._cache.cursor.execute(_flush_cache)
+            self._cache.cursor().execute(_flush_cache, [self._db])
             self._cache.cursor().execute('commit')
         else:
             self._db_connection.cursor().execute('commit')
@@ -131,11 +132,11 @@ class SqliteStorage(Storage):
 
     def add_structured_field(self, field_name):
         """Register a structured field on the index. """
-        return
+        self._execute(self._cache, 'insert into structured_field(name) ?', [field_name])
 
     def add_unstructured_field(self, field_name):
         """Register an unstructured field on the index. """
-        return
+        self._execute(self._cache, 'insert into unstructured_field(name) ?', [field_name])
 
     def delete_structured_field(self, field_name):
         """Delete a structured field and the associated data from the index."""
@@ -332,27 +333,21 @@ class SqliteStorage(Storage):
         return [row for row in self._execute("select plugin_type, settings, plugin_id from plugin_registry;")
                 if row is not None]
 
-    def _get_containers(self):
-        """Return list of all containers regardless of storage type."""
-        cursor = self._db_connection.cursor()
-        cursor.execute("SELECT id FROM {}".format(SqliteStorage.CONTAINERS_TABLE))
-        return [c[0] for c in cursor.fetchall()]
-
-    def _execute(self, query, data=None):
+    def _execute(self, conn, query, data=None):
         cursor = self._db_connection.cursor()
         try:
             return cursor.execute(query, data)
         except apsw.SQLError as e:
             logger.exception(e)
-            raise ContainerNotFoundError("No such container")
+            raise e
 
-    def _executemany(self, query, data=None):
+    def _executemany(self, conn, query, data=None):
         cursor = self._db_connection.cursor()
         try:
             return cursor.executemany(query, data)
         except apsw.SQLError as e:
             logger.exception(e)
-            raise ContainerNotFoundError("No such container")
+            raise e
 
     @staticmethod
     def _chunks(l, n=999):
@@ -364,12 +359,14 @@ class SqliteStorage(Storage):
 
 _schema = """
 pragma journal_mode = WAL;
+pragma page_size = 4096;
 
 begin;
 
 /* Field names and ID's
 
-Structured and unstructured fields are kept separate
+Structured and unstructured fields are kept separate because the storage and querying
+of each type of data is different.
 */
 create table structured_field (
     id integer primary key,
@@ -383,6 +380,8 @@ create table unstructured_field (
 
 /*
 The core vocabulary table assigns an integer ID to every unique term in the index.
+
+Joins against the core posting tables are always integer-integer and in sorted order.
 */
 create table vocabulary (
     id integer primary key,
@@ -390,18 +389,10 @@ create table vocabulary (
 );
 
 
-/* A whitelist of vocabulary variant columns in the vocabulary table.
-
-When a variation is first registered a column is created in the table for that name.*/
-create table vocabulary_variant(
-    id integer primary key,
-    name text
-);
-
 /* The source table for the document representation. */
 create table document (
     id integer primary key,
-    representation text -- This should be a text serialised representation of the document, such as JSON.
+    stored text -- This should be a text serialised representation of the document, such as JSON.
 );
 
 /*
@@ -417,34 +408,28 @@ create table document_data (
     field_id integer,
     value,
     primary key(field_id, value, document_id),
-    foreign key(document_id references document(id)),
-    foreign key(field_id references structured_field(id))
+    foreign key(document_id) references document(id),
+    foreign key(field_id) references structured_field(id)
 );
 
-/* Deleted document_id's for soft deletion. Wherever possible the document content is deleted, but it is
-not always possible to do so efficiently. */
-create table deleted_document (
-    document_id integer primary key
-);
+
 
 create table frame (
     id integer primary key,
     document_id integer,
     field_id integer,
-    sequence integer,
-    unique constraint
+    stored text -- The stored representation of the frame.
 );
 
-create table term_statistics (
-    term_id integer,
-    field_id integer,
-    frequency integer,
-    frames_occuring integer,
-    documents_occuring integer,
-    primary key(term_id, field_id) on conflict replace,
-    foreign key(term_id) references term(id),
-    foreign key(field_id) references field(id),
-);
+
+/* Index to access by document ID
+
+Bridges between:
+structured data searches --> frames
+unstructured searches --> documents
+*/
+create index document_frame_bridge on frame(document_id, field_id);
+
 
 /* Postings organised by term, allowing search operations. */
 create table term_posting (
@@ -452,10 +437,10 @@ create table term_posting (
     frame_id integer,
     frequency integer,
     primary key(term_id, frame_id),
-    foreign key(term_id) references term.id,
-    foreign key(frame_id) references frame.id
+    foreign key(term_id) references term(id),
+    foreign key(frame_id) references frame(id)
 )
-without rowid;
+without rowid; -- Ensures that the data in the base table is kept in this sorted order.
 
 /* Postings organised by frame, for term-frequency vector representations of documents and frames. */
 create table frame_posting (
@@ -468,6 +453,8 @@ create table frame_posting (
 )
 without rowid;
 
+
+/* Plugin header and data tables. */
 create table plugin_registry (
     plugin_type text,
     settings text,
@@ -483,6 +470,43 @@ create table plugin_data (
     foreign key(plugin_id) references plugin_registry(plugin_id) on delete cascade
 );
 
+
+commit;
+
+"""
+
+"""/* A whitelist of vocabulary variant columns in the vocabulary table.
+
+When a variation is first registered a column is created in the table for that name.
+*/
+create table vocabulary_variant(
+    id integer primary key,
+    name text
+);
+
+/* Document_id's for soft deletion.
+
+Wherever possible the document content is deleted, but it is not always possible to do so
+efficiently.
+*/
+create table deleted_document (
+    document_id integer primary key
+);
+
+/* Summary statistics for a given term_id by field.
+
+This allows direct lookups for Tf.IDF searches and similar.
+*/
+create table term_statistics (
+    term_id integer,
+    field_id integer,
+    frequency integer,
+    frames_occuring integer,
+    documents_occuring integer,
+    primary key(term_id, field_id) on conflict replace,
+    foreign key(term_id) references term(id),
+    foreign key(field_id) references field(id),
+);
 /*
 An internal representation of the state of the index documents.
 
@@ -521,24 +545,49 @@ create view search_posting as (
         on frame.field_id = field.id
     where document_id not in (select document_id from deleted_documents)
 );
-
-commit;
-
 """
 
-# This is the schema for the staging database
+# Schema for the staging database
 _cache_schema = """
-document
+begin;
 
-frame
+create table structured_field (
+    name text primary key
+);
+create table unstructured_field (
+    name text primary key
+);
 
-frame_posting
+/* The source table for the document representation. */
+create table document (
+    id integer primary key,
+    stored text -- This should be a text serialised representation of the document, such as JSON.
+);
 
-term_posting
+/* Storage for 'indexed' structured fields in the schema. */
+create table document_data (
+    document_id integer,
+    field_name text,
+    value,
+    primary key(document_id, field_name)
+);
 
-document_data
+create table frame (
+    id integer primary key,
+    document_id integer,
+    field_name text,
+    stored text -- The stored representation of the frame.
+);
 
-term_statistics
+/* One row per occurence of a term in a frame */
+create table positions_staging (
+    frame_id integer,
+    document_id integer,
+    field_name text,
+    term_name text
+);
+
+commit;
 """
 
 # Flush changes from the cache to the index
@@ -548,6 +597,17 @@ _flush_cache = """
     -- Term statistics summary
     -- Generate necessary indexes
 -- Generate statistics of deleted documents for removal
+
+commit; -- end surrounding transaction so we can attach on disk database.
+
+-- Attach the on disk database to flush to.
+attach database ? as disk_index;
+
+begin; -- Begin the true transaction for on disk writing
+
+insert into disk_index.structured_field(name) select * from structured_field;
+insert into disk_index.unstructured_field(name) select * from unstructured_field;
+
 -- Delete the documents
     -- Delete documents
     -- delete frames

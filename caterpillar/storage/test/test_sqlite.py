@@ -7,7 +7,7 @@ import tempfile
 
 import pytest
 
-from caterpillar.storage import *
+from caterpillar.storage import StorageNotFoundError, DuplicateStorageError
 from caterpillar.storage.sqlite import SqliteStorage
 
 
@@ -27,10 +27,13 @@ def tmp_dir(request):
 def test_sqlite_storage_container(tmp_dir):
     storage = SqliteStorage(tmp_dir, create=True)
 
-    storage.begin()
+    storage.begin(writer=True)
+    storage.commit(writer=True)
+
+
+def old():
     storage.add_container("test")
     storage.set_container_item("test", "A", "Z")
-    storage.commit()
     assert sum(1 for _ in storage.get_container_items("test")) == storage.get_container_len("test") == 1
     assert [k for k in storage.get_container_keys("test")] == ['A']
 
@@ -115,7 +118,7 @@ def test_duplicate_database(tmp_dir):
         SqliteStorage(tmp_dir, create=True)
 
 
-def test_open(tmp_dir):
+def open(tmp_dir):
     storage = SqliteStorage(tmp_dir, create=True)
 
     storage.begin()
