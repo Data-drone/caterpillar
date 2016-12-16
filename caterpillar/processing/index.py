@@ -216,20 +216,6 @@ class IndexWriter(object):
     of the frames the document will be broken up into.
 
     """
-    # Static storage names
-    DOCUMENTS_CONTAINER = "documents"
-    SETTINGS_CONTAINER = "settings"
-    INFO_CONTAINER = "info"
-    METADATA_CONTAINER = "metadata"
-
-    # One frame container per indexed text field
-    FRAMES_CONTAINER = "frames_{}"
-    FREQUENCIES_CONTAINER = "frequencies_{}"
-    POSITIONS_CONTAINER = "positions_{}"
-    ASSOCIATIONS_CONTAINER = "associations_{}"
-
-    # How much data to buffer before a flush
-    RAM_BUFFER_SIZE = 100 * 1024 * 1024  # 100 MB
 
     # Where is the config?
     CONFIG_FILE = "index.config"
@@ -268,15 +254,15 @@ class IndexWriter(object):
         self.__rm_documents = set()
 
     def __enter__(self):
-        self.begin()
+        self.begin(writer=True)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         if exc_type:
             self.rollback()
         else:
-            self.commit()
-        self.close()
+            self.commit(writer=True)
+        self.close(writer=True)
 
     def begin(self, timeout=None):
         """
@@ -304,36 +290,23 @@ class IndexWriter(object):
                     f.write(self.__config.dumps())
                 # Initialize storage
                 storage = self.__config.storage_cls(self._path, create=True)
-                # Need to create the containers
-                storage.begin()
-                # Universal Containers
-                storage.add_container(IndexWriter.DOCUMENTS_CONTAINER)
-                storage.add_container(IndexWriter.SETTINGS_CONTAINER)
-                storage.add_container(IndexWriter.INFO_CONTAINER)
-                storage.add_container(IndexWriter.METADATA_CONTAINER)
 
-                text_fields = self.__schema.get_indexed_text_fields()
-                # Set of containers for each indexed text field
-                for field_name in text_fields:
-                    storage.add_container(IndexWriter.POSITIONS_CONTAINER.format(field_name))
-                    storage.add_container(IndexWriter.ASSOCIATIONS_CONTAINER.format(field_name))
-                    storage.add_container(IndexWriter.FRAMES_CONTAINER.format(field_name))
-                    storage.add_container(IndexWriter.FREQUENCIES_CONTAINER.format(field_name))
+                # Initialise our fields:
+                storage.begin(writer=True)
 
-                # Catch all container for surrogate frames generated in the case of no text fields.
-                # This is a workaround to the limitation of the current index structure which allows
-                # searching only by frame and not by documents.
-                storage.add_container(IndexWriter.FRAMES_CONTAINER.format(''))
-                # Index settings
-                storage.set_container_item(IndexWriter.INFO_CONTAINER, 'derived', json.dumps(False))
-                # Revision
-                storage.set_container_item(IndexWriter.INFO_CONTAINER, 'revision',
-                                           json.dumps(random.SystemRandom().randint(0, 10**10)))
-                storage.commit()
+                for field in self.__schema.get_indexed_text_fields():
+                    storage.add_unstructured_field(field)
+
+                for field in self.__schema.get_indexed_structured_fields():
+                    storage.add_structured_field(field)
+
+                storage.commit(writer=True)
+
             if not self.__storage:
                 # This is a create or the index was created after this writer was opened.
                 self.__storage = self.__config.storage_cls(self._path, create=False)
-            self.__storage.begin()
+
+            self.__storage.begin(writer=True)
 
     def flush(self):
         """

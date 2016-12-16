@@ -21,7 +21,7 @@ import hashlib
 
 import apsw
 
-from caterpillar.storage import Storage, StorageNotFoundError, DuplicateContainerError, ContainerNotFoundError, \
+from caterpillar.storage import Storage, StorageNotFoundError, \
     DuplicateStorageError, PluginNotFoundError
 
 
@@ -76,10 +76,8 @@ class SqliteStorage(Storage):
         if create:
             self._db_connection = apsw.Connection(self._db, flags=apsw.SQLITE_OPEN_READWRITE | apsw.SQLITE_OPEN_CREATE)
             cursor = self._db_connection.cursor()
-            # Enable WAL
-            cursor.execute("PRAGMA journal_mode = WAL;")
 
-            # Setup plugin data tables
+            # Setup schema and necessary pragmas
             cursor.execute(_schema)
 
         elif readonly:
@@ -130,6 +128,22 @@ class SqliteStorage(Storage):
 
         self._db_connection.close()
         self._db_connection = None
+
+    def add_structured_field(self, field_name):
+        """Register a structured field on the index. """
+        return
+
+    def add_unstructured_field(self, field_name):
+        """Register an unstructured field on the index. """
+        return
+
+    def delete_structured_field(self, field_name):
+        """Delete a structured field and the associated data from the index."""
+        return
+
+    def delete_unstructured_field(self, field_name):
+        """Delete an unstructured field from the index."""
+        return
 
     def add_processed_document(self, document):
         """Add a processed (passed through an analyzer) document to the index. """
@@ -349,25 +363,26 @@ class SqliteStorage(Storage):
 
 
 _schema = """
+pragma journal_mode = WAL;
+
 begin;
 
+/* Field names and ID's
+
+Structured and unstructured fields are kept separate
+*/
 create table structured_field (
     id integer primary key,
-    name text unique,
-    type text
+    name text unique
 );
 
 create table unstructured_field (
     id integer primary key,
-    name text unique,
-    type text
+    name text unique
 );
 
 /*
 The core vocabulary table assigns an integer ID to every unique term in the index.
-
-In the future we may extend this to include additional information, such as a parts of speech
-identifier.
 */
 create table vocabulary (
     id integer primary key,
@@ -526,6 +541,7 @@ document_data
 term_statistics
 """
 
+# Flush changes from the cache to the index
 _flush_cache = """
 -- Generate final views into all of the temporary data structures
     -- Term-document_id ordering

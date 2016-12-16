@@ -77,6 +77,26 @@ class Storage(object):
         return
 
     @abc.abstractmethod
+    def add_structured_field(self, field_name):
+        """Register a structured field on the index. """
+        return
+
+    @abc.abstractmethod
+    def add_unstructured_field(self, field_name):
+        """Register an unstructured field on the index. """
+        return
+
+    @abc.abstractmethod
+    def delete_structured_field(self, field_name):
+        """Delete a structured field and the associated data from the index."""
+        return
+
+    @abc.abstractmethod
+    def delete_unstructured_field(self, field_name):
+        """Delete an unstructured field from the index."""
+        return
+
+    @abc.abstractmethod
     def add_processed_document(self, document):
         """Take a document analyzed by an analyzer, and store it. """
         return
