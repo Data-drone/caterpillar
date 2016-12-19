@@ -6,6 +6,7 @@ import shutil
 import tempfile
 
 import pytest
+import json
 
 from caterpillar.storage import StorageNotFoundError, DuplicateStorageError
 from caterpillar.storage.sqlite import SqliteReader, SqliteWriter
@@ -24,21 +25,22 @@ def tmp_dir(request):
     return new_path
 
 
-def test_add_get_fields(tmp_dir):
+def test_add_get_delete_fields(tmp_dir):
     """ Test adding indexed fields to the schema. """
-    storage = SqliteWriter(tmp_dir, create=True)
+    writer = SqliteWriter(tmp_dir, create=True)
 
     add_fields1 = ['test', 'test2']
     add_fields2 = ['test1']
-    storage.begin()
-    storage.add_structured_fields(add_fields1)
-    storage.add_unstructured_fields(add_fields2)
-    storage.commit()
+    writer.begin()
+    writer.add_structured_fields(add_fields1)
+    writer.add_unstructured_fields(add_fields2)
+    writer.commit()
 
-    storage.begin()
-    structured = storage.get_structured_fields()
-    unstructured = storage.get_unstructured_fields()
-    storage.commit()
+    reader = SqliteReader(tmp_dir)
+    reader.begin()
+    structured = reader.get_structured_fields()
+    unstructured = reader.get_unstructured_fields()
+    reader.commit()
 
     for field in structured:
         assert field in add_fields1
@@ -50,7 +52,7 @@ def test_alternate_document_format(tmp_dir):
     pass
 
 
-def test_add_document(tmp_dir):
+def test_add_get_document(tmp_dir):
     sample_format_document = (
         'An example document without anything fancy',
         {'test_field': 1, 'other_field': 'other'},
@@ -60,13 +62,18 @@ def test_add_document(tmp_dir):
                   {'anything': 1, 'fancy': 1}]}
     )
 
-    storage = SqliteWriter(tmp_dir, create=True)
+    writer = SqliteWriter(tmp_dir, create=True)
 
-    storage.begin()
-    storage.add_structured_fields(['test_field', 'other_field'])
-    storage.add_unstructured_fields(['text'])
-    storage.add_analyzed_document('test', sample_format_document)
-    storage.commit()
+    writer.begin()
+    writer.add_structured_fields(['test_field', 'other_field'])
+    writer.add_unstructured_fields(['text'])
+    writer.add_analyzed_document('test', sample_format_document)
+    writer.commit()
+
+    reader = SqliteReader(tmp_dir)
+    doc = reader.get_document(1)  # Cheating with sequential document_id's here
+    assert doc == sample_format_document[0]
+    assert reader.get_vocab_size() == 6
 
 
 def test_(tmp_dir):

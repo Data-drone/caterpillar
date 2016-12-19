@@ -136,11 +136,19 @@ class SqliteWriter(StorageWriter):
             self._execute('insert into unstructured_field(name) values(?)', [f])
 
     def delete_structured_fields(self, field_names):
-        """Delete a structured field and the associated data from the index."""
+        """Delete a structured field and the associated data from the index.
+
+        Note this is a soft delete for the SqliteWriter class. Call
+        :meth:SqliteWriter.materialize_deletes to remove all the data related
+        to that field from the index. """
         raise NotImplementedError
 
     def delete_unstructured_fields(self, field_names):
-        """Delete an unstructured field from the index."""
+        """Delete an unstructured field from the index.
+
+        Note this is a soft delete for the SqliteWriter class. Call
+        :meth:SqliteWriter.materialize_deletes to remove all the data related
+        to that field from the index. """
         raise NotImplementedError
 
     def add_analyzed_document(self, document_format, document_data):
@@ -360,21 +368,6 @@ class SqliteReader(StorageReader):
         self._db_connection.close()
         self._db_connection = None
 
-    def list_known_plugins(self):
-        """ Return a list of (plugin_type, settings, id) triples for each plugin stored in the index. """
-        return [row for row in self._execute("select plugin_type, settings, plugin_id from plugin_registry;")
-                if row is not None]
-
-    def get_structured_fields(self):
-        """Get a list of the structured field names on this index."""
-        rows = list(self._execute(self._db_connection, 'select name from structured_field'))
-        return [row[0] for row in rows]
-
-    def get_unstructured_fields(self):
-        """Get a list of the unstructured field names on this index."""
-        rows = list(self._execute(self._db_connection, 'select name from unstructured_field'))
-        return [row[0] for row in rows]
-
     def get_plugin_state(self, plugin_type, plugin_settings):
         """Return a dictionary of key-value pairs identifying that state of this plugin."""
         plugin_id = self._execute("select plugin_id from plugin_registry where plugin_type = ? and settings = ?",
@@ -400,28 +393,52 @@ class SqliteReader(StorageReader):
         state = self._execute("select key, value from plugin_data where plugin_id = ?", [plugin_id]).fetchall()
         return plugin_type, settings, state
 
+    def list_known_plugins(self):
+        """ Return a list of (plugin_type, settings, id) triples for each plugin stored in the index. """
+        return [row for row in self._execute("select plugin_type, settings, plugin_id from plugin_registry;")
+                if row is not None]
 
-    def get_vocab_size(self, field):
-        """Return the number of unique terms occuring in the given field. """
+    def get_structured_fields(self):
+        """Get a list of the structured field names on this index."""
+        rows = list(self._execute('select name from structured_field'))
+        return [row[0] for row in rows]
+
+    def get_unstructured_fields(self):
+        """Get a list of the unstructured field names on this index."""
+        rows = list(self._execute('select name from unstructured_field'))
+        return [row[0] for row in rows]
+
+    def get_vocab_size(self, include_fields=None, exclude_fields=None):
+        """Return the number of unique terms occuring in the given combinations of fields. """
         # Validate the field exists
-        if field not in self.get_unstructured_fields():
-            raise ValueError('Field {} does not exist or is not indexed'.format(field))
-        vocab_size = list(self._execute(
-            self._db_connection,
-            'select count(*) '
+        valid_fields = self.get_unstructured_fields()
+        fields = include_fields or exclude_fields or []
+        invalid_fields = [field for field in fields if field not in valid_fields]
+        if invalid_fields:
+            raise ValueError('Invalid fields: {} do not exist or are not indexed'.format(invalid_fields))
+
+        # Filter template and validate arguments
+        if include_fields:
+            where_clause = 'where field.name in ({})'.format(', '.join(['?'] * len(fields)))
+        elif exclude_fields:
+            where_clause = 'where field.name not in ({})'.format(', '.join(['?'] * len(exclude_fields)))
+        else:
+            where_clause = ''
+
+        vocab_size = self._execute(
+            'select count(distinct term_id) '
             'from term_statistics stats '
             'inner join unstructured_field field '
-            '    on stats.field_id = field.id '
-            'where field.name = ?', [field]
-        ))
+            '    on stats.field_id = field.id ' + where_clause,
+            fields
+        ).fetchone()
         return vocab_size[0]
 
-    def get_frequencies(self, field):
+    def get_frequencies(self, include_fields=None, exclude_fields=None):
         """Return a generator of all the term frequencies in the given field."""
         if field not in self.get_unstructured_fields():
             raise ValueError('Field {} does not exist or is not indexed'.format(field))
         frequencies = self._execute(
-            self._db_connection,
             'select voc.term, '
             'from term_statistics stats '
             'inner join vocabulary voc '
@@ -431,6 +448,155 @@ class SqliteReader(StorageReader):
             'where field.name = ?', [field]
         )
         return vocab_size[0]
+
+    def get_positions_index(self, include_fields=None, exclude_fields=None):
+        """
+        Get all term positions for the given indexed text field.
+
+        This is a generator which yields a key/value pair tuple.
+
+        This is what is known as an inverted text index. Structure is as follows::
+
+            {
+                "term": {
+                    "frame_id": [(start, end), (start, end)],
+                    ...
+                },
+                ...
+            }
+
+        """
+        for k, v in self.__storage.get_container_items(IndexWriter.POSITIONS_CONTAINER.format(field)):
+            yield (k, json.loads(v))
+
+    def get_term_positions(self, term, include_fields=None, exclude_fields=None):
+        """
+        Returns a dict of term positions for ``term`` (str).
+
+        Structure of returned dict is as follows::
+
+        {
+            frame_id1: [(start, end), (start, end)],
+            frame_id2: [(start, end), (start, end)],
+            ...
+        }
+
+        """
+        return json.loads(self.__storage.get_container_item(IndexWriter.POSITIONS_CONTAINER.format(field), term))
+
+    def get_associations_index(self, field):
+        """
+        Term associations for this Index.
+
+        This is used to record when two terms co-occur in a document. Be aware that only 1 co-occurrence for two terms
+        is recorded per document no matter the frequency of each term. The format is as follows::
+
+            {
+                term: {
+                    other_term: count,
+                    ...
+                },
+                ...
+            }
+
+        This method is a generator which yields key/value pair tuples.
+
+        """
+        for k, v in self.__storage.get_container_items(IndexWriter.ASSOCIATIONS_CONTAINER.format(field)):
+            yield (k, json.loads(v))
+
+    def get_term_association(self, term, association, field):
+        """Returns a count of term associations between ``term`` (str) and ``association`` (str)."""
+        return json.loads(self.__storage.get_container_item(IndexWriter.ASSOCIATIONS_CONTAINER.format(field),
+                                                            term))[association]
+
+    def get_term_frequency(self, term, include_fields=None, exclude_fields=None):
+        """Return the frequency of ``term`` (str) as an int."""
+        return json.loads(self.__storage.get_container_item(IndexWriter.FREQUENCIES_CONTAINER.format(field), term))
+
+    def get_frame_count(self, include_fields=None, exclude_fields=None):
+        """Return the int count of frames stored on this index."""
+        return self.__storage.get_container_len(IndexWriter.FRAMES_CONTAINER.format(field))
+
+    def get_frame(self, frame_id, field):
+        """Fetch frame ``frame_id`` (str)."""
+        return json.loads(self.__storage.get_container_item(IndexWriter.FRAMES_CONTAINER.format(field), frame_id))
+
+    def get_frames(self, frame_ids=None,):
+        """
+        Generator across frames from this field in this index.
+
+        If present, the returned frames will be restricted to those with ids in ``frame_ids`` (list). Format of the
+        frames index data is as follows::
+
+            {
+                frame_id: { //framed data },
+                frame_id: { //framed data },
+                frame_id: { //framed data },
+                ...
+            }
+
+        This method is a generator that yields tuples of frame_id and frame data dict.
+
+        """
+        for k, v in self.__storage.get_container_items(IndexWriter.FRAMES_CONTAINER.format(field), keys=frame_ids):
+            yield (k, json.loads(v))
+
+    def get_frame_ids(self, include_fields=None, exclude_fields=None):
+        """Generator of ids for all frames stored on this index."""
+        for f_id in self.__storage.get_container_keys(IndexWriter.FRAMES_CONTAINER.format(field)):
+            yield f_id
+
+    def get_document_count(self):
+        """Returns the int count of documents added to this index."""
+        return self.__storage.get_container_len(IndexWriter.DOCUMENTS_CONTAINER)
+
+    def get_document(self, document_id):
+        """Return the document with the given document_id. """
+        row = list(self._execute('select stored from document where id = ?', [document_id]))
+        if row is None:
+            raise KeyError('Document {} not found'.format(document_id))
+        else:
+            return row[0][0]
+
+    def get_documents(self, document_ids=None):
+        """
+        Generator that yields documents from this index as (id, data) tuples.
+
+        If present, the returned documents will be restricted to those with ids in ``document_ids`` (list).
+
+        """
+        for k, v in self.__storage.get_container_items(IndexWriter.DOCUMENTS_CONTAINER, keys=document_ids):
+            yield (k, json.loads(v))
+
+    def get_metadata(self, include_fields=None, exclude_fields=None):
+        """
+        Get the metadata index.
+
+        This method is a generator that yields a key, value tuple. The index is in the following format::
+
+            {
+                "field_name": {
+                    "value": ["frame_id", "frame_id"],
+                    "value": ["frame_id", "frame_id"],
+                    "value": ["frame_id", "frame_id"],
+                    ...
+                },
+                ...
+            }
+
+        """
+        for k, v in self.__storage.get_container_items(IndexWriter.METADATA_CONTAINER):
+            yield (k, json.loads(v))
+
+    def get_revision(self):
+        """
+        Return the str revision identifier for this index.
+
+        The revision identifier is a version identifier. It gets updated every time the index gets changed.
+
+        """
+        return self.__storage.get_container_item(IndexWriter.INFO_CONTAINER, 'revision')
 
     def _execute(self, query, data=None):
         cursor = self._db_connection.cursor()

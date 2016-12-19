@@ -364,6 +364,20 @@ insert into disk_index.term_posting(term_id, frame_id, frequency)
     order by vocab.id;
 
 
+insert into disk_index.term_statistics
+    select
+        v.id,
+        fields.id,
+        frequency,
+        frames_occuring,
+        documents_occuring
+    from main.term_statistics stats
+    inner join disk_index.vocabulary v
+        on v.term = stats.term
+    inner join disk_index.unstructured_field fields
+        on fields.name = stats.field_name;
+
+
 -- Delete the documents
     -- Delete documents
     -- delete frames

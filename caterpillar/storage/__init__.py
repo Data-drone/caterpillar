@@ -141,6 +141,15 @@ class StorageReader(object):
 
     Finally, storage instances **MUST** be thread-safe.
 
+    Access methods that can be specified to access specific fields should always implement this using the
+    following optional keyword arguments:
+        include_fields = ['field1', 'field2', 'field3']
+        exclude_fields = ['field4']
+    If both include fields and exclude fields are specified then the former should take priority and the
+    latter ignored. Wherever practical the return values should treat the fields included in the query as a
+    single logical field by concatenating or aggregating as appropriate.
+
+
     """
     __metaclass__ = abc.ABCMeta
 
