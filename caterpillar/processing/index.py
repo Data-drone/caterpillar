@@ -294,11 +294,8 @@ class IndexWriter(object):
                 # Initialise our fields:
                 storage.begin(writer=True)
 
-                for field in self.__schema.get_indexed_text_fields():
-                    storage.add_unstructured_field(field)
-
-                for field in self.__schema.get_indexed_structured_fields():
-                    storage.add_structured_field(field)
+                storage.add_unstructured_fields(self.__schema.get_indexed_text_fields())
+                storage.add_structured_fields(self.__schema.get_indexed_structured_fields())
 
                 storage.commit(writer=True)
 
@@ -637,11 +634,11 @@ class IndexWriter(object):
         """
         logger.debug('Adding document')
         schema_fields = self.__schema.items()
-        document_id = uuid.uuid4().hex
+        # document_id = uuid.uuid4().hex
         sentence_tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
 
         # Build the frames by performing required analysis.
-        frames = {}  # Frame data:: field_name -> {frame_id -> {key: value}}
+        frames = {}  # Frame data:: field_name -> [{key: value}]
         metadata = {}  # Inverted frame metadata:: field_name -> field_value
         frame_ids = {}  # List of frame_id's across all fields.
 
@@ -652,7 +649,7 @@ class IndexWriter(object):
                 shell_frame[field_name] = fields[field_name]
 
         # Tokenize fields that need it
-        logger.debug('Starting tokenization of document {}'.format(document_id))
+        logger.debug('Starting tokenization of document')
         frame_count = 0
         for field_name, field in schema_fields:
 
@@ -698,18 +695,10 @@ class IndexWriter(object):
                         sentences_by_frames = [[paragraph.value]]
                     for sentence_list in sentences_by_frames:
                         # Build our frames
-                        frame_id = "{}-{}".format(document_id, frame_count)
-                        try:
-                            frame_ids[field_name].append(frame_id)
-                        except KeyError:
-                            frame_ids[field_name] = [frame_id]
-                        frame_count += 1
                         frame = {
-                            '_id': frame_id,
                             '_field': field_name,
                             '_positions': {},
-                            '_sequence_number': frame_count,
-                            '_doc_id': document_id,
+                            '_sequence_number': frame_count
                         }
                         if field.stored:
                             frame['_text'] = " ".join(sentence_list)
@@ -751,7 +740,7 @@ class IndexWriter(object):
             for f_id in values:
                 values[f_id]['_metadata'] = metadata
 
-        logger.debug('Tokenization of document {} complete. {} frames created.'.format(document_id, len(frames)))
+        logger.debug('Tokenization of document complete. {} frames created.'.format(len(frames)))
 
         # Store the frames for each field in our temporary buffer
         for key in frames.keys():

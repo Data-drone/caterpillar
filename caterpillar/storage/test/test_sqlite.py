@@ -24,7 +24,8 @@ def tmp_dir(request):
     return new_path
 
 
-def test_sqlite_storage_container(tmp_dir):
+def test_add_get_fields(tmp_dir):
+    """ Test adding indexed fields to the schema. """
     storage = SqliteStorage(tmp_dir, create=True)
 
     add_fields1 = ['test', 'test2']
@@ -43,6 +44,37 @@ def test_sqlite_storage_container(tmp_dir):
         assert row[0] in add_fields1
     for row in unstructured:
         assert row[0] in add_fields2
+
+
+def test_alternate_document_format(tmp_dir):
+    pass
+
+
+def test_add_document(tmp_dir):
+    sample_format_document = (
+        'An example document without anything fancy',
+        {'test_field': 1, 'other_field': 'other'},
+        {'text': ['An example', 'document without', 'anything fancy']},
+        {'text': [{'An': 1, 'example': 1},
+                  {'document': 1, 'without': 1},
+                  {'anything': 1, 'fancy': 1}]}
+    )
+
+    storage = SqliteStorage(tmp_dir, create=True)
+
+    storage.begin(writer=True)
+    storage.add_structured_fields(['test_field', 'other_field'])
+    storage.add_unstructured_fields(['text'])
+    storage.add_analyzed_document('test', sample_format_document)
+    storage.commit(writer=True)
+
+
+def test_(tmp_dir):
+    pass
+
+
+def test_(tmp_dir):
+    pass
 
 
 def old():

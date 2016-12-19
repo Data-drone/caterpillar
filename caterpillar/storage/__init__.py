@@ -98,17 +98,22 @@ class Storage(object):
 
     @abc.abstractmethod
     def get_structured_fields(self):
-        """Get a list of the structured fields on this index."""
+        """Get a list of the structured field names on this index."""
         return
 
     @abc.abstractmethod
     def get_unstructured_fields(self):
-        """Get a list of the unstructured fields on this index."""
+        """Get a list of the unstructured field names on this index."""
         return
 
     @abc.abstractmethod
-    def add_processed_document(self, document):
-        """Take a document analyzed by an analyzer, and store it. """
+    def add_analyzed_document(self, document, structured_data, frames):
+        """Take a document analyzed by an analyzer, and store it.
+
+        TODO: specify the datatype expected here.
+        TODO: work out how we can do this backwards compatibly? ie, specify a type string?
+
+        """
         return
 
     @abc.abstractmethod

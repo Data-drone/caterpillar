@@ -49,7 +49,8 @@ class SqliteStorage(Storage):
     Reader / writer isolation here is provided by using `WAL mode <http://www.sqlite.org/wal.html>`_. There are no
     changes to the default checkpoint behaviour of SQLite, which at the time of writing defaults to 1000 pages.
 
-    This storage type creates a new table for each container.
+    After initialisation all changes to the database are staged to a temporary in memory database. The changes are
+    not flushed to persistent storage until the commit method of this storage object is called.
 
     """
 
@@ -106,19 +107,27 @@ class SqliteStorage(Storage):
             self._cache = apsw.Connection(':memory:')
             list(self._cache.cursor().execute(_cache_schema))
             self._cache.cursor().execute('begin immediate')
+            self.doc_no = 0  # local only for this write transaction.
+            self.frame_no = 0
         else:
             self._db_connection.cursor().execute('begin')
 
     def commit(self, writer=False):
         """Commit a transaction."""
         if writer:
-            self._cache.cursor().execute(_flush_cache, [self._db])
+            current_state = self._cache.cursor().execute(_prepare_flush, [self._db])
+            max_document_id, max_frame_id = [row[0] for row in list(current_state)]
+            self._cache.cursor().execute(_flush_cache, {'max_doc': max_document_id + 1, 'max_frame': max_frame_id + 1})
+            self.doc_no = 0
+            self.frame_no = 0
         else:
             self._db_connection.cursor().execute('commit')
 
     def rollback(self):
         """Rollback a transaction on an IndexWriter."""
         self._cache.cursor().execute('rollback')
+        self.doc_no = 0
+        self.frame_no = 0
 
     def close(self, writer=False):
         """Close this storage object and all its resources, rendering it UNUSABLE."""
@@ -149,14 +158,107 @@ class SqliteStorage(Storage):
 
     def delete_structured_fields(self, field_names):
         """Delete a structured field and the associated data from the index."""
-        return
+        raise NotImplementedError
 
     def delete_unstructured_fields(self, field_names):
         """Delete an unstructured field from the index."""
-        return
+        raise NotImplementedError
 
-    def add_processed_document(self, document):
-        """Add a processed (passed through an analyzer) document to the index. """
+    def add_analyzed_document(self, document_format, document_data):
+        """Add an analyzed document to the index.
+
+        The added document will be assigned an integer document_id. These ID's are
+        monotonically increasing and assigned in order of insertion.
+
+        Arguments
+
+            document_format: str
+                A string representing the format of the passed data. Currently only 'test'
+                is supported.
+            document_data:
+                The data for the document, in the format expected for document_data.
+
+        Valid Document Formats
+
+            document_format == 'test':
+            An iterable of
+                - a string representation of the whole document
+                - a dictionary of field_name:field_value pairs for the document level structured data
+                - a dictionary {
+                    field_name: list of string representations of each frames
+                }
+                - a dictionary {
+                    field_name: list of {term:frequency} vectors for each frame
+                }
+            For the frame data (3rd and 4th elements), the frames should be in document sequence order
+            and there should be a one-one correspondence between frame representations and term:frequency vectors.
+
+        """
+        # TODO: pick a better specifier for the document format name here.
+        if document_format == 'test':
+            document, structured_data, frames, frame_terms = document_data
+
+            # Stage the document.
+            self._execute(
+                self._cache,
+                'insert into document(id, stored) values (?, ?)',
+                [self.doc_no, document]
+            )
+
+            # Stage the structured fields:
+            insert_rows = ((self.doc_no, field, value) for field, value in structured_data.iteritems())
+            self._executemany(
+                self._cache,
+                'insert into document_data(document_id, field_name, value) values (?, ?, ?)',
+                insert_rows
+            )
+
+            # Check frame data is consistent and pull out a frame count.
+            number_frames = {field: len(values) for field, values in frames.iteritems()}
+            number_frame_terms = {field: len(values) for field, values in frames.iteritems()}
+
+            if number_frames.keys() != number_frame_terms.keys():
+                raise ValueError('Inconsistent fields between frames and frame_terms')
+            for field in number_frames:
+                if number_frames[field] != number_frame_terms[field]:
+                    raise ValueError('Number of frames and frame_terms does not match for field {}'.format(field))
+
+            total_frames = sum(number_frames.values())
+
+            # Stage the frames:
+            insert_frames = (
+                [self.doc_no, field, seq, frame]
+                for field, frame_list in sorted(frames.iteritems())
+                for seq, frame in enumerate(frame_list)
+            )
+
+            frame_counter = self.frame_no
+            for row in insert_frames:
+                self._execute(
+                    self._cache,
+                    'insert into frame(id, document_id, field_name, sequence, stored) values (?, ?, ?, ?, ?)',
+                    [frame_counter] + row
+                )
+                frame_counter += 1
+
+            # Term vectors for the frames, note that the dictionary is sorted for consistency with insert_frames
+            frame_term_data = (frame for field, frame_list in sorted(frame_terms.iteritems()) for frame in frame_list)
+            insert_term_data = (
+                (frame_count + self.frame_no, term, frequency)
+                for frame_count, frame_data in enumerate(frame_term_data)
+                for term, frequency in frame_data.iteritems()
+            )
+
+            self._executemany(
+                self._cache,
+                'insert into positions_staging(frame_id, term, frequency) values (?, ?, ?)',
+                insert_term_data
+            )
+
+            self.frame_no += total_frames
+            self.doc_no += 1
+        else:
+            raise ValueError('Unknown document_format {}'.format(document_format))
         return None
 
     def delete_document(self, document_id):
@@ -394,7 +496,7 @@ Joins against the core posting tables are always integer-integer and in sorted o
 */
 create table vocabulary (
     id integer primary key,
-    token text unique
+    term text unique
 );
 
 
@@ -422,11 +524,11 @@ create table document_data (
 );
 
 
-
 create table frame (
     id integer primary key,
     document_id integer,
     field_id integer,
+    sequence integer,
     stored text -- The stored representation of the frame.
 );
 
@@ -479,6 +581,13 @@ create table plugin_data (
     foreign key(plugin_id) references plugin_registry(plugin_id) on delete cascade
 );
 
+create table index_revision (
+    revision_number integer primary key,
+    added_document_count integer,
+    deleted_document_count integer
+);
+
+insert into index_revision values (0, 0, 0);
 
 commit;
 
@@ -585,37 +694,103 @@ create table frame (
     id integer primary key,
     document_id integer,
     field_name text,
-    stored text -- The stored representation of the frame.
+    sequence integer, -- The sequence number of the frame in that field of the document
+    stored text -- The stored representation of the frame
 );
 
 /* One row per occurence of a term in a frame */
 create table positions_staging (
     frame_id integer,
-    document_id integer,
-    field_name text,
-    term_name text
+    term text,
+    frequency integer,
+    primary key(frame_id, term)
 );
 
 commit;
 """
 
-# Flush changes from the cache to the index
-_flush_cache = """
+# Prepare commit by precalculating and sorting everything.
+# Returns rows representing the current frame and document counters for consistency.
+_prepare_flush = """
 -- Generate final views into all of the temporary data structures
-    -- Term-document_id ordering
-    -- Term statistics summary
-    -- Generate necessary indexes
+-- Term-document_id ordering
+create index term_idx on positions_staging(term);
+
+create table term_statistics as
+select
+    term,
+    field_name,
+    sum(frequency) as frequency,
+    count(distinct document_id) as documents_occuring,
+    count(distinct frame_id) as frames_occuring
+from positions_staging pos
+inner join frame
+    on frame_id = frame.id
+group by
+    pos.term,
+    frame.field_name;
+
+create index term_stats_idx on term_statistics(term, field_name);
+
 -- Generate statistics of deleted documents for removal
 
-commit; -- end surrounding transaction so we can attach on disk database.
+commit; -- end staging transaction so we can attach on disk database.
 
 -- Attach the on disk database to flush to.
 attach database ? as disk_index;
 
-begin; -- Begin the true transaction for on disk writing
+begin immediate; -- Begin the true transaction for on disk writing
 
-insert into disk_index.structured_field(name) select * from structured_field;
-insert into disk_index.unstructured_field(name) select * from unstructured_field;
+-- Max document and frame id's at the start of the write process.
+select coalesce(max(id), 0) from document;
+select coalesce(max(id), 0) from frame;
+
+"""
+
+# Flush changes from the cache to the index
+_flush_cache = """
+insert into disk_index.structured_field(name)
+    select * from structured_field;
+insert into disk_index.unstructured_field(name)
+    select * from unstructured_field;
+
+-- Update vocabulary with new terms:
+insert into disk_index.vocabulary(term)
+select distinct term
+from term_statistics stats
+where not exists (select 1 from vocabulary v where v.term = stats.term);
+
+insert into disk_index.document(id, stored) select id + :max_doc, stored from document;
+
+insert into disk_index.document_data(document_id, field_id, value)
+    select
+        document_id + :max_doc,
+        fields.id,
+        value
+    from document_data data
+    inner join disk_index.structured_field fields
+        on fields.name = data.field_name;
+
+insert into disk_index.frame(id, document_id, field_id, sequence, stored)
+    select
+        frame.id + :max_frame,
+        document_id + :max_doc,
+        fields.id,
+        sequence,
+        stored
+    from frame
+    inner join disk_index.structured_field fields
+        on fields.name = frame.field_name;
+
+insert into disk_index.frame_posting(frame_id, term_id, frequency)
+    select
+        pos.frame_id + :max_frame,
+        vocab.id,
+        frequency
+    from positions_staging pos-- TODO: Rename this table in both the schema and the cache
+    inner join disk_index.vocabulary vocab
+        on vocab.term = pos.term;
+
 
 -- Delete the documents
     -- Delete documents
