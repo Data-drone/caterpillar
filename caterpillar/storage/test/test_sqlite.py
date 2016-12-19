@@ -8,7 +8,7 @@ import tempfile
 import pytest
 
 from caterpillar.storage import StorageNotFoundError, DuplicateStorageError
-from caterpillar.storage.sqlite import SqliteStorage
+from caterpillar.storage.sqlite import SqliteReader, SqliteWriter
 
 
 @pytest.fixture
@@ -26,24 +26,24 @@ def tmp_dir(request):
 
 def test_add_get_fields(tmp_dir):
     """ Test adding indexed fields to the schema. """
-    storage = SqliteStorage(tmp_dir, create=True)
+    storage = SqliteWriter(tmp_dir, create=True)
 
     add_fields1 = ['test', 'test2']
     add_fields2 = ['test1']
-    storage.begin(writer=True)
+    storage.begin()
     storage.add_structured_fields(add_fields1)
     storage.add_unstructured_fields(add_fields2)
-    storage.commit(writer=True)
+    storage.commit()
 
     storage.begin()
     structured = storage.get_structured_fields()
     unstructured = storage.get_unstructured_fields()
     storage.commit()
 
-    for row in structured:
-        assert row[0] in add_fields1
-    for row in unstructured:
-        assert row[0] in add_fields2
+    for field in structured:
+        assert field in add_fields1
+    for field in unstructured:
+        assert field in add_fields2
 
 
 def test_alternate_document_format(tmp_dir):
@@ -60,13 +60,13 @@ def test_add_document(tmp_dir):
                   {'anything': 1, 'fancy': 1}]}
     )
 
-    storage = SqliteStorage(tmp_dir, create=True)
+    storage = SqliteWriter(tmp_dir, create=True)
 
-    storage.begin(writer=True)
+    storage.begin()
     storage.add_structured_fields(['test_field', 'other_field'])
     storage.add_unstructured_fields(['text'])
     storage.add_analyzed_document('test', sample_format_document)
-    storage.commit(writer=True)
+    storage.commit()
 
 
 def test_(tmp_dir):
@@ -159,9 +159,9 @@ def old():
 
 
 def test_duplicate_database(tmp_dir):
-    SqliteStorage(tmp_dir, create=True)
+    SqliteWriter(tmp_dir, create=True)
     with pytest.raises(DuplicateStorageError):
-        SqliteStorage(tmp_dir, create=True)
+        SqliteWriter(tmp_dir, create=True)
 
 
 def open(tmp_dir):

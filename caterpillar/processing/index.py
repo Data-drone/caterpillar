@@ -60,10 +60,8 @@ from __future__ import absolute_import, division, unicode_literals
 import logging
 import os
 import cPickle
-import random
 import sys
 import ujson as json
-import uuid
 
 import nltk
 
@@ -118,14 +116,19 @@ class IndexConfig(object):
 
     """
 
-    def __init__(self, storage_cls, schema):
-        self._storage_cls = storage_cls
+    def __init__(self, storage_reader_cls, storage_writer_cls, schema):
+        self._storage_reader_cls = storage_reader_cls
+        self._storage_writer_cls = storage_writer_cls
         self._schema = schema
         self._version = VERSION
 
     @property
-    def storage_cls(self):
-        return self._storage_cls
+    def storage_reader_cls(self):
+        return self._storage_reader_cls
+
+    @property
+    def storage_writer_cls(self):
+        return self._storage_writer_cls
 
     @property
     def schema(self):
@@ -243,7 +246,7 @@ class IndexWriter(object):
             # Fetch the config
             with open(os.path.join(path, IndexWriter.CONFIG_FILE), 'r') as f:
                 self.__config = IndexConfig.loads(f.read())
-            self.__storage = self.__config.storage_cls(path, create=False)
+            self.__storage = self.__config.storage_writer_cls(path, create=False)
             self.__schema = self.__config.schema
             self.__lock = None  # Should declare in __init__ and not outside.
         self.__committed = False
@@ -289,7 +292,7 @@ class IndexWriter(object):
                 with open(os.path.join(self._path, IndexWriter.CONFIG_FILE), 'w') as f:
                     f.write(self.__config.dumps())
                 # Initialize storage
-                storage = self.__config.storage_cls(self._path, create=True)
+                storage = self.__config.storage_writer_cls(self._path, create=True)
 
                 # Initialise our fields:
                 storage.begin(writer=True)
@@ -301,7 +304,7 @@ class IndexWriter(object):
 
             if not self.__storage:
                 # This is a create or the index was created after this writer was opened.
-                self.__storage = self.__config.storage_cls(self._path, create=False)
+                self.__storage = self.__config.storage_writer_cls(self._path, create=False)
 
             self.__storage.begin(writer=True)
 
@@ -638,9 +641,11 @@ class IndexWriter(object):
         sentence_tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
 
         # Build the frames by performing required analysis.
-        frames = {}  # Frame data:: field_name -> [{key: value}]
+        frames = {}  # Frame data:: field_name -> [frame1, frame2, frame3]
+        frame_terms = {}  # Term vector data:: field_name --> [{term1:freq, term2:freq}, {term2:freq, term3:freq}]
+
         metadata = {}  # Inverted frame metadata:: field_name -> field_value
-        frame_ids = {}  # List of frame_id's across all fields.
+        # frame_ids = {}  # List of frame_id's across all fields.
 
         # Shell frame includes all non-indexed and categorical fields
         shell_frame = {}
@@ -651,22 +656,31 @@ class IndexWriter(object):
         # Tokenize fields that need it
         logger.debug('Starting tokenization of document')
         frame_count = 0
+
+        # Analyze document level structured fields separately to inject in the frames.
         for field_name, field in schema_fields:
 
-            if field_name not in fields or not field.indexed or fields[field_name] is None:
-                # Skip non-indexed fields or fields with no value supplied for this document
+            if field_name not in fields or fields[field_name] is None \
+                    or not field.indexed or not field.categorical:
+                # Skip fields not supplied or with empty values for this document.
                 continue
 
-            if field.categorical:
-                # Record categorical values
-                for token in field.analyse(fields[field_name]):
-                    try:
-                        metadata[field_name].append(token.value)
-                    except KeyError:
-                        metadata[field_name] = [token.value]
+            # Record categorical values
+            for token in field.analyse(fields[field_name]):
+                metadata[field_name] = token.value
+
+        # Now just the unstructured fields
+        for field_name, field in schema_fields:
+
+            if field_name not in fields or fields[field_name] is None \
+                    or not field.indexed or field.categorical:
+                continue
+
             else:
                 # Start the index for this field
-                frames[field_name] = {}
+                frames[field_name] = []
+                frame_terms[field_name] = []
+
                 # Index non-categorical fields
                 field_data = fields[field_name]
                 expected_types = (str, bytes, unicode)
@@ -698,7 +712,8 @@ class IndexWriter(object):
                         frame = {
                             '_field': field_name,
                             '_positions': {},
-                            '_sequence_number': frame_count
+                            '_sequence_number': frame_count,
+                            '_metadata': metadata  # Inject the document level structured data into the frame
                         }
                         if field.stored:
                             frame['_text'] = " ".join(sentence_list)
@@ -718,58 +733,51 @@ class IndexWriter(object):
 
                         # Build the final frame and add to the index
                         frame.update(shell_frame)
-                        frames[field_name][frame_id] = frame
+                        # frame_id = "{}-{}".format(document_id, frame_count)
+                        # Serialised representation of the frame
+                        frames[field_name].append(json.dumps(frame))
+
+                        # Generate the term-frequency vector for the frame:
+                        term_vector = {term: len(values) for term, values in frame['_positions'].iteritems()}
+                        frame_terms[field_name].append(term_vector)
 
         # Currently only frames are searchable. That means if a schema contains no text fields it isn't searchable
         # at all. This block constructs a surrogate frame for storage in a catchall container to handle this case.
         if not frames and metadata:
-            frame_id = "{}-{}".format(document_id, frame_count)
+            # frame_id = "{}-{}".format(document_id, frame_count)
             frame = {
-                '_id': frame_id,
+                # '_id': frame_id,
                 '_field': '',  # There is no text field
                 '_positions': {},
                 '_sequence_number': frame_count,
-                '_doc_id': document_id,
+                # '_doc_id': document_id,
             }
             frame.update(shell_frame)
-            frames[''] = {frame_id: frame}
-            frame_ids[''] = [frame_id]
-
-        # Store the complete metadata in each item
-        for field_name, values in frames.iteritems():
-            for f_id in values:
-                values[f_id]['_metadata'] = metadata
-
-        logger.debug('Tokenization of document complete. {} frames created.'.format(len(frames)))
-
-        # Store the frames for each field in our temporary buffer
-        for key in frames.keys():
-            try:
-                self.__new_frames[key].update(frames[key])
-            except KeyError:
-                self.__new_frames[key] = frames[key]
+            # frames[''] = {frame_id: frame}
+            # frame_ids[''] = [frame_id]
 
         # Finally add the document to storage.
-        doc_fields = {
-            '_id': document_id,
-            '_frames': frame_ids  # List of frames for this doc
-        }
+        doc_fields = {}
 
         for field_name, field in schema_fields:
             if field.stored and field_name in fields:
                 # Only record stored fields against the document
                 doc_fields[field_name] = fields[field_name]
 
-        self.__new_documents[document_id] = doc_fields
+        document = json.dumps(doc_fields)
 
-    def delete_document(self, d_id):
+        self.__storage.add_analyzed_document('test', (document, metadata, frames, frame_terms))
+
+        logger.debug('Tokenization of document complete. {} frames staged for storage.'.format(len(frames)))
+
+    def delete_document(self, document_id):
         """
-        Delete the document with given ``d_id`` (str).
+        Delete the document with given ``document_id`` (str).
 
         If the document does not exist, no error will be raised.
 
         """
-        self.__storage.delete_document(d_id)
+        self.__storage.delete_document(document_id)
 
     def fold_term_case(self, text_field, merge_threshold=0.7):
         """
@@ -783,7 +791,7 @@ class IndexWriter(object):
             This method calls flush before it runs and doesn't use the internal buffers.
 
         """
-        self.flush()
+        # self.flush()
         count = 0
         # Pre-fetch indexes and pass them around to save I/O
         frequencies_index = {
@@ -846,7 +854,7 @@ class IndexWriter(object):
             This method calls flush before it runs and doesn't use the internal buffers.
 
         """
-        self.flush()
+        # self.flush()
         count = 0
         # Pre-fetch indexes and pass them around to save I/O
 
@@ -1131,10 +1139,13 @@ class IndexWriter(object):
         All keyword arguments are treated as ``(field_name, field_type)`` pairs.
 
         """
-        for field_name, value in fields.iteritems():
-            self.__schema.add(field_name, value)
+        for field_name, field in fields.iteritems():
+            self.__schema.add(field_name, field)
             if field_name in self.__schema.get_indexed_text_fields():
-                self._init_text_field(field_name)
+                self.__storage.add_unstructured_fields(field_name)
+            if field_name in self.__schema.get_indexed_structured_fields():
+                self.__storage.add_structured_fields(field_name)
+
         self.__config.schema = self.__schema
         # Save updated schema
         with open(os.path.join(self._path, IndexWriter.CONFIG_FILE), 'w') as f:
@@ -1143,16 +1154,6 @@ class IndexWriter(object):
     def set_setting(self, name, value):
         """Set the ``value`` of setting identified by ``name``."""
         self.__storage.set_container_item(IndexWriter.SETTINGS_CONTAINER, name, json.dumps(value))
-
-    def _init_text_field(self, field):
-        """Initialise storage containers for text ``field``."""
-        storage = self.__config.storage_cls(self._path)
-        storage.begin()
-        storage.add_container(IndexWriter.FRAMES_CONTAINER.format(field))
-        storage.add_container(IndexWriter.POSITIONS_CONTAINER.format(field))
-        storage.add_container(IndexWriter.ASSOCIATIONS_CONTAINER.format(field))
-        storage.add_container(IndexWriter.FREQUENCIES_CONTAINER.format(field))
-        storage.commit()
 
 
 class IndexReader(object):
@@ -1205,7 +1206,7 @@ class IndexReader(object):
         try:
             with open(os.path.join(path, IndexWriter.CONFIG_FILE), "r") as f:
                 self.__config = IndexConfig.loads(f.read())
-            self.__storage = self.__config.storage_cls(path, readonly=True)
+            self.__storage = self.__config.storage_reader_cls(path)
         except StorageNotFoundError:
             logger.exception("Couldn't open storage for {}".format(path))
             raise IndexNotFoundError("Couldn't find an index at {} (no storage)".format(path))
@@ -1418,8 +1419,14 @@ class IndexReader(object):
         return self.__storage.get_container_item(IndexWriter.INFO_CONTAINER, 'revision')
 
     def get_vocab_size(self, field):
-        """Get total number of unique terms identified for this index (int)."""
-        return self.__storage.get_container_len(IndexWriter.POSITIONS_CONTAINER.format(field))
+        """
+        Get total number of unique terms identified for the specified field in this index (int).
+
+        Note that terms may be shared across fields, so the sum of the vocab_size in each field will
+        overcount the number of terms.
+
+        """
+        return self.__storage.get_vocab_size(field)
 
     def searcher(self, scorer_cls=TfidfScorer):
         """

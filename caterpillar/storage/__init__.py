@@ -27,12 +27,11 @@ class PluginNotFoundError(StorageError):
     """No data for found for this plugin."""
 
 
-class Storage(object):
+class StorageWriter(object):
     """
-    Abstract class used to store key/value data on disk.
+    Abstract class used to modify the index.
 
-    Implementations of this class handle the storage of data to disk. The view of persistent storage presented here is
-    one of key/value pairs stored in any number of containers.
+    Implementations of this class handle the writing of content to disk.
 
     Implementers must provide primitives for implementing atomic transactions. That is, they must provide
     :meth:`.begin`, :meth:`.commit`, and meth:`.rollback`.
@@ -52,17 +51,17 @@ class Storage(object):
     __metaclass__ = abc.ABCMeta
 
     @abc.abstractmethod
-    def __init__(self, path, create=False, readonly=False):
+    def __init__(self, path, create=False):
         """Open or create a storage instance."""
         return
 
     @abc.abstractmethod
-    def begin(self, writer=False):
-        """Begin a transaction."""
+    def begin(self):
+        """Begin a transaction to modify the index."""
         return
 
     @abc.abstractmethod
-    def commit(self, writer=False):
+    def commit(self):
         """Commit a transaction"""
         return
 
@@ -72,7 +71,7 @@ class Storage(object):
         return
 
     @abc.abstractmethod
-    def close(self, writer=False):
+    def close(self):
         """Close this storage session and release all resources."""
         return
 
@@ -97,16 +96,6 @@ class Storage(object):
         return
 
     @abc.abstractmethod
-    def get_structured_fields(self):
-        """Get a list of the structured field names on this index."""
-        return
-
-    @abc.abstractmethod
-    def get_unstructured_fields(self):
-        """Get a list of the unstructured field names on this index."""
-        return
-
-    @abc.abstractmethod
     def add_analyzed_document(self, document, structured_data, frames):
         """Take a document analyzed by an analyzer, and store it.
 
@@ -127,6 +116,70 @@ class Storage(object):
         return
 
     @abc.abstractmethod
+    def delete_plugin_state(self, plugin_name, plugin_settings=None):
+        """Delete all plugin data for ``plugin_name``, or optionally only the data for the ``plugin_settings`` instance.
+
+         """
+        return
+
+
+class StorageReader(object):
+    """
+    Abstract class used to read the contents of an index.
+
+    Implementers must provide primitives for implementing atomic transactions. That is, they must provide
+    :meth:`.begin`, :meth:`.commit`, and meth:`.rollback`.
+
+    Storage implementations must also ensure that they provide reader/writer isolation. That is, if a storage instance
+    is created and a transaction started, any write operations made in that transaction should not be visible to any
+    existing or new storage instances. After the transaction is committed, the changes should not be visible to any
+    existing instances that have called :meth:`.begin` but should be visible to any new or existing storage instances
+    that are yet to call :meth:`.begin`.
+
+    The :meth:`.__init__` method of a storage implementation should take care of the required bootstrap required to open
+    existing storage **OR** create new storage (via a ``create`` flag). It also needs to support a ``readonly`` flag.
+
+    Finally, storage instances **MUST** be thread-safe.
+
+    """
+    __metaclass__ = abc.ABCMeta
+
+    @abc.abstractmethod
+    def __init__(self, path):
+        """Open or create a reader for the given storage location."""
+        return
+
+    @abc.abstractmethod
+    def begin(self):
+        """Begin a read transaction."""
+        return
+
+    @abc.abstractmethod
+    def commit(self):
+        """End the read transaction."""
+        return
+
+    @abc.abstractmethod
+    def close(self):
+        """Close this storage session and release all resources."""
+        return
+
+    @abc.abstractmethod
+    def list_known_plugins(self):
+        """Return a list of (plugin_name, plugin_settings, plugin_id) stored in this index."""
+        return
+
+    @abc.abstractmethod
+    def get_structured_fields(self):
+        """Get a list of the structured field names on this index."""
+        return
+
+    @abc.abstractmethod
+    def get_unstructured_fields(self):
+        """Get a list of the unstructured field names on this index."""
+        return
+
+    @abc.abstractmethod
     def get_plugin_state(self, plugin_name, plugin_settings):
         """Return a dictionary of key-value pairs identifying that state of this plugin."""
         return
@@ -134,16 +187,4 @@ class Storage(object):
     @abc.abstractmethod
     def get_plugin_by_id(self, plugin_id):
         """Return the settings and state of the plugin identified by ID."""
-        return
-
-    @abc.abstractmethod
-    def delete_plugin_state(self, plugin_name, plugin_settings=None):
-        """Delete all plugin data for ``plugin_name``, or optionally only the data for the ``plugin_settings`` instance.
-
-         """
-        return
-
-    @abc.abstractmethod
-    def list_known_plugins(self):
-        """Return a list of (plugin_name, plugin_settings, plugin_id) stored in this index."""
         return
