@@ -217,14 +217,15 @@ class SqliteWriter(StorageWriter):
                 for field, frame_list in sorted(frames.iteritems())
                 for seq, frame in enumerate(frame_list)
             )
+            insert_frames_numbered = (
+                (frame_count + self.frame_no, a[0], a[1], a[2], a[3])
+                for frame_count, a in enumerate(insert_frames)
+            )
 
-            frame_counter = self.frame_no
-            for row in insert_frames:
-                self._execute(
-                    'insert into frame(id, document_id, field_name, sequence, stored) values (?, ?, ?, ?, ?)',
-                    [frame_counter] + row
-                )
-                frame_counter += 1
+            self._executemany(
+                'insert into frame(id, document_id, field_name, sequence, stored) values (?, ?, ?, ?, ?)',
+                insert_frames_numbered
+            )
 
             # Term vectors for the frames, note that the dictionary is sorted for consistency with insert_frames
             frame_term_data = (frame for field, frame_list in sorted(frame_terms.iteritems()) for frame in frame_list)
@@ -244,23 +245,10 @@ class SqliteWriter(StorageWriter):
         else:
             raise ValueError('Unknown document_format {}'.format(document_format))
 
-    def delete_document(self, document_id):
+    def delete_documents(self, document_ids):
         """Delete a document with the given id from the index. """
-        return None
-
-    def add_container(self, c_id):
-        """
-        Add a data container identified by ``c_id`` (str).
-
-        Raises :exc:`DuplicateContainerError` if there is already a container called ``c_id`` (str).
-
-        """
-        c_id = _hash_container_name(c_id)
-        containers = self._get_containers()
-        if c_id in containers:
-            raise DuplicateContainerError('\'{}\' container already exists'.format(c_id))
-        self._execute("CREATE TABLE \"{}\" (key VARCHAR PRIMARY KEY, value TEXT NOT NULL)".format(c_id))
-        self._execute("INSERT INTO \"{}\" VALUES (?)".format(SqliteStorage.CONTAINERS_TABLE), (c_id,))
+        document_id_gen = ((document_id,) for document_id in document_ids)
+        self._executemany('insert into deleted_document(id) values(?)', document_id_gen)
 
     def set_plugin_state(self, plugin_type, plugin_settings, plugin_state):
         """ Set the plugin state in the index to the given state.
@@ -398,20 +386,22 @@ class SqliteReader(StorageReader):
         return [row for row in self._execute("select plugin_type, settings, plugin_id from plugin_registry;")
                 if row is not None]
 
-    def get_structured_fields(self):
+    @property
+    def structured_fields(self):
         """Get a list of the structured field names on this index."""
         rows = list(self._execute('select name from structured_field'))
         return [row[0] for row in rows]
 
-    def get_unstructured_fields(self):
+    @property
+    def unstructured_fields(self):
         """Get a list of the unstructured field names on this index."""
         rows = list(self._execute('select name from unstructured_field'))
         return [row[0] for row in rows]
 
-    def get_vocab_size(self, include_fields=None, exclude_fields=None):
+    def vocabulary_count(self, include_fields=None, exclude_fields=None):
         """Return the number of unique terms occuring in the given combinations of fields. """
         # Validate the field exists
-        valid_fields = self.get_unstructured_fields()
+        valid_fields = self.unstructured_fields
         fields = include_fields or exclude_fields or []
         invalid_fields = [field for field in fields if field not in valid_fields]
         if invalid_fields:
@@ -436,7 +426,7 @@ class SqliteReader(StorageReader):
 
     def get_frequencies(self, include_fields=None, exclude_fields=None):
         """Return a generator of all the term frequencies in the given field."""
-        if field not in self.get_unstructured_fields():
+        if field not in self.unstructured_fields:
             raise ValueError('Field {} does not exist or is not indexed'.format(field))
         frequencies = self._execute(
             'select voc.term, '
@@ -547,9 +537,21 @@ class SqliteReader(StorageReader):
         for f_id in self.__storage.get_container_keys(IndexWriter.FRAMES_CONTAINER.format(field)):
             yield f_id
 
-    def get_document_count(self):
-        """Returns the int count of documents added to this index."""
-        return self.__storage.get_container_len(IndexWriter.DOCUMENTS_CONTAINER)
+    def count_documents(self):
+        """Returns the number of documents in the index."""
+        return self._execute('select count(*) from document').fetchone()[0]
+
+    def count_frames(self):
+        """Returns the number of documents in the index."""
+        return self._execute('select count(*) from frame').fetchone()[0]
+
+    def iterate_documents(self):
+        """Returns a generator  of (document_id, stored_document) pairs for the entire index.
+
+        The generator will only be valid as long as this reader is open.
+
+        """
+        return self._execute('select * from document')
 
     def get_document(self, document_id):
         """Return the document with the given document_id. """
@@ -589,7 +591,8 @@ class SqliteReader(StorageReader):
         for k, v in self.__storage.get_container_items(IndexWriter.METADATA_CONTAINER):
             yield (k, json.loads(v))
 
-    def get_revision(self):
+    @property
+    def revision(self):
         """
         Return the str revision identifier for this index.
 

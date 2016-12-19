@@ -230,6 +230,10 @@ create table document (
     stored text -- This should be a text serialised representation of the document, such as JSON.
 );
 
+create table deleted_document(
+    id integer primary key
+);
+
 /* Storage for 'indexed' structured fields in the schema. */
 create table document_data (
     document_id integer,
@@ -289,20 +293,59 @@ attach database ? as disk_index;
 begin immediate; -- Begin the true transaction for on disk writing
 
 -- Max document and frame id's at the start of the write process.
-select coalesce(max(id), 0) from document;
-select coalesce(max(id), 0) from frame;
+select coalesce(max(id), 0) from disk_index.document;
+select coalesce(max(id), 0) from disk_index.frame;
 
 """
 
 # Flush changes from the cache to the index
 flush_cache = """
+/* Delete documents */
+-- Cache term statistics for deleted documents, note the negative for later.
+create table deleted_term_statistics as
+select
+    term_id,
+    field_id,
+    -sum(frequency) as frequency,
+    -count(distinct document_id) as documents_occuring,
+    -count(distinct frame_id) as frames_occuring
+from disk_index.frame_posting post
+inner join disk_index.frame frame
+    on frame_id = frame.id
+where frame.document_id in (select * from deleted_document)
+group by
+    post.term_id,
+    frame.field_id;
+
+-- Delete all the places the document occurs.
+delete from disk_index.document where id in (select * from deleted_document);
+delete from disk_index.frame where document_id in (select * from deleted_document);
+delete from disk_index.document_data where document_id in (select * from deleted_document);
+
+create table deleted_frame as
+    select id
+    from disk_index.frame
+    where document_id in (select * from deleted_document);
+
+delete from disk_index.term_posting
+-- Avoid full table scan by searching for term_id first
+where term_id in (select term_id
+                  from disk_index.frame_posting
+                  where frame_id in (select * from deleted_frame))
+    and frame_id in (select * from deleted_frame);
+
+delete from disk_index.frame_posting
+    where frame_id in (select * from deleted_frame);
+
+
+/* Add new indexed fields */
 insert into disk_index.structured_field(name)
     select * from structured_field;
 insert into disk_index.unstructured_field(name)
     select * from unstructured_field;
 
 
--- Update vocabulary with new terms:
+/* Update vocabulary with new terms: */
 insert into disk_index.vocabulary(term)
     select distinct
         term
@@ -314,6 +357,7 @@ insert into disk_index.vocabulary(term)
     );
 
 
+/* Insert document and frame data */
 insert into disk_index.document(id, stored)
     select
         id + :max_doc,
@@ -327,7 +371,7 @@ insert into disk_index.document_data(document_id, field_id, value)
         fields.id,
         value
     from document_data data
-    inner join disk_index.structured_field fields
+    inner join disk_index.unstructured_field fields
         on fields.name = data.field_name;
 
 
@@ -339,7 +383,7 @@ insert into disk_index.frame(id, document_id, field_id, sequence, stored)
         sequence,
         stored
     from frame
-    inner join disk_index.structured_field fields
+    inner join disk_index.unstructured_field fields
         on fields.name = frame.field_name;
 
 
@@ -364,10 +408,11 @@ insert into disk_index.term_posting(term_id, frame_id, frequency)
     order by vocab.id;
 
 
-insert into disk_index.term_statistics
+/* Update the statistics by combining on-disk, deleted and new values */
+with update_stat as (
     select
-        v.id,
-        fields.id,
+        v.id as term_id,
+        fields.id as field_id,
         frequency,
         frames_occuring,
         documents_occuring
@@ -375,14 +420,31 @@ insert into disk_index.term_statistics
     inner join disk_index.vocabulary v
         on v.term = stats.term
     inner join disk_index.unstructured_field fields
-        on fields.name = stats.field_name;
+        on fields.name = stats.field_name
+
+    union all
+    select *
+    from deleted_term_statistics
+),
+updated_term as (
+select distinct term_id, field_id from update_stat)
+
+insert or replace into disk_index.term_statistics
+    select
+        term_id,
+        field_id,
+        sum(frequency),
+        sum(frames_occuring),
+        sum(documents_occuring)
+    from (select *
+          from update_stat
+          union all
+          select *
+          from disk_index.term_statistics
+          where (term_id, field_id) in (select * from updated_term))
+    group by term_id, field_id;
 
 
--- Delete the documents
-    -- Delete documents
-    -- delete frames
-    -- Add a tombstone for that document_id
--- Update the statistics
 -- Update the plugins
 
 commit;

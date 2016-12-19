@@ -121,13 +121,13 @@ def test_index_alice(index_dir):
             writer.add_document(text=data, document='alice.txt', blank=None, ref=123, frame_size=2)
 
         with IndexReader(index_dir) as reader:
-            # assert sum(1 for _ in reader.get_term_positions('nice', 'text')) == 3
-            # assert sum(1 for _ in reader.get_term_positions('key', 'text')) == 5
+            assert sum(1 for _ in reader.get_term_positions('nice', 'text')) == 3
+            assert sum(1 for _ in reader.get_term_positions('key', 'text')) == 5
 
-            # assert reader.get_term_association('Alice', 'poor', 'text') == \
-            #     reader.get_term_association('poor', 'Alice', 'text') == 3
-            # assert reader.get_term_association('key', 'golden', 'text') == \
-            #     reader.get_term_association('golden', 'key', 'text') == 3
+            assert reader.get_term_association('Alice', 'poor', 'text') == \
+                reader.get_term_association('poor', 'Alice', 'text') == 3
+            assert reader.get_term_association('key', 'golden', 'text') == \
+                reader.get_term_association('golden', 'key', 'text') == 3
 
             assert reader.get_vocab_size('text') == sum(1 for _ in reader.get_frequencies('text')) == 500
             assert reader.get_term_frequency('Alice', 'text') == 23

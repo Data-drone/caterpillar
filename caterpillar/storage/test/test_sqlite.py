@@ -38,8 +38,8 @@ def test_add_get_delete_fields(tmp_dir):
 
     reader = SqliteReader(tmp_dir)
     reader.begin()
-    structured = reader.get_structured_fields()
-    unstructured = reader.get_unstructured_fields()
+    structured = reader.structured_fields
+    unstructured = reader.unstructured_fields
     reader.commit()
 
     for field in structured:
@@ -64,16 +64,41 @@ def test_add_get_document(tmp_dir):
 
     writer = SqliteWriter(tmp_dir, create=True)
 
+    # Add one document
     writer.begin()
     writer.add_structured_fields(['test_field', 'other_field'])
     writer.add_unstructured_fields(['text'])
     writer.add_analyzed_document('test', sample_format_document)
     writer.commit()
 
+    reader_transaction = SqliteReader(tmp_dir)
+    reader_transaction.begin()
+
     reader = SqliteReader(tmp_dir)
+
     doc = reader.get_document(1)  # Cheating with sequential document_id's here
     assert doc == sample_format_document[0]
-    assert reader.get_vocab_size() == 6
+    assert reader.count_documents() == 1 == reader_transaction.count_documents()
+    assert reader.vocabulary_count() == 6 == reader_transaction.vocabulary_count()
+
+    # Add 100 more documents:
+    writer.begin()
+    for i in range(100):
+        writer.add_analyzed_document('test', sample_format_document)
+    writer.commit()
+    assert reader.count_documents() == 101
+    assert reader_transaction.count_documents() == 1
+    assert reader.vocabulary_count() == 6
+
+    reader_transaction.commit()
+    assert reader_transaction.count_documents() == 101
+
+    # Delete all the documents
+    writer.begin()
+    writer.delete_documents([d_id for d_id, _ in reader.iterate_documents()])
+    writer.commit()
+
+    assert reader.count_documents() == 0 == reader.count_frames()
 
 
 def test_(tmp_dir):

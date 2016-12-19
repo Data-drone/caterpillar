@@ -106,8 +106,8 @@ class StorageWriter(object):
         return
 
     @abc.abstractmethod
-    def delete_document(self, document_id):
-        """Delete the given document."""
+    def delete_documents(self, document_ids):
+        """Delete the given documents."""
         return
 
     @abc.abstractmethod
@@ -178,14 +178,19 @@ class StorageReader(object):
         """Return a list of (plugin_name, plugin_settings, plugin_id) stored in this index."""
         return
 
-    @abc.abstractmethod
-    def get_structured_fields(self):
+    @abc.abstractproperty
+    def structured_fields(self):
         """Get a list of the structured field names on this index."""
         return
 
-    @abc.abstractmethod
-    def get_unstructured_fields(self):
+    @abc.abstractproperty
+    def unstructured_fields(self):
         """Get a list of the unstructured field names on this index."""
+        return
+
+    @abc.abstractproperty
+    def revision(self):
+        """An object representing the current revision number of this index."""
         return
 
     @abc.abstractmethod
