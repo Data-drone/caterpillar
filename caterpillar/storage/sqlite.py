@@ -524,47 +524,51 @@ class SqliteReader(StorageReader):
             fields
         ).fetchone()[0]
 
-    def iterate_documents(self):
+    def iterate_documents(self, document_ids=None):
         """Returns a generator  of (document_id, stored_document) pairs for the entire index.
 
-        The generator will only be valid as long as this reader is open.
-
-        """
-        return self._execute('select * from document')
-
-    def iterate_frames(self, include_fields=None, exclude_fields=None):
-        """Returns a generator  of (frame_id, document_id, field, sequence, stored_frame) tuples
-         for the specified unstructured fields in the index.
+        Optionally specify a list of document_ids to iterate over.
 
         The generator will only be valid as long as this reader is open.
 
         """
-        where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields)
-        return self._execute(
-            'select frame.id, document_id, field.name, sequence, stored '
-            'from frame '
-            'inner join unstructured_field field '
-            '   on field.id = frame.field_id ' + where_clause,
-            fields
-        )
-
-    def get_document(self, document_id):
-        """Return the document with the given document_id. """
-        row = list(self._execute('select stored from document where id = ?', [document_id]))
-        if row is None:
-            raise KeyError('Document {} not found'.format(document_id))
+        if document_ids is not None:
+            return (
+                self._execute('select * from document where id = ?', [document_id]).fetchone()
+                for document_id in document_ids
+            )
         else:
-            return row[0][0]
+            return self._execute('select * from document')
 
-    def get_documents(self, document_ids=None):
+    def iterate_frames(self, include_fields=None, exclude_fields=None, frame_ids=None):
+        """Returns a generator  of (frame_id, document_id, field, sequence, stored_frame) tuples
+        for the specified unstructured fields in the index.
+
+        Optionally specify a list of frame_ids, in which case the field arguments will be ignored.
+
+        The generator will only be valid as long as this reader is open.
+
         """
-        Generator that yields documents from this index as (id, data) tuples.
-
-        If present, the returned documents will be restricted to those with ids in ``document_ids`` (list).
-
-        """
-        for k, v in self.__storage.get_container_items(IndexWriter.DOCUMENTS_CONTAINER, keys=document_ids):
-            yield (k, json.loads(v))
+        if frame_ids is not None:
+            return (
+                self._execute(
+                    'select frame.id, document_id, field.name, sequence, stored '
+                    'from frame '
+                    'inner join unstructured_field field '
+                    '   on field.id = frame.field_id '
+                    'where frame_id = ?', [frame_id]
+                ).fetchone()
+                for frame_id in frame_ids
+            )
+        else:
+            where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields)
+            return self._execute(
+                'select frame.id, document_id, field.name, sequence, stored '
+                'from frame '
+                'inner join unstructured_field field '
+                '   on field.id = frame.field_id ' + where_clause,
+                fields
+            )
 
     def get_metadata(self, include_fields=None, exclude_fields=None, frames=True):
         """

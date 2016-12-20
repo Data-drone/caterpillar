@@ -169,6 +169,17 @@ create table setting (
     value
 );
 
+/* A convenience view for writing queries. */
+create view term_search as
+    select vocabulary.term, frame.id
+    from term_posting
+    inner join vocabulary
+        on term_posting.term_id = vocabulary.id
+    inner join frame
+        on term_posting.frame_id = frame.id
+    inner join document
+        on frame.document_id = document.id;
+
 commit;
 
 """

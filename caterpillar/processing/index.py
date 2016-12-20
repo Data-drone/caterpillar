@@ -1084,8 +1084,9 @@ class IndexReader(object):
         """
         Generator across frames from this field in this index.
 
-        If present, the returned frames will be restricted to those with ids in ``frame_ids`` (list). Format of the
-        frames index data is as follows::
+        If present, the returned frames will be restricted to those with ids in ``frame_ids`` (list). The field
+        argument will be ignored if frame_ids are provided.
+        Format of theframes index data is as follows::
 
             {
                 frame_id: { //framed data },
@@ -1108,8 +1109,9 @@ class IndexReader(object):
     def get_document(self, document_id):
         """Returns the document with the given ``document_id`` (str) as a dict."""
         try:
-            return json.loads(self.__storage.get_container_item(IndexWriter.DOCUMENTS_CONTAINER, document_id))
-        except KeyError:
+            document = next(self.__storage.iterate_documents([document_id]))
+            return json.loads(document[1])
+        except StopIteration:
             raise DocumentNotFoundError("No document '{}'".format(document_id))
 
     def get_document_count(self):
@@ -1123,8 +1125,7 @@ class IndexReader(object):
         If present, the returned documents will be restricted to those with ids in ``document_ids`` (list).
 
         """
-        for k, v in self.__storage.get_container_items(IndexWriter.DOCUMENTS_CONTAINER, keys=document_ids):
-            yield (k, json.loads(v))
+        return self.__storage.iterate_documents(document_ids=document_ids)
 
     def get_metadata(self):
         """
