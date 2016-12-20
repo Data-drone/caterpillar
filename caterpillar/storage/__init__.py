@@ -27,6 +27,13 @@ class PluginNotFoundError(StorageError):
     """No data for found for this plugin."""
 
 
+class Storage(object):
+    """A convenience class that combines a reader and a writer class into a paired object."""
+    def __init__(self, reader, writer):
+        self.reader = reader
+        self.writer = writer
+
+
 class StorageWriter(object):
     """
     Abstract class used to modify the index.

@@ -30,11 +30,16 @@ create table unstructured_field (
 The core vocabulary table assigns an integer ID to every unique term in the index.
 
 Joins against the core posting tables are always integer-integer and in sorted order.
+
+Currently this table allows repeating terms to support destructive merge variants and
+case folding. In the future this table will become append only and term uniqueness will
+be enforced, and an alternate mechanism for specifying vocabulary variations will be provided.
 */
 create table vocabulary (
     id integer primary key,
-    term text unique
+    term text
 );
+create index term_idx on vocabulary(term);
 
 
 /* Summary statistics for a given term_id by field.
@@ -123,7 +128,7 @@ create table plugin_registry (
     plugin_type text,
     settings text,
     plugin_id integer primary key,
-    constraint unique_plugin unique (plugin_type, settings) on conflict replace
+    constraint unique_plugin unique (plugin_type, settings) on conflict ignore
 );
 
 create table plugin_data (
@@ -157,6 +162,12 @@ create table index_revision (
 );
 
 insert into index_revision values (0, 0, 0);
+
+
+create table setting (
+    name text primary key on conflict replace,
+    value
+);
 
 commit;
 
@@ -231,6 +242,31 @@ create table positions_staging (
     primary key(frame_id, term)
 );
 
+create table setting(
+    name text primary key on conflict replace,
+    value
+);
+
+/* Plugin header and data tables. */
+create table plugin_registry (
+    plugin_type text,
+    settings text,
+    constraint unique_plugin unique (plugin_type, settings) on conflict ignore
+);
+
+create table plugin_data (
+    plugin_type text,
+    settings text,
+    key text,
+    value text,
+    primary key(plugin_type, settings, key) on conflict replace
+);
+
+create table delete_plugin (
+    plugin_type text,
+    settings text
+);
+
 commit;
 """
 
@@ -241,14 +277,14 @@ prepare_flush = """
 -- For generating the Term-frame_id table
 create index term_idx on positions_staging(term);
 
--- Generate statistics of deleted documents for removal
+-- Generate term statistics of added documents
 create table term_statistics as
 select
     term,
     field_name,
     sum(frequency) as frequency,
-    count(distinct document_id) as documents_occuring,
-    count(distinct frame_id) as frames_occuring
+    count(distinct frame_id) as frames_occuring,
+    count(distinct document_id) as documents_occuring
 from positions_staging pos
 inner join frame
     on frame_id = frame.id
@@ -282,8 +318,8 @@ select
     term_id,
     field_id,
     -sum(frequency) as frequency,
-    -count(distinct document_id) as documents_occuring,
-    -count(distinct frame_id) as frames_occuring
+    -count(distinct frame_id) as frames_occuring,
+    -count(distinct document_id) as documents_occuring
 from disk_index.frame_posting post
 inner join disk_index.frame frame
     on frame_id = frame.id
@@ -419,10 +455,50 @@ insert or replace into disk_index.term_statistics
           where (term_id, field_id) in (select * from updated_term))
     group by term_id, field_id;
 
+-- Update settings
+insert into disk_index.setting
+    select *
+    from setting;
+
 -- Update the revision number of the database
 insert or replace into index_revision(added_document_count, deleted_document_count) values(:added, :deleted);
 
 -- Update the plugins
+create table delete_plugin_id as
+    select registry.plugin_id
+    from disk_index.plugin_registry registry
+    inner join delete_plugin del
+        on del.plugin_type = registry.plugin_type
+        -- If settings is not supplied, delete all plugins of that type
+        and (del.settings = registry.settings or del.settings is NULL)
+;
+
+delete from disk_index.plugin_data
+where plugin_id in (select * from delete_plugin_id);
+delete from disk_index.plugin_registry
+where plugin_id in (select * from delete_plugin_id);
+
+-- Insert header record for plugins
+insert into disk_index.plugin_registry(plugin_type, settings)
+    select *
+    from plugin_registry;
+
+-- Clear old data for updated plugins and insert new data
+delete from disk_index.plugin_data
+    where plugin_id in (
+        select plugin_id
+        from plugin_registry
+        inner join disk_index.plugin_registry
+            using(plugin_type, settings)
+        );
+
+insert into disk_index.plugin_data
+    select plugin_id, plugin_data.key, plugin_data.value
+    from plugin_data
+    inner join disk_index.plugin_registry
+        using(plugin_type, settings)
+;
+
 
 commit;
 detach database disk_index;

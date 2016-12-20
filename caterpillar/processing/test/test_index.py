@@ -14,6 +14,7 @@ import multiprocessing.dummy as mt  # threading dummy with same interface as mul
 import pytest
 
 from caterpillar.storage.sqlite import SqliteStorage
+from caterpillar.storage import Storage
 from caterpillar.processing.analysis.analyse import EverythingAnalyser
 from caterpillar.processing.index import *
 from caterpillar.processing.schema import ID, NUMERIC, TEXT, FieldType, Schema
@@ -98,7 +99,8 @@ def test_index_settings(index_dir):
 
 def test_index_config():
     """Test the IndexConfig object."""
-    conf = IndexConfig("blah", Schema())
+    mock_storage = Storage('nothing', 'doing')
+    conf = IndexConfig(mock_storage, Schema())
     assert conf.version == VERSION
 
     pickle_data = pickle.dumps(True)
@@ -614,34 +616,18 @@ def test_index_document_delete(index_dir):
         data = f.read()
         with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT))) as writer:
             writer.add_document(text=data)
-            doc_id = writer.add_document(text=data)
+            writer.add_document(text=data)
 
         with IndexReader(index_dir) as reader:
             assert reader.get_frame_count('text') == 104
             assert reader.get_term_frequency('Alice', 'text') == 46
 
         with IndexWriter(index_dir) as writer:
-            writer.delete_document(doc_id)
+            writer.delete_document(1)
 
         with IndexReader(index_dir) as reader:
             assert reader.get_frame_count('text') == 52
             assert reader.get_term_frequency('Alice', 'text') == 23
-
-
-def test_index_writer_buffer_flush(index_dir):
-    """Test we flush when we fill the buffer."""
-    old_buffer = IndexWriter.RAM_BUFFER_SIZE
-    IndexWriter.RAM_BUFFER_SIZE = 1
-
-    with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
-        data = f.read()
-        with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT))) as writer:
-            with mock.MagicMock(name='flush') as fake_flush:
-                writer.flush = fake_flush
-                writer.add_document(text=data)
-                fake_flush.assert_called_with()
-
-    IndexWriter.RAM_BUFFER_SIZE = old_buffer
 
 
 def test_index_multi_document_delete(index_dir):

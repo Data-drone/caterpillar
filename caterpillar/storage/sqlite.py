@@ -20,7 +20,7 @@ import os
 
 import apsw
 
-from caterpillar.storage import StorageWriter, StorageReader, StorageNotFoundError, \
+from caterpillar.storage import StorageWriter, StorageReader, Storage, StorageNotFoundError, \
     DuplicateStorageError, PluginNotFoundError
 from ._schema import disk_schema, cache_schema, prepare_flush, flush_cache
 
@@ -251,43 +251,23 @@ class SqliteWriter(StorageWriter):
 
         Existing plugin state will be replaced.
         """
-        # Check if there's an existing instance
-        plugin_id = self._execute("select plugin_id from plugin_registry where plugin_type = ? and settings = ?",
-                                  (plugin_type, plugin_settings)).fetchone()
-
-        if plugin_id is not None:  # Clear all the data for this plugin instance
-            self._execute("delete from plugin_data where plugin_id = ?; "
-                          "delete from plugin_registry where plugin_id = ? ",
-                          data=(plugin_id[0], plugin_id[0]))
 
         # Insert into the plugin registry. If plugin_id already existed, reuse it.
-        plugin_id = self._execute(
-            "insert into plugin_registry(plugin_type, settings, plugin_id) values (?, ?, ?); "
-            "select last_insert_rowid();",
-            (plugin_type, plugin_settings, plugin_id[0] if plugin_id is not None else None)
-        ).fetchone()[0]
-        insert_rows = ((plugin_id, key, value) for key, value in plugin_state.iteritems())
-        self._executemany("insert into plugin_data values (?, ?, ?);", insert_rows)
-        return plugin_id
+        self._execute(
+            "insert into plugin_registry(plugin_type, settings) values (?, ?); ",
+            (plugin_type, plugin_settings)
+        )
+
+        insert_rows = ((plugin_type, plugin_settings, key, value) for key, value in plugin_state.iteritems())
+        self._executemany("insert into plugin_data values (?, ?, ?, ?);", insert_rows)
 
     def delete_plugin_state(self, plugin_type, plugin_settings=None):
-        """"""
-        if plugin_settings is not None:
-            self._execute(
-                "delete from plugin_data "
-                "where plugin_id in (select plugin_id from plugin_registry where plugin_type = ? and settings = ?);",
-                [plugin_type, plugin_settings]
-            )
-            self._execute(
-                "delete from plugin_registry where plugin_type = ? and settings = ?;", [plugin_type, plugin_settings]
-            )
-        else:
-            self._execute(
-                "delete from plugin_data "
-                "where plugin_id in (select plugin_id from plugin_registry where plugin_type = ?);",
-                [plugin_type]
-            )
-            self._execute("delete from plugin_registry where plugin_type = ?;", [plugin_type])
+        """Delete a plugin instance, or all plugins of a certain type from the index. """
+        self._execute('insert into delete_plugin values(?, ?)', (plugin_type, plugin_settings))
+
+    def set_setting(self, name, value):
+        """Set the setting ``name`` to ``value``"""
+        self._execute('insert into setting values(?, ?)', [name, value])
 
     def _execute(self, query, data=None):
         cursor = self._db_connection.cursor()
@@ -396,7 +376,7 @@ class SqliteReader(StorageReader):
 
     def vocabulary_count(self, include_fields=None, exclude_fields=None):
         """Return the number of unique terms occuring in the given combinations of fields. """
-        where_clause, fields = self._fields_where_clause(include_fields, exclude_fields)
+        where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields)
 
         vocab_size = self._execute(
             'select count(distinct term_id) '
@@ -409,16 +389,34 @@ class SqliteReader(StorageReader):
 
     def get_frequencies(self, include_fields=None, exclude_fields=None):
         """Return a generator of all the term frequencies in the given fields."""
-        where_clause, fields = self._fields_where_clause(include_fields, exclude_fields)
+        where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields)
 
         frequencies = self._execute(
-            'select voc.term, sum(frequency)'
+            'select voc.term, sum(frames_occuring)'
             'from term_statistics stats '
             'inner join vocabulary voc '
             '   on voc.id = stats.term_id '
             'inner join unstructured_field field '
             '   on stats.field_id = field.id ' + where_clause +
             'group by voc.term', fields
+        )
+        return frequencies
+
+    def get_term_frequencies(self, terms, include_fields=None, exclude_fields=None):
+        """Return a generator of frequencies over the list of terms supplied. """
+        where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields)
+
+        term_parameters = ', '.join(['?'] * len(terms))
+
+        frequencies = self._execute(
+            'select voc.term, sum(frames_occuring)'
+            'from term_statistics stats '
+            'inner join vocabulary voc '
+            '   on voc.id = stats.term_id '
+            'inner join unstructured_field field '
+            '   on stats.field_id = field.id ' + where_clause +
+            '   and voc.term in ({})'.format(term_parameters) +
+            'group by voc.term', fields + terms
         )
         return frequencies
 
@@ -483,10 +481,6 @@ class SqliteReader(StorageReader):
         return json.loads(self.__storage.get_container_item(IndexWriter.ASSOCIATIONS_CONTAINER.format(field),
                                                             term))[association]
 
-    def get_term_frequency(self, term, include_fields=None, exclude_fields=None):
-        """Return the frequency of ``term`` (str) as an int."""
-        return json.loads(self.__storage.get_container_item(IndexWriter.FREQUENCIES_CONTAINER.format(field), term))
-
     def get_frame(self, frame_id, field):
         """Fetch frame ``frame_id`` (str)."""
         return json.loads(self.__storage.get_container_item(IndexWriter.FRAMES_CONTAINER.format(field), frame_id))
@@ -520,9 +514,15 @@ class SqliteReader(StorageReader):
         """Returns the number of documents in the index."""
         return self._execute('select count(*) from document').fetchone()[0]
 
-    def count_frames(self):
+    def count_frames(self, include_fields=None, exclude_fields=None):
         """Returns the number of documents in the index."""
-        return self._execute('select count(*) from frame').fetchone()[0]
+        where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields)
+        return self._execute(
+            'select count(*) from frame '
+            'inner join unstructured_field field '
+            '   on field.id = frame.field_id ' + where_clause,
+            fields
+        ).fetchone()[0]
 
     def iterate_documents(self):
         """Returns a generator  of (document_id, stored_document) pairs for the entire index.
@@ -539,7 +539,7 @@ class SqliteReader(StorageReader):
         The generator will only be valid as long as this reader is open.
 
         """
-        where_clause, fields = self._fields_where_clause(include_fields, exclude_fields)
+        where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields)
         return self._execute(
             'select frame.id, document_id, field.name, sequence, stored '
             'from frame '
@@ -566,22 +566,37 @@ class SqliteReader(StorageReader):
         for k, v in self.__storage.get_container_items(IndexWriter.DOCUMENTS_CONTAINER, keys=document_ids):
             yield (k, json.loads(v))
 
-    def get_metadata(self, include_fields=None, exclude_fields=None):
+    def get_metadata(self, include_fields=None, exclude_fields=None, frames=True):
         """
         Get the metadata index.
 
-        This method is a generator that yields tuples (field_name, value, [document_ids])
+        This method is a generator that yields tuples (field_name, value, [frame_ids])
+
+        The frames flag indicates whether the return values should be broadcast to frame_ids (default)
+        or document_ids.
 
         """
-        where_clause, fields = self._fields_where_clause(include_fields, exclude_fields, structured=True)
-        rows = self._execute(
-            'select field.name, value, document_id '
-            'from document_data '
-            'inner join structured_field field '
-            '   on field.id = document_data.field_id ' + where_clause +
-            'order by field_id, value',
-            fields
-        )
+        where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields, structured=True)
+        if frames:
+            rows = self._execute(
+                'select field.name, value, frame.id '
+                'from document_data '
+                'inner join frame '
+                '   on frame.document_id = document_data.document_id '
+                'inner join structured_field field '
+                '   on field.id = document_data.field_id ' + where_clause +
+                'order by document_data.field_id, value',
+                fields
+            )
+        else:
+            rows = self._execute(
+                'select field.name, value, document_id '
+                'from document_data '
+                'inner join structured_field field '
+                '   on field.id = document_data.field_id ' + where_clause +
+                'order by field_id, value',
+                fields
+            )
         current_field, current_value, document_id = next(rows)
         document_ids = [document_id]
         for row in rows:
@@ -596,6 +611,14 @@ class SqliteReader(StorageReader):
                 document_ids = [document_id]
         else:  # Make sure to yield the final row.
             yield current_field, current_value, document_ids
+
+    def get_settings(self, names):
+        """Get the settings identified by the given names. """
+        variable_binding = ', '.join(['?'] * len(names))
+        return self._execute(
+            'select * from setting where name in ({})'.format(variable_binding),
+            names
+        )
 
     @property
     def revision(self):
@@ -627,7 +650,7 @@ class SqliteReader(StorageReader):
             logger.exception(e)
             raise e
 
-    def _fields_where_clause(self, include_fields, exclude_fields, structured=False):
+    def _fielded_where_clause(self, include_fields, exclude_fields, structured=False):
         """Generate a where clause for field inclusion, validating the fields at the same time.
 
         Include fields takes priority if both include and exclude fields are specified.
@@ -654,4 +677,7 @@ class SqliteReader(StorageReader):
         """Yield successive n-sized chunks from l."""
         l = list(l)
         for i in xrange(0, len(l), n):
-            yield l[i:i+n]
+            yield l[i:i + n]
+
+
+SqliteStorage = Storage(SqliteReader, SqliteWriter)

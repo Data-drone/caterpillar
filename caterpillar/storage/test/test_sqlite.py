@@ -106,10 +106,8 @@ def test_add_get_document(tmp_dir):
     assert reader.vocabulary_count() == 6
     assert sum(i[1] for i in reader.get_frequencies()) == 0
 
-    assert False
 
-
-def test_(tmp_dir):
+def test_a(tmp_dir):
     pass
 
 
