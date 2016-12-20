@@ -68,9 +68,9 @@ Storage for 'indexed' structured fields in the schema.
 
 */
 create table document_data (
-    document_id integer,
     field_id integer,
     value,
+    document_id integer,
     primary key(field_id, value, document_id),
     foreign key(document_id) references document(id),
     foreign key(field_id) references structured_field(id)
@@ -371,7 +371,7 @@ insert into disk_index.document_data(document_id, field_id, value)
         fields.id,
         value
     from document_data data
-    inner join disk_index.unstructured_field fields
+    inner join disk_index.structured_field fields
         on fields.name = data.field_name;
 
 

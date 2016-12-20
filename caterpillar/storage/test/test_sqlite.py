@@ -86,12 +86,16 @@ def test_add_get_document(tmp_dir):
     for i in range(100):
         writer.add_analyzed_document('test', sample_format_document)
     writer.commit()
-    assert reader.count_documents() == 101
+    assert reader.count_documents() * 3 == 303 == reader.count_frames()
     assert reader_transaction.count_documents() == 1
     assert reader.vocabulary_count() == 6
+    assert sum(i[1] for i in reader.get_frequencies()) == 606
 
     reader_transaction.commit()
     assert reader_transaction.count_documents() == 101
+
+    meta = list(reader.get_metadata())
+    assert len(meta) == 2
 
     # Delete all the documents
     writer.begin()
@@ -99,6 +103,8 @@ def test_add_get_document(tmp_dir):
     writer.commit()
 
     assert reader.count_documents() == 0 == reader.count_frames()
+    assert reader.vocabulary_count() == 6
+    assert sum(i[1] for i in reader.get_frequencies()) == 0
 
 
 def test_(tmp_dir):

@@ -17,7 +17,6 @@ performed.
 """
 import logging
 import os
-import hashlib
 
 import apsw
 
@@ -27,20 +26,6 @@ from ._schema import disk_schema, cache_schema, prepare_flush, flush_cache
 
 
 logger = logging.getLogger(__name__)
-
-# Three search cases:
-# 1. Canonical representation
-# 2. Canonical representation with some overrides
-# 3. Complete vocabulary substitution.
-
-# IndexReader.search.match_any(
-#    terms, include_fields=None, exclude_fields=None,
-#    lookup_variant=None, representation_variant=None
-# )
-
-
-def _hash_container_name(c_id):
-    return hashlib.md5(c_id).hexdigest()
 
 
 class SqliteWriter(StorageWriter):
@@ -400,20 +385,7 @@ class SqliteReader(StorageReader):
 
     def vocabulary_count(self, include_fields=None, exclude_fields=None):
         """Return the number of unique terms occuring in the given combinations of fields. """
-        # Validate the field exists
-        valid_fields = self.unstructured_fields
-        fields = include_fields or exclude_fields or []
-        invalid_fields = [field for field in fields if field not in valid_fields]
-        if invalid_fields:
-            raise ValueError('Invalid fields: {} do not exist or are not indexed'.format(invalid_fields))
-
-        # Filter template and validate arguments
-        if include_fields:
-            where_clause = 'where field.name in ({})'.format(', '.join(['?'] * len(fields)))
-        elif exclude_fields:
-            where_clause = 'where field.name not in ({})'.format(', '.join(['?'] * len(exclude_fields)))
-        else:
-            where_clause = ''
+        where_clause, fields = self._fields_where_clause(include_fields, exclude_fields)
 
         vocab_size = self._execute(
             'select count(distinct term_id) '
@@ -425,19 +397,19 @@ class SqliteReader(StorageReader):
         return vocab_size[0]
 
     def get_frequencies(self, include_fields=None, exclude_fields=None):
-        """Return a generator of all the term frequencies in the given field."""
-        if field not in self.unstructured_fields:
-            raise ValueError('Field {} does not exist or is not indexed'.format(field))
+        """Return a generator of all the term frequencies in the given fields."""
+        where_clause, fields = self._fields_where_clause(include_fields, exclude_fields)
+
         frequencies = self._execute(
-            'select voc.term, '
+            'select voc.term, sum(frequency)'
             'from term_statistics stats '
             'inner join vocabulary voc '
-            '   on voc.term_id = stats.term_id '
+            '   on voc.id = stats.term_id '
             'inner join unstructured_field field '
-            '   on stats.field_id = field.id '
-            'where field.name = ?', [field]
+            '   on stats.field_id = field.id ' + where_clause +
+            'group by voc.term', fields
         )
-        return vocab_size[0]
+        return frequencies
 
     def get_positions_index(self, include_fields=None, exclude_fields=None):
         """
@@ -504,10 +476,6 @@ class SqliteReader(StorageReader):
         """Return the frequency of ``term`` (str) as an int."""
         return json.loads(self.__storage.get_container_item(IndexWriter.FREQUENCIES_CONTAINER.format(field), term))
 
-    def get_frame_count(self, include_fields=None, exclude_fields=None):
-        """Return the int count of frames stored on this index."""
-        return self.__storage.get_container_len(IndexWriter.FRAMES_CONTAINER.format(field))
-
     def get_frame(self, frame_id, field):
         """Fetch frame ``frame_id`` (str)."""
         return json.loads(self.__storage.get_container_item(IndexWriter.FRAMES_CONTAINER.format(field), frame_id))
@@ -553,6 +521,22 @@ class SqliteReader(StorageReader):
         """
         return self._execute('select * from document')
 
+    def iterate_frames(self, include_fields=None, exclude_fields=None):
+        """Returns a generator  of (frame_id, document_id, field, sequence, stored_frame) tuples
+         for the specified unstructured fields in the index.
+
+        The generator will only be valid as long as this reader is open.
+
+        """
+        where_clause, fields = self._fields_where_clause(include_fields, exclude_fields)
+        return self._execute(
+            'select frame.id, document_id, field.name, sequence, stored '
+            'from frame '
+            'inner join unstructured_field field '
+            '   on field.id = frame.field_id ' + where_clause,
+            fields
+        )
+
     def get_document(self, document_id):
         """Return the document with the given document_id. """
         row = list(self._execute('select stored from document where id = ?', [document_id]))
@@ -575,21 +559,32 @@ class SqliteReader(StorageReader):
         """
         Get the metadata index.
 
-        This method is a generator that yields a key, value tuple. The index is in the following format::
-
-            {
-                "field_name": {
-                    "value": ["frame_id", "frame_id"],
-                    "value": ["frame_id", "frame_id"],
-                    "value": ["frame_id", "frame_id"],
-                    ...
-                },
-                ...
-            }
+        This method is a generator that yields tuples (field_name, value, [document_ids])
 
         """
-        for k, v in self.__storage.get_container_items(IndexWriter.METADATA_CONTAINER):
-            yield (k, json.loads(v))
+        where_clause, fields = self._fields_where_clause(include_fields, exclude_fields, structured=True)
+        rows = self._execute(
+            'select field.name, value, document_id '
+            'from document_data '
+            'inner join structured_field field '
+            '   on field.id = document_data.field_id ' + where_clause +
+            'order by field_id, value',
+            fields
+        )
+        current_field, current_value, document_id = next(rows)
+        document_ids = [document_id]
+        for row in rows:
+            field, value, document_id = row
+            # Rows are sorted by field, value, so as soon as the change can yield
+            if field == current_field and value == current_value:
+                document_ids.append(document_id)
+            else:
+                yield current_field, current_value, document_ids
+                current_field = field
+                current_value = value
+                document_ids = [document_id]
+        else:  # Make sure to yield the final row.
+            yield current_field, current_value, document_ids
 
     @property
     def revision(self):
@@ -616,6 +611,28 @@ class SqliteReader(StorageReader):
         except apsw.SQLError as e:
             logger.exception(e)
             raise e
+
+    def _fields_where_clause(self, include_fields, exclude_fields, structured=False):
+        """Generate a where clause for field inclusion, validating the fields at the same time.
+
+        Include fields takes priority if both include and exclude fields are specified.
+
+        Returns both the where clause and the list of fields to filter on for binding.
+
+        """
+        fields = include_fields or exclude_fields or []
+        valid_fields = self.structured_fields if structured else self.unstructured_fields
+        invalid_fields = [field for field in fields if field not in valid_fields]
+
+        if invalid_fields:
+            raise ValueError('Invalid fields: {} do not exist or are not indexed'.format(invalid_fields))
+        if include_fields:
+            where_clause = 'where field.name in ({})'.format(', '.join(['?'] * len(include_fields)))
+        elif exclude_fields:
+            where_clause = 'where field.name not in ({})'.format(', '.join(['?'] * len(exclude_fields)))
+        else:
+            where_clause = ''
+        return where_clause, fields
 
     @staticmethod
     def _chunks(l, n=999):
