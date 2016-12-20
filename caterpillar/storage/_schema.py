@@ -47,7 +47,7 @@ create table term_statistics (
     frequency integer,
     frames_occuring integer,
     documents_occuring integer,
-    primary key(term_id, field_id) on conflict replace,
+    primary key(term_id, field_id),
     foreign key(term_id) references term(id),
     foreign key(field_id) references field(id)
 );
@@ -145,11 +145,15 @@ different versions.
 For example, if a plugin was run at revision (100, 4), and the current state of the index is
 (200, 50), then there is a significant difference between the corpus at the time the plugin
 was run and now.
+
+The revision number is incremented by one whenever a write transaction adds or deletes documents
+from an index.
 */
 create table index_revision (
     revision_number integer primary key,
     added_document_count integer,
-    deleted_document_count integer
+    deleted_document_count integer,
+    constraint unique_revision unique(added_document_count, deleted_document_count) on conflict replace
 );
 
 insert into index_revision values (0, 0, 0);
@@ -158,38 +162,7 @@ commit;
 
 """
 
-"""/* A whitelist of vocabulary variant columns in the vocabulary table.
-
-When a variation is first registered a column is created in the table for that name.
-*/
-create table vocabulary_variant(
-    id integer primary key,
-    name text
-);
-
-/* Document_id's for soft deletion.
-
-Wherever possible the document content is deleted, but it is not always possible to do so
-efficiently.
-*/
-create table deleted_document (
-    document_id integer primary key
-);
-
-
-/*
-An internal representation of the state of the index documents.
-
-Each count is incremented by one when a document is added or deleted. Both numbers are
-monotonically increasing and the system is serialised: these numbers can be used to represent
-the current state of the system, and can be used to measure some degree of change between
-different versions.
-
-For example, if a plugin was run at revision (100, 4), and the current state of the index is
-(200, 50), then there is a significant difference between the corpus at the time the plugin
-was run and now.
-*/
-
+"""
 
 /*
 A convenience view to simplify writing search queries.
@@ -295,6 +268,8 @@ begin immediate; -- Begin the true transaction for on disk writing
 -- Max document and frame id's at the start of the write process.
 select coalesce(max(id), 0) from disk_index.document;
 select coalesce(max(id), 0) from disk_index.frame;
+select deleted_document_count from index_revision
+where revision_number = (select max(revision_number) from index_revision);
 
 """
 
@@ -444,6 +419,8 @@ insert or replace into disk_index.term_statistics
           where (term_id, field_id) in (select * from updated_term))
     group by term_id, field_id;
 
+-- Update the revision number of the database
+insert or replace into index_revision(added_document_count, deleted_document_count) values(:added, :deleted);
 
 -- Update the plugins
 

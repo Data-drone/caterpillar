@@ -90,20 +90,30 @@ class SqliteWriter(StorageWriter):
         self._db_connection.cursor().execute('begin immediate')
         self.doc_no = 0  # local only for this write transaction.
         self.frame_no = 0
+        self.deleted_no = 0
 
     def commit(self):
         """Commit a transaction."""
         current_state = self._execute(prepare_flush, [self._db])
-        max_document_id, max_frame_id = [row[0] for row in list(current_state)]
-        self._execute(flush_cache, {'max_doc': max_document_id + 1, 'max_frame': max_frame_id + 1})
+        max_document_id, max_frame_id, deleted_count = [row[0] for row in list(current_state)]
+        self._execute(
+            flush_cache,
+            {
+                'max_doc': max_document_id + 1,
+                'max_frame': max_frame_id + 1,
+                'deleted': self.deleted_no + deleted_count,
+                'added': self.doc_no + max_document_id
+            })
         self.doc_no = 0
         self.frame_no = 0
+        self.deleted_no = 0
 
     def rollback(self):
         """Rollback a transaction on an IndexWriter."""
         self._execute('rollback')
         self.doc_no = 0
         self.frame_no = 0
+        self.deleted_no = 0
 
     def close(self):
         """Close this storage object and all its resources, rendering it UNUSABLE."""
@@ -234,6 +244,7 @@ class SqliteWriter(StorageWriter):
         """Delete a document with the given id from the index. """
         document_id_gen = ((document_id,) for document_id in document_ids)
         self._executemany('insert into deleted_document(id) values(?)', document_id_gen)
+        self.deleted_no += len(document_ids)
 
     def set_plugin_state(self, plugin_type, plugin_settings, plugin_state):
         """ Set the plugin state in the index to the given state.
@@ -589,12 +600,16 @@ class SqliteReader(StorageReader):
     @property
     def revision(self):
         """
-        Return the str revision identifier for this index.
+        The revision identifier is a tuple (revision_number, added_documents, deleted_documents)
 
-        The revision identifier is a version identifier. It gets updated every time the index gets changed.
-
+        The revision number is incremented on every writer commit, the added documents and deleted
+        documents count the number of times add_analyzed_document and delete_document were
+        succesfully called on a writer for this index.
         """
-        return self.__storage.get_container_item(IndexWriter.INFO_CONTAINER, 'revision')
+        revision = self._execute(
+            'select * from index_revision where revision_number=(select max(revision_number) from index_revision)'
+        ).fetchone()
+        return revision
 
     def _execute(self, query, data=None):
         cursor = self._db_connection.cursor()
