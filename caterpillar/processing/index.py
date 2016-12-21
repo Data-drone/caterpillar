@@ -526,51 +526,27 @@ class IndexWriter(object):
         Note that only the search vocabulary and counts are affected. The _positions index is not updated.
 
         """
-        return None
-        count = 0
-        # Pre-fetch indexes and pass them around to save I/O
-        frequencies_index = {
-            k: json.loads(v) if v else 0
-            for k, v in self.__storage.get_container_items(IndexWriter.FREQUENCIES_CONTAINER.format(text_field))
-        }
-        associations_index = {
-            k: json.loads(v) if v else {}
-            for k, v in self.__storage.get_container_items(IndexWriter.ASSOCIATIONS_CONTAINER.format(text_field))
-        }
-        positions_index = {
-            k: json.loads(v) if v else {}
-            for k, v in self.__storage.get_container_items(IndexWriter.POSITIONS_CONTAINER.format(text_field))
-        }
-        frames = {
-            k: json.loads(v)
-            for k, v in self.__storage.get_container_items(IndexWriter.FRAMES_CONTAINER.format(text_field))
-        }
-        for w, freq in frequencies_index.items():
+
+        merges = []
+
+        reader = IndexReader(self._path)
+        frequencies_index = dict(reader.get_frequencies(text_field))
+        for w, freq in frequencies_index:
             if w.islower() and w.title() in frequencies_index:
                 freq_name = frequencies_index[w.title()]
                 if freq / freq_name < merge_threshold:
                     # Merge into name
                     logger.debug(u'Merging {} into {}'.format(w, w.title()))
-                    self._merge_terms(w, w.title(), associations_index, positions_index, frequencies_index, frames)
-                    count += 1
+                    merges.append((w, w.title()))
+
                 elif freq_name / freq < merge_threshold:
                     # Merge into word
                     logger.debug(u'Merging {} into {}'.format(w.title(), w))
-                    self._merge_terms(w.title(), w, associations_index, positions_index, frequencies_index, frames)
-                    count += 1
+                    merges.append((w.title(), w))
 
-        # Update stored data structures
-        self.__storage.clear_container(IndexWriter.ASSOCIATIONS_CONTAINER.format(text_field))
-        self.__storage.set_container_items(IndexWriter.ASSOCIATIONS_CONTAINER.format(text_field),
-                                           {k: json.dumps(v) for k, v in associations_index.iteritems()})
-        self.__storage.clear_container(IndexWriter.POSITIONS_CONTAINER.format(text_field))
-        self.__storage.set_container_items(IndexWriter.POSITIONS_CONTAINER.format(text_field),
-                                           {k: json.dumps(v) for k, v in positions_index.iteritems()})
-        self.__storage.clear_container(IndexWriter.FREQUENCIES_CONTAINER.format(text_field))
-        self.__storage.set_container_items(IndexWriter.FREQUENCIES_CONTAINER.format(text_field),
-                                           {k: json.dumps(v) for k, v in frequencies_index.iteritems()})
-        self.__storage.set_container_items(IndexWriter.FRAMES_CONTAINER.format(text_field),
-                                           {f_id: json.dumps(d) for f_id, d in frames.iteritems()})
+        count = len(merges)
+        self.__storage._mangle_terms(merges)
+
         logger.debug("Merged {} terms during case folding.".format(count))
 
     def merge_terms(self, merges, text_field):
@@ -588,7 +564,7 @@ class IndexWriter(object):
         """
         count = len(merges)
 
-        self.__storage._mangle_terms()
+        self.__storage._mangle_terms(merges)
 
         logger.debug("Merged {} terms during manual merge.".format(count))
 
@@ -969,7 +945,10 @@ class IndexReader(object):
 
         """
         positions = next(self.__storage._iterate_positions(terms=[term], include_fields=[field]))
-        return positions
+        if positions is not None:
+            return positions[1]
+        else:
+            raise KeyError('{} not found in field {}'.format(term, field))
 
     def get_associations_index(self, field):
         """
@@ -1023,7 +1002,10 @@ class IndexReader(object):
     def get_term_frequency(self, term, field):
         """Return the frequency of ``term`` (str) as an int."""
         frequency = self.__storage.get_term_frequencies([term], include_fields=[field]).fetchone()
-        return frequency[1]
+        if frequency[1]:
+            return frequency[1]
+        else:
+            raise KeyError('{} not found in field {}'.format(term, field))
 
     def get_frame_count(self, field):
         """Return the int count of frames stored on this index."""
@@ -1060,8 +1042,8 @@ class IndexReader(object):
 
     def get_frame_ids(self, field):
         """Generator of ids for all frames stored on this index."""
-        for f_id in self.__storage.get_container_keys(IndexWriter.FRAMES_CONTAINER.format(field)):
-            yield f_id
+        for row in self.__storage.iterate_frames(include_fields=[field]):
+            yield row[0]
 
     def get_document(self, document_id):
         """Returns the document with the given ``document_id`` (str) as a dict."""
@@ -1084,7 +1066,7 @@ class IndexReader(object):
         """
         return self.__storage.iterate_documents(document_ids=document_ids)
 
-    def get_metadata(self):
+    def get_metadata(self, text_field=None):
         """
         Get the metadata index.
 
@@ -1100,8 +1082,10 @@ class IndexReader(object):
                 ...
             }
 
+        The optional text_field limits the returned values to frames from that field.
+
         """
-        metadata = self.__storage.iterate_metadata()
+        metadata = self.__storage.iterate_metadata(text_field=text_field)
 
         current_field, value, frame_ids = next(metadata)
         current_values = {value: frame_ids}

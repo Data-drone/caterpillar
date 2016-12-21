@@ -26,6 +26,7 @@ create table unstructured_field (
     name text unique
 );
 
+
 /*
 The core vocabulary table assigns an integer ID to every unique term in the index.
 
@@ -295,18 +296,18 @@ create index term_idx on positions_staging(term);
 
 -- Generate term statistics of added documents
 create table term_statistics as
-select
-    term,
-    field_name,
-    sum(frequency) as frequency,
-    count(distinct frame_id) as frames_occuring,
-    count(distinct document_id) as documents_occuring
-from positions_staging pos
-inner join frame
-    on frame_id = frame.id
-group by
-    pos.term,
-    frame.field_name;
+    select
+        term,
+        field_name,
+        sum(frequency) as frequency,
+        count(distinct frame_id) as frames_occuring,
+        count(distinct document_id) as documents_occuring
+    from positions_staging pos
+    inner join frame
+        on frame_id = frame.id
+    group by
+        pos.term,
+        frame.field_name;
 
 create index term_stats_idx on term_statistics(term, field_name);
 
@@ -330,24 +331,19 @@ flush_cache = """
 /* Delete documents */
 -- Cache term statistics for deleted documents, note the negative for later.
 create table deleted_term_statistics as
-select
-    term_id,
-    field_id,
-    -sum(frequency) as frequency,
-    -count(distinct frame_id) as frames_occuring,
-    -count(distinct document_id) as documents_occuring
-from disk_index.frame_posting post
-inner join disk_index.frame frame
-    on frame_id = frame.id
-where frame.document_id in (select * from deleted_document)
-group by
-    post.term_id,
-    frame.field_id;
-
--- Delete all the places the document occurs.
-delete from disk_index.document where id in (select * from deleted_document);
-delete from disk_index.frame where document_id in (select * from deleted_document);
-delete from disk_index.document_data where document_id in (select * from deleted_document);
+    select
+        term_id,
+        field_id,
+        -sum(frequency) as frequency,
+        -count(distinct frame_id) as frames_occuring,
+        -count(distinct document_id) as documents_occuring
+    from disk_index.frame_posting post
+    inner join disk_index.frame frame
+        on frame_id = frame.id
+    where frame.document_id in (select * from deleted_document)
+    group by
+        post.term_id,
+        frame.field_id;
 
 create table deleted_frame as
     select id
@@ -364,6 +360,11 @@ where term_id in (select distinct term_id
 
 delete from disk_index.frame_posting
     where frame_id in (select * from deleted_frame);
+
+-- Delete all the places the document occurs.
+delete from disk_index.document where id in (select * from deleted_document);
+delete from disk_index.frame where document_id in (select * from deleted_document);
+delete from disk_index.document_data where document_id in (select * from deleted_document);
 
 
 /* Add new indexed fields */
@@ -516,11 +517,11 @@ insert into disk_index.plugin_data
         using(plugin_type, settings)
 ;
 
---insert or replace into disk_index.vocabulary
---    select vocab.id, new_term
---    from mangle_vocabulary
---    inner join disk_index.vocabulary vocab
---        on mangle_vocabulary.old_term = vocab.term;
+insert or replace into disk_index.vocabulary
+    select vocab.id, new_term
+    from vocabulary_mangle
+    inner join disk_index.vocabulary vocab
+        on vocabulary_mangle.old_term = vocab.term;
 
 
 commit;

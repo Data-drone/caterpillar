@@ -79,7 +79,7 @@ def test_add_get_document(tmp_dir):
     doc = reader.iterate_documents([1])  # Cheating with sequential document_id's here
     assert next(doc)[1] == sample_format_document[0]
     assert reader.count_documents() == 1 == reader_transaction.count_documents()
-    assert reader.vocabulary_count() == 6 == reader_transaction.vocabulary_count()
+    assert reader.count_vocabulary() == 6 == reader_transaction.count_vocabulary()
 
     # Add 100 more documents:
     writer.begin()
@@ -88,7 +88,7 @@ def test_add_get_document(tmp_dir):
     writer.commit()
     assert reader.count_documents() * 3 == 303 == reader.count_frames()
     assert reader_transaction.count_documents() == 1
-    assert reader.vocabulary_count() == 6
+    assert reader.count_vocabulary() == 6
     assert sum(i[1] for i in reader.get_frequencies()) == 606
 
     reader_transaction.commit()
@@ -108,7 +108,7 @@ def test_add_get_document(tmp_dir):
     writer.commit()
 
     assert reader.count_documents() == 0 == reader.count_frames()
-    assert reader.vocabulary_count() == 6
+    assert reader.count_vocabulary() == 6
     assert sum(i[1] for i in reader.get_frequencies()) == 0
 
 

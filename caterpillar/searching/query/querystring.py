@@ -32,8 +32,7 @@ class QueryStringQuery(BaseQuery):
     """
     This class allows term and metadata based querying via raw query string passed to ``query_str``.
 
-    If a ``text_field`` is not specified, only metadata lookups will be evaluated: text search terms
-    will be silently ignored.
+    If a ``text_field`` is not specified, only metadata searches will be performed.
 
     """
     def __init__(self, query_str, text_field=None):
@@ -41,19 +40,17 @@ class QueryStringQuery(BaseQuery):
         self.text_field = text_field
 
     def evaluate(self, index_reader):
-        metadata = {k: v for k, v in index_reader.get_metadata()}
+        metadata = {k: v for k, v in index_reader.get_metadata(self.text_field)}
 
-        if self.text_field is not None and self.text_field not in metadata:
+        if (
+            self.text_field is not None and
+            self.text_field not in index_reader._IndexReader__storage.unstructured_fields
+        ):
             raise QueryError("Specified text field {} doesn't exist".format(self.text_field))
 
         frame_ids, term_weights = _QueryStringParser(index_reader,
                                                      self.text_field,
                                                      metadata).parse_and_evaluate(self.query_str)
-
-        if self.text_field is not None:
-            # Ensure that only frames of the specified text_field are included.
-            # Metadata only queries might return frames for other text fields.
-            frame_ids.intersection_update(set(metadata[self.text_field]['_text']))
 
         return QueryResult(frame_ids, term_weights, self.text_field)
 

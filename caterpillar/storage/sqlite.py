@@ -593,35 +593,6 @@ class SqliteReader(StorageReader):
         else:
             yield None, {}
 
-    def get_frame(self, frame_id, field):
-        """Fetch frame ``frame_id`` (str)."""
-        return json.loads(self.__storage.get_container_item(IndexWriter.FRAMES_CONTAINER.format(field), frame_id))
-
-    def get_frames(self, frame_ids=None,):
-        """
-        Generator across frames from this field in this index.
-
-        If present, the returned frames will be restricted to those with ids in ``frame_ids`` (list). Format of the
-        frames index data is as follows::
-
-            {
-                frame_id: { //framed data },
-                frame_id: { //framed data },
-                frame_id: { //framed data },
-                ...
-            }
-
-        This method is a generator that yields tuples of frame_id and frame data dict.
-
-        """
-        for k, v in self.__storage.get_container_items(IndexWriter.FRAMES_CONTAINER.format(field), keys=frame_ids):
-            yield (k, json.loads(v))
-
-    def get_frame_ids(self, include_fields=None, exclude_fields=None):
-        """Generator of ids for all frames stored on this index."""
-        for f_id in self.__storage.get_container_keys(IndexWriter.FRAMES_CONTAINER.format(field)):
-            yield f_id
-
     def count_documents(self):
         """Returns the number of documents in the index."""
         return self._execute('select count(*) from document').fetchone()[0]
@@ -668,7 +639,7 @@ class SqliteReader(StorageReader):
                     'from frame '
                     'inner join unstructured_field field '
                     '   on field.id = frame.field_id '
-                    'where frame_id = ?', [frame_id]
+                    'where frame.id = ?', [frame_id]
                 ).fetchone()
                 for frame_id in frame_ids
             )
@@ -682,7 +653,7 @@ class SqliteReader(StorageReader):
                 fields
             )
 
-    def iterate_metadata(self, include_fields=None, exclude_fields=None, frames=True):
+    def iterate_metadata(self, include_fields=None, exclude_fields=None, frames=True, text_field=None):
         """
         Get the metadata index.
 
@@ -691,8 +662,18 @@ class SqliteReader(StorageReader):
         The frames flag indicates whether the return values should be broadcast to frame_ids (default)
         or document_ids.
 
+        The optional text_field specifier allow filtering frames to just the included text field.
+
         """
         where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields, structured=True)
+
+        if text_field and fields:
+            where_clause += ' and text_field.name = ?'
+            fields += [text_field]
+        elif text_field:
+            where_clause = ' where text_field.name = ?'
+            fields += [text_field]
+
         if frames:
             rows = self._execute(
                 'select field.name, value, frame.id '
@@ -700,7 +681,9 @@ class SqliteReader(StorageReader):
                 'inner join frame '
                 '   on frame.document_id = document_data.document_id '
                 'inner join structured_field field '
-                '   on field.id = document_data.field_id ' + where_clause +
+                '   on field.id = document_data.field_id '
+                'inner join unstructured_field text_field '
+                '   on text_field.id = frame.field_id ' + where_clause +
                 'order by document_data.field_id, value',
                 fields
             )
