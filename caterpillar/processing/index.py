@@ -523,11 +523,9 @@ class IndexWriter(object):
         ``merge_threshold`` (float) is used to test when to merge two variants. When the ratio between word and name
         version of a term falls below this threshold the merge is carried out.
 
-        .. warning::
-            This method calls flush before it runs and doesn't use the internal buffers.
+        Note that only the search vocabulary and counts are affected. The _positions index is not updated.
 
         """
-        # self.flush()
         return None
         count = 0
         # Pre-fetch indexes and pass them around to save I/O
@@ -577,7 +575,9 @@ class IndexWriter(object):
 
     def merge_terms(self, merges, text_field):
         """
-        Merge the terms in ``merges`` for the given ``text_field``. ``text_field`` must be of type TEXT.
+        Merge the terms in ``merges`` across the whole index.
+
+        The ``text_field`` argument is retained for backwards compatibility and is ignored.
 
         ``merges`` (list) should be a list of str tuples of the format ``(old_term, new_term,)``. If new_term is ``''``
         then old_term is removed. N-grams can be specified by supplying a str tuple instead of str for the old term.
@@ -585,61 +585,11 @@ class IndexWriter(object):
 
             >>> (('hot', 'dog'), 'hot dog')
 
-        The n-gram case does not allow empty values for new_term.
-
-        .. warning::
-            This method calls flush before it runs and doesn't use the internal buffers.
-
         """
-        # self.flush()
-        count = 0
-        # Pre-fetch indexes and pass them around to save I/O
+        count = len(merges)
 
-        frequencies_index = {
-            k: json.loads(v) if v else 0
-            for k, v in self.__storage.get_container_items(IndexWriter.FREQUENCIES_CONTAINER.format(text_field))
-        }
+        self.__storage._mangle_terms()
 
-        associations_index = {
-            k: json.loads(v) if v else {}
-            for k, v in self.__storage.get_container_items(IndexWriter.ASSOCIATIONS_CONTAINER.format(text_field))
-        }
-
-        positions_index = {
-            k: json.loads(v) if v else {}
-            for k, v in self.__storage.get_container_items(IndexWriter.POSITIONS_CONTAINER.format(text_field))
-        }
-
-        frames = {
-            k: json.loads(v)
-            for k, v in self.__storage.get_container_items(IndexWriter.FRAMES_CONTAINER.format(text_field))
-        }
-
-        for old_term, new_term in merges:
-            logger.debug('Merging {} into {}'.format(old_term, new_term))
-            try:
-                if isinstance(old_term, basestring):
-                    self._merge_terms(old_term, new_term, associations_index, positions_index, frequencies_index,
-                                      frames)
-                else:
-                    self._merge_terms_into_ngram(old_term, new_term, associations_index, positions_index,
-                                                 frequencies_index, frames)
-                count += 1
-            except TermNotFoundError:
-                logger.exception('One of the terms doesn\'t exist in the index!')
-
-        # Update indexes
-        self.__storage.clear_container(IndexWriter.ASSOCIATIONS_CONTAINER.format(text_field))
-        self.__storage.set_container_items(IndexWriter.ASSOCIATIONS_CONTAINER.format(text_field),
-                                           {k: json.dumps(v) for k, v in associations_index.iteritems()})
-        self.__storage.clear_container(IndexWriter.POSITIONS_CONTAINER.format(text_field))
-        self.__storage.set_container_items(IndexWriter.POSITIONS_CONTAINER.format(text_field),
-                                           {k: json.dumps(v) for k, v in positions_index.iteritems()})
-        self.__storage.clear_container(IndexWriter.FREQUENCIES_CONTAINER.format(text_field))
-        self.__storage.set_container_items(IndexWriter.FREQUENCIES_CONTAINER.format(text_field),
-                                           {k: json.dumps(v) for k, v in frequencies_index.iteritems()})
-        self.__storage.set_container_items(IndexWriter.FRAMES_CONTAINER.format(text_field),
-                                           {f_id: json.dumps(d) for f_id, d in frames.iteritems()})
         logger.debug("Merged {} terms during manual merge.".format(count))
 
     def _merge_terms(self, old_term, new_term, associations, positions, frequencies, frames):
@@ -1003,8 +953,7 @@ class IndexReader(object):
             }
 
         """
-        for k, v in self.__storage.get_container_items(IndexWriter.POSITIONS_CONTAINER.format(field)):
-            yield (k, json.loads(v))
+        return self.__storage._iterate_positions(include_fields=[field])
 
     def get_term_positions(self, term, field):
         """
@@ -1019,7 +968,8 @@ class IndexReader(object):
         }
 
         """
-        return json.loads(self.__storage.get_container_item(IndexWriter.POSITIONS_CONTAINER.format(field), term))
+        positions = next(self.__storage._iterate_positions(terms=[term], include_fields=[field]))
+        return positions
 
     def get_associations_index(self, field):
         """
@@ -1039,13 +989,16 @@ class IndexReader(object):
         This method is a generator which yields key/value pair tuples.
 
         """
-        for k, v in self.__storage.get_container_items(IndexWriter.ASSOCIATIONS_CONTAINER.format(field)):
-            yield (k, json.loads(v))
+        return self.__storage.iterate_associations(include_fields=[field])
 
     def get_term_association(self, term, association, field):
         """Returns a count of term associations between ``term`` (str) and ``association`` (str)."""
-        return json.loads(self.__storage.get_container_item(IndexWriter.ASSOCIATIONS_CONTAINER.format(field),
-                                                            term))[association]
+        term, associations = next(self.__storage.iterate_associations(term=term, include_fields=[field]))
+        try:
+            count = associations[association]
+        except KeyError:
+            count = 0
+        return count
 
     def get_frequencies(self, field):
         """
@@ -1078,9 +1031,13 @@ class IndexReader(object):
 
     def get_frame(self, frame_id, field):
         """Fetch frame ``frame_id`` (str)."""
-        return json.loads(self.__storage.get_container_item(IndexWriter.FRAMES_CONTAINER.format(field), frame_id))
+        row = next(self.__storage.iterate_frames(frame_ids=[frame_id], include_fields=[field]))
+        if row is not None:
+            return json.loads(row[4])
+        else:
+            raise DocumentNotFoundError
 
-    def get_frames(self, field, frame_ids=None,):
+    def get_frames(self, field, frame_ids=None):
         """
         Generator across frames from this field in this index.
 
@@ -1098,8 +1055,8 @@ class IndexReader(object):
         This method is a generator that yields tuples of frame_id and frame data dict.
 
         """
-        for k, v in self.__storage.get_container_items(IndexWriter.FRAMES_CONTAINER.format(field), keys=frame_ids):
-            yield (k, json.loads(v))
+        for row in self.__storage.iterate_frames(frame_ids=frame_ids, include_fields=[field]):
+            yield row[0], json.loads(row[4])
 
     def get_frame_ids(self, field):
         """Generator of ids for all frames stored on this index."""
@@ -1108,10 +1065,10 @@ class IndexReader(object):
 
     def get_document(self, document_id):
         """Returns the document with the given ``document_id`` (str) as a dict."""
-        try:
-            document = next(self.__storage.iterate_documents([document_id]))
+        document = next(self.__storage.iterate_documents([document_id]))
+        if document is not None:
             return json.loads(document[1])
-        except StopIteration:
+        else:
             raise DocumentNotFoundError("No document '{}'".format(document_id))
 
     def get_document_count(self):
@@ -1144,12 +1101,16 @@ class IndexReader(object):
             }
 
         """
-        metadata = self.__storage.get_metadata()
+        metadata = self.__storage.iterate_metadata()
 
         current_field, value, frame_ids = next(metadata)
         current_values = {value: frame_ids}
         while True:
-            field, value, frame_ids = next(metadata)
+            try:
+                field, value, frame_ids = next(metadata)
+            except StopIteration:
+                yield current_field, current_values
+                break
             if field == current_field:
                 current_values[value] = frame_ids
             else:
@@ -1178,7 +1139,7 @@ class IndexReader(object):
         overcount the number of terms.
 
         """
-        return self.__storage.get_vocab_size(include_fields=[field])
+        return self.__storage.count_vocabulary(include_fields=[field])
 
     def searcher(self, scorer_cls=TfidfScorer):
         """

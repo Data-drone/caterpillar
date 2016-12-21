@@ -68,7 +68,7 @@ create table document (
 Storage for 'indexed' structured fields in the schema.
 
 - designed for sparse data and extensible schema's
-- primary design purpose is for returning lists of document ID's
+- primary design purpose is for returning ordered lists of document ID's
 - takes advantage of SQLite's permissive type system
 
 */
@@ -278,6 +278,11 @@ create table delete_plugin (
     settings text
 );
 
+create table vocabulary_mangle (
+    old_term text primary key,
+    new_term text
+);
+
 commit;
 """
 
@@ -351,7 +356,8 @@ create table deleted_frame as
 
 delete from disk_index.term_posting
 -- Avoid full table scan by searching for term_id first
-where term_id in (select term_id
+-- This is still going to be expensive.
+where term_id in (select distinct term_id
                   from disk_index.frame_posting
                   where frame_id in (select * from deleted_frame))
     and frame_id in (select * from deleted_frame);
@@ -509,6 +515,12 @@ insert into disk_index.plugin_data
     inner join disk_index.plugin_registry
         using(plugin_type, settings)
 ;
+
+--insert or replace into disk_index.vocabulary
+--    select vocab.id, new_term
+--    from mangle_vocabulary
+--    inner join disk_index.vocabulary vocab
+--        on mangle_vocabulary.old_term = vocab.term;
 
 
 commit;

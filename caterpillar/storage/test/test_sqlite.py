@@ -76,8 +76,8 @@ def test_add_get_document(tmp_dir):
 
     reader = SqliteReader(tmp_dir)
 
-    doc = reader.get_document(1)  # Cheating with sequential document_id's here
-    assert doc == sample_format_document[0]
+    doc = reader.iterate_documents([1])  # Cheating with sequential document_id's here
+    assert next(doc)[1] == sample_format_document[0]
     assert reader.count_documents() == 1 == reader_transaction.count_documents()
     assert reader.vocabulary_count() == 6 == reader_transaction.vocabulary_count()
 
@@ -94,8 +94,13 @@ def test_add_get_document(tmp_dir):
     reader_transaction.commit()
     assert reader_transaction.count_documents() == 101
 
-    meta = list(reader.get_metadata())
+    meta = list(reader.iterate_metadata())
     assert len(meta) == 2
+
+    # Term associations
+    associations = {term: values for term, values in reader.iterate_associations()}
+    assert len(associations) == 6
+    assert all([freq == 101 for values in associations.values() for freq in values.values()])
 
     # Delete all the documents
     writer.begin()

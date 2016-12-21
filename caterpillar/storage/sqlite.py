@@ -18,6 +18,7 @@ performed.
 import logging
 import os
 
+import ujson as json
 import apsw
 
 from caterpillar.storage import StorageWriter, StorageReader, Storage, StorageNotFoundError, \
@@ -71,10 +72,8 @@ class SqliteWriter(StorageWriter):
         """
         Begin a transaction.
 
-        The write flag indicates if this is a transaction for a reader or a writer.
-
-        For a writer a temporary in-memory database is created to cache results, which
-        is destroyed after the commit or rollback methods are called.
+        A temporary in-memory database is created to cache results, which is destroyed after the
+        commit or rollback methods are called.
 
         """
 
@@ -93,17 +92,15 @@ class SqliteWriter(StorageWriter):
         self.deleted_no = 0
 
     def commit(self):
-        """Commit a transaction."""
-        current_state = self._execute(prepare_flush, [self._db])
-        max_document_id, max_frame_id, deleted_count = [row[0] for row in list(current_state)]
-        self._execute(
-            flush_cache,
-            {
-                'max_doc': max_document_id + 1,
-                'max_frame': max_frame_id + 1,
-                'deleted': self.deleted_no + deleted_count,
-                'added': self.doc_no + max_document_id
-            })
+        """Commit a transaction.
+
+        First the on disk database is attached and the current maximum document and frame ID's are returned.
+
+        Then the content of the in memory cache is flushed to the database.
+
+        """
+        max_document_id, max_frame_id, deleted_count = self._prepare_flush()
+        self._flush(max_document_id, max_frame_id, deleted_count)
         self.doc_no = 0
         self.frame_no = 0
         self.deleted_no = 0
@@ -120,10 +117,52 @@ class SqliteWriter(StorageWriter):
         self._db_connection.close()
         self._db_connection = None
 
+    def _prepare_flush(self):
+        """Prepare to flush the cached data to the index. """
+        current_state = [row[0] for row in self._execute(prepare_flush, [self._db])]
+        return current_state
+
+    def _flush(self, max_document_id, max_frame_id, deleted_count):
+        """Actually perform the flush."""
+        self._execute(
+            flush_cache,
+            {
+                'max_doc': max_document_id + 1,
+                'max_frame': max_frame_id + 1,
+                'deleted': self.deleted_no + deleted_count,
+                'added': self.doc_no + max_document_id
+            })
+
     def add_structured_fields(self, field_names):
         """Register a structured field on the index. """
         for f in field_names:
             self._execute('insert into structured_field(name) values(?)', [f])
+
+    def _mangle_terms(self, term_mapping):
+        """Mangle the terms in the stored vocabulary.
+
+        term_mapping is a list of pairs ('old term', 'new term'). The old_term mapping can
+        itself be a tuple, in which case all individual terms in old_term are mapped to
+        'new_term'.
+
+        If new term is falsey, that term representation will be removed from the vocabulary.
+
+        If old_term is not present in the vocabulary, it will be ignored.
+
+        This is a destructive operation and should be used with care.
+
+        """
+        # Unwrap term mapping to a more friendly dictionary, accounting for the different data
+        # structure in the merging unigrams to an n-gram case.
+        mapping = {}
+        for old_term, new_term in term_mapping:
+            if isinstance(old_term, basestring):
+                mapping[old_term] = new_term
+            else:
+                for unigram in old_term:
+                    mapping[unigram] = new_term
+
+        self._executemany('insert into vocabulary_mangle values(?, ?)', mapping.iteritems())
 
     def add_unstructured_fields(self, field_names):
         """Register an unstructured field on the index. """
@@ -374,7 +413,7 @@ class SqliteReader(StorageReader):
         rows = list(self._execute('select name from unstructured_field'))
         return [row[0] for row in rows]
 
-    def vocabulary_count(self, include_fields=None, exclude_fields=None):
+    def count_vocabulary(self, include_fields=None, exclude_fields=None):
         """Return the number of unique terms occuring in the given combinations of fields. """
         where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields)
 
@@ -420,47 +459,69 @@ class SqliteReader(StorageReader):
         )
         return frequencies
 
-    def get_positions_index(self, include_fields=None, exclude_fields=None):
-        """
-        Get all term positions for the given indexed text field.
+    def _iterate_positions(self, terms=None, include_fields=None, exclude_fields=None):
+        """Iterate through the positions array for the given term.
 
-        This is a generator which yields a key/value pair tuple.
+        Currently this relies on the _positions field being stored in the frame, and is not
+        easily accessible otherwise. This is provided as a backwards compatability measure,
+        not a robust implementation of character level position information.
 
-        This is what is known as an inverted text index. Structure is as follows::
-
-            {
-                "term": {
-                    "frame_id": [(start, end), (start, end)],
-                    ...
-                },
-                ...
-            }
+        If you just want term-frequency information, the iterate_... provides the ...
+        TODO: implement and point to the new iterators for term-frequency information.
+        TODO: implement and point at the low level search operators.
 
         """
-        for k, v in self.__storage.get_container_items(IndexWriter.POSITIONS_CONTAINER.format(field)):
-            yield (k, json.loads(v))
+        where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields)
 
-    def get_term_positions(self, term, include_fields=None, exclude_fields=None):
-        """
-        Returns a dict of term positions for ``term`` (str).
+        if terms is None:
+            terms = (row[0] for row in self._execute(
+                """
+                select distinct term
+                from term_statistics ts
+                inner join vocabulary v
+                    on ts.term_id = v.id
+                inner join unstructured_field field
+                    on field.id = ts.field_id
+                {}
+                """.format(where_clause),
+                fields
+            ))
 
-        Structure of returned dict is as follows::
+        if fields:
+            where_clause += 'and term = ?'
+        else:
+            where_clause = 'where term = ?'
 
-        {
-            frame_id1: [(start, end), (start, end)],
-            frame_id2: [(start, end), (start, end)],
-            ...
-        }
+        for term in terms:
+            frames = self._execute(
+                """
+                select frame.id, field.name, stored
+                from term_posting post
+                inner join vocabulary vocab
+                    on vocab.id = post.term_id
+                inner join frame
+                    on frame.id = post.frame_id
+                inner join unstructured_field field
+                    on field.id = frame.field_id
+                {}
+                """.format(where_clause),
+                fields + [term]
+            )
 
-        """
-        return json.loads(self.__storage.get_container_item(IndexWriter.POSITIONS_CONTAINER.format(field), term))
+            positions = {}
 
-    def get_associations_index(self, field):
+            for frame_id, field_name, stored_frame in frames:
+                term_positions = json.loads(stored_frame)['_positions'][term]
+                positions[frame_id] = term_positions
+
+            yield term, positions
+
+    def iterate_associations(self, term=None, include_fields=None, exclude_fields=None):
         """
         Term associations for this Index.
 
-        This is used to record when two terms co-occur in a document. Be aware that only 1 co-occurrence for two terms
-        is recorded per document no matter the frequency of each term. The format is as follows::
+        This is used to record when two terms co-occur in a frame. Be aware that only 1 co-occurrence for two terms
+        is recorded per frame no matter the frequency of each term. The format is as follows::
 
             {
                 term: {
@@ -470,16 +531,67 @@ class SqliteReader(StorageReader):
                 ...
             }
 
-        This method is a generator which yields key/value pair tuples.
+        Optionally a single term may be specified, in which case the associations for just that term will be
+        returned.
+
+        This method is a generator which yields a dict of {other_term: count, ...} for every term in the index.
+
+        Note that this is dynamically calculated and may be expensive for large indexes.
 
         """
-        for k, v in self.__storage.get_container_items(IndexWriter.ASSOCIATIONS_CONTAINER.format(field)):
-            yield (k, json.loads(v))
 
-    def get_term_association(self, term, association, field):
-        """Returns a count of term associations between ``term`` (str) and ``association`` (str)."""
-        return json.loads(self.__storage.get_container_item(IndexWriter.ASSOCIATIONS_CONTAINER.format(field),
-                                                            term))[association]
+        where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields)
+
+        # If no field selectivity is defined, we can leave off the two joins:
+        if fields:
+            joined_where = """
+                inner join frame
+                    on frame.id = post.frame_id
+                inner join unstructured_field field
+                    on field.id = frame.field_id
+                {}""".format(where_clause)
+        else:
+            joined_where = ''
+
+        term_filter = 'where outer.term = ?' if term is not None else ''
+        terms = [term] if term is not None else []
+
+        rows = self._execute(
+            """
+            with frames as (
+                select vocab.term, frame_id
+                from frame_posting post
+                inner join vocabulary vocab
+                    on post.term_id = vocab.id
+                {}
+            )
+            select outer.term, inner.term, count(distinct outer.frame_id)
+            from frames as outer
+            inner join frames as inner
+                on outer.frame_id = inner.frame_id
+                and outer.term != inner.term
+            {}
+            group by outer.term, inner.term
+            order by outer.term, inner.term""".format(joined_where, term_filter),
+            fields + terms
+        )
+
+        first_row = rows.fetchone()
+        if first_row is not None:
+            current_term, other_term, count = first_row
+            current_dict = {other_term: count}
+
+            for term, other_term, count in rows:
+                if current_term == term:
+                    current_dict[other_term] = count
+                else:
+                    yield current_term, current_dict
+                    current_term = term
+                    current_dict = {other_term: count}
+            # Make sure to yield the final row.
+            yield current_term, current_dict
+        else:
+            yield None, {}
 
     def get_frame(self, frame_id, field):
         """Fetch frame ``frame_id`` (str)."""
@@ -570,7 +682,7 @@ class SqliteReader(StorageReader):
                 fields
             )
 
-    def get_metadata(self, include_fields=None, exclude_fields=None, frames=True):
+    def iterate_metadata(self, include_fields=None, exclude_fields=None, frames=True):
         """
         Get the metadata index.
 
