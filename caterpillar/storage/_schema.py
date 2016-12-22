@@ -106,6 +106,7 @@ create table term_posting (
     term_id integer,
     frame_id integer,
     frequency integer,
+    positions text, -- Ugly hack to allow compatible bigram merging.
     primary key(term_id, frame_id),
     foreign key(term_id) references term(id),
     foreign key(frame_id) references frame(id)
@@ -117,6 +118,7 @@ create table frame_posting (
     frame_id integer,
     term_id integer,
     frequency integer,
+    positions text,
     primary key(frame_id, term_id),
     foreign key(term_id) references term(id) on delete cascade
     foreign key(frame_id) references frame(id) on delete cascade
@@ -246,11 +248,12 @@ create table frame (
     stored text -- The stored representation of the frame
 );
 
-/* One row per occurence of a term in a frame */
+/* One row per term occuring in a frame */
 create table positions_staging (
     frame_id integer,
     term text,
     frequency integer,
+    positions text,
     primary key(frame_id, term)
 );
 
@@ -280,7 +283,7 @@ create table delete_plugin (
 );
 
 create table vocabulary_mangle (
-    old_term text primary key,
+    old_term text,
     new_term text
 );
 
@@ -416,21 +419,23 @@ insert into disk_index.frame(id, document_id, field_id, sequence, stored)
         on fields.name = frame.field_name;
 
 
-insert into disk_index.frame_posting(frame_id, term_id, frequency)
+insert into disk_index.frame_posting(frame_id, term_id, frequency, positions)
     select
         pos.frame_id + :max_frame,
         vocab.id,
-        frequency
+        frequency,
+        positions
     from positions_staging pos-- TODO: Rename this table in both the schema and the cache
     inner join disk_index.vocabulary vocab
         on vocab.term = pos.term;
 
 
-insert into disk_index.term_posting(term_id, frame_id, frequency)
+insert into disk_index.term_posting(term_id, frame_id, frequency, positions)
     select
         vocab.id,
         pos.frame_id + :max_frame,
-        frequency
+        frequency,
+        positions
     from positions_staging pos-- TODO: Rename this table in both the schema and the cache
     inner join disk_index.vocabulary vocab
         on vocab.term = pos.term
@@ -517,11 +522,11 @@ insert into disk_index.plugin_data
         using(plugin_type, settings)
 ;
 
-insert or replace into disk_index.vocabulary
-    select vocab.id, new_term
-    from vocabulary_mangle
-    inner join disk_index.vocabulary vocab
-        on vocabulary_mangle.old_term = vocab.term;
+--insert or replace into disk_index.vocabulary
+--    select vocab.id, new_term
+--    from vocabulary_mangle
+--    inner join disk_index.vocabulary vocab
+--        on vocabulary_mangle.old_term = vocab.term;
 
 
 commit;

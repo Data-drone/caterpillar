@@ -378,7 +378,7 @@ class IndexWriter(object):
 
         # Build the frames by performing required analysis.
         frames = {}  # Frame data:: field_name -> [frame1, frame2, frame3]
-        frame_terms = {}  # Term vector data:: field_name --> [{term1:freq, term2:freq}, {term2:freq, term3:freq}]
+        term_positions = {}  # Term vector data:: field_name --> [{term1:freq, term2:freq}, {term2:freq, term3:freq}]
 
         metadata = {}  # Inverted frame metadata:: field_name -> field_value
         # frame_ids = {}  # List of frame_id's across all fields.
@@ -415,7 +415,7 @@ class IndexWriter(object):
             else:
                 # Start the index for this field
                 frames[field_name] = []
-                frame_terms[field_name] = []
+                term_positions[field_name] = []
 
                 # Index non-categorical fields
                 field_data = fields[field_name]
@@ -474,8 +474,7 @@ class IndexWriter(object):
                         frames[field_name].append(json.dumps(frame))
 
                         # Generate the term-frequency vector for the frame:
-                        term_vector = {term: len(values) for term, values in frame['_positions'].iteritems()}
-                        frame_terms[field_name].append(term_vector)
+                        term_positions[field_name].append(frame['_positions'])
 
         # Currently only frames are searchable. That means if a schema contains no text fields it isn't searchable
         # at all. This block constructs a surrogate frame for storage in a catchall container to handle this case.
@@ -502,7 +501,7 @@ class IndexWriter(object):
 
         document = json.dumps(doc_fields)
 
-        self.__storage.add_analyzed_document('test', (document, metadata, frames, frame_terms))
+        self.__storage.add_analyzed_document('test', (document, metadata, frames, term_positions))
 
         logger.debug('Tokenization of document complete. {} frames staged for storage.'.format(len(frames)))
 
@@ -531,7 +530,7 @@ class IndexWriter(object):
 
         reader = IndexReader(self._path)
         frequencies_index = dict(reader.get_frequencies(text_field))
-        for w, freq in frequencies_index:
+        for w, freq in frequencies_index.iteritems():
             if w.islower() and w.title() in frequencies_index:
                 freq_name = frequencies_index[w.title()]
                 if freq / freq_name < merge_threshold:
@@ -944,10 +943,10 @@ class IndexReader(object):
         }
 
         """
-        positions = next(self.__storage._iterate_positions(terms=[term], include_fields=[field]))
-        if positions is not None:
+        try:
+            positions = next(self.__storage._iterate_positions(terms=[term], include_fields=[field]))
             return positions[1]
-        else:
+        except StopIteration:
             raise KeyError('{} not found in field {}'.format(term, field))
 
     def get_associations_index(self, field):
@@ -1001,10 +1000,10 @@ class IndexReader(object):
 
     def get_term_frequency(self, term, field):
         """Return the frequency of ``term`` (str) as an int."""
-        frequency = self.__storage.get_term_frequencies([term], include_fields=[field]).fetchone()
-        if frequency[1]:
+        try:
+            frequency = next(self.__storage.get_term_frequencies([term], include_fields=[field]))
             return frequency[1]
-        else:
+        except StopIteration:
             raise KeyError('{} not found in field {}'.format(term, field))
 
     def get_frame_count(self, field):
@@ -1013,10 +1012,14 @@ class IndexReader(object):
 
     def get_frame(self, frame_id, field):
         """Fetch frame ``frame_id`` (str)."""
-        row = next(self.__storage.iterate_frames(frame_ids=[frame_id], include_fields=[field]))
-        if row is not None:
-            return json.loads(row[4])
-        else:
+        try:
+            row = next(self.__storage.iterate_frames(frame_ids=[frame_id], include_fields=[field]))
+            frame = json.loads(row[4])
+            frame['_id'] = row[0]
+            frame['_doc_id'] = row[1]
+            return frame
+
+        except StopIteration:
             raise DocumentNotFoundError
 
     def get_frames(self, field, frame_ids=None):
@@ -1038,7 +1041,10 @@ class IndexReader(object):
 
         """
         for row in self.__storage.iterate_frames(frame_ids=frame_ids, include_fields=[field]):
-            yield row[0], json.loads(row[4])
+            frame = json.loads(row[4])
+            frame['_id'] = row[0]
+            frame['_doc_id'] = row[1]
+            yield row[0], frame
 
     def get_frame_ids(self, field):
         """Generator of ids for all frames stored on this index."""
@@ -1047,10 +1053,14 @@ class IndexReader(object):
 
     def get_document(self, document_id):
         """Returns the document with the given ``document_id`` (str) as a dict."""
-        document = next(self.__storage.iterate_documents([document_id]))
-        if document is not None:
-            return json.loads(document[1])
-        else:
+        try:
+            document = next(self.__storage.iterate_documents([document_id]))
+            # inject _id field
+            doc = json.loads(document[1])
+            doc['_id'] = document[0]
+            return doc
+
+        except StopIteration:
             raise DocumentNotFoundError("No document '{}'".format(document_id))
 
     def get_document_count(self):

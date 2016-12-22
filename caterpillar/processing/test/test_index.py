@@ -224,9 +224,10 @@ def test_index_frames_docs_alice(index_dir):
             assert reader.get_frame_count('text') == 52
 
             frame_id = reader.get_term_positions('Alice', 'text').keys()[0]
-            assert frame_id == reader.get_frame(frame_id, 'text')['_id']
+            frame = reader.get_frame(frame_id, 'text')
+            assert frame['_id'] == frame_id
 
-            doc_id = frame_id.split('-')[0]
+            doc_id = frame['_doc_id']
             assert doc_id == reader.get_document(doc_id)['_id']
             assert doc_id == next(reader.get_documents())[0]
 
@@ -380,6 +381,8 @@ def test_index_moby_case_folding(index_dir):
         writer = IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser))))
         with writer:
             writer.add_document(text=data, frame_size=2)
+
+        with writer:
             writer.fold_term_case('text')
 
         with IndexReader(index_dir) as reader:

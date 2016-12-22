@@ -154,15 +154,104 @@ class SqliteWriter(StorageWriter):
         """
         # Unwrap term mapping to a more friendly dictionary, accounting for the different data
         # structure in the merging unigrams to an n-gram case.
-        mapping = {}
+        uni_mapping = {}
+        phrase_mapping = {}
         for old_term, new_term in term_mapping:
             if isinstance(old_term, basestring):
-                mapping[old_term] = new_term
+                uni_mapping[old_term] = new_term
             else:
                 for unigram in old_term:
-                    mapping[unigram] = new_term
+                    phrase_mapping[new_term] = unigram
 
-        self._executemany('insert into vocabulary_mangle values(?, ?)', mapping.iteritems())
+        self._executemany(
+            'insert into vocabulary_mangle values(?, ?)',
+            uni_mapping.iteritems()
+        )
+
+        # Handle unigram case first: identify and merge all the matching positions.
+        change_rows = self._execute("""
+            commit; attach database ? as disk_index; begin;
+
+            -- Update the vocabulary with any new values:
+            insert into disk_index.vocabulary(term)
+                select distinct new_term
+                from vocabulary_mangle mangle
+                where not exists (select 1
+                                 from disk_index.vocabulary
+                                 where term = new_term);
+
+            create table vocab_map as
+                select distinct mangle.*, vocab.id as old_id, new_vocab.id as new_id
+                from vocabulary_mangle mangle
+                inner join disk_index.vocabulary vocab
+                    on mangle.old_term = vocab.term
+                inner join disk_index.vocabulary new_vocab
+                    on mangle.new_term = new_vocab.term;
+
+            create table to_mangle_posting as
+                select post.*, vocab_map.new_id, frame.field_id
+                from disk_index.term_posting post
+                inner join vocab_map
+                    on vocab_map.old_id = post.term_id
+                    or vocab_map.new_id = post.term_id
+                inner join disk_index.frame
+                    on post.frame_id = frame.id;
+
+            -- Clear out old values from tables.
+            delete from disk_index.term_posting
+                where term_id in (select old_id from vocab_map union select new_id from vocab_map);
+
+            delete from disk_index.frame_posting
+                where term_id in (select old_id from vocab_map union select new_id from vocab_map);
+
+            delete from disk_index.term_statistics
+                where term_id in (select old_id from vocab_map union select new_id from vocab_map);
+
+            -- Update the term_statistics:
+            insert or replace into disk_index.term_statistics(term_id, field_id, frequency, frames_occuring)
+                select new_id, field_id, sum(frequency), count(distinct frame_id)
+                from to_mangle_posting
+                group by new_id, field_id;
+
+            -- Return the rows to have their postings merged
+            select frame_id, new_id, positions
+            from to_mangle_posting
+            order by frame_id, new_id;
+
+            """, [self._db]
+        )
+
+        def insert_row(values):
+            self._execute(
+                """
+                insert into disk_index.term_posting(frame_id, term_id, frequency, positions)
+                    values(?, ?, ?, ?);
+                insert into disk_index.frame_posting(frame_id, term_id, frequency, positions)
+                    values(?, ?, ?, ?);
+                """, values * 2
+            )
+
+        # Aggregate positions arrays
+        row = change_rows.fetchone()
+        if row is not None:
+            current_frame_id, current_term, positions = row
+            acc_positions = json.loads(positions)
+            for frame_id, term, positions in change_rows:
+                if current_frame_id == frame_id and term == current_term:
+                    acc_positions += json.loads(positions)
+                else:
+                    insert_row(
+                        [current_frame_id, current_term, len(acc_positions), json.dumps(acc_positions)]
+                    )
+                    current_frame_id = frame_id
+                    current_term = term
+                    acc_positions = json.loads(positions)
+            else:
+                insert_row(
+                    [current_frame_id, current_term, len(acc_positions), json.dumps(acc_positions)]
+                )
+
+        self._execute('commit; detach disk_index; begin;')
 
     def add_unstructured_fields(self, field_names):
         """Register an unstructured field on the index. """
@@ -210,7 +299,7 @@ class SqliteWriter(StorageWriter):
                     field_name: list of string representations of each frames
                 }
                 - a dictionary {
-                    field_name: list of {term:frequency} vectors for each frame
+                    field_name: list of {term: [[word1 boundary], [word2 boundary]]} vectors for each frame
                 }
             For the frame data (3rd and 4th elements), the frames should be in document sequence order
             and there should be a one-one correspondence between frame representations and term:frequency vectors.
@@ -264,13 +353,13 @@ class SqliteWriter(StorageWriter):
             # Term vectors for the frames, note that the dictionary is sorted for consistency with insert_frames
             frame_term_data = (frame for field, frame_list in sorted(frame_terms.iteritems()) for frame in frame_list)
             insert_term_data = (
-                (frame_count + self.frame_no, term, frequency)
+                (frame_count + self.frame_no, term, len(positions), json.dumps(positions))
                 for frame_count, frame_data in enumerate(frame_term_data)
-                for term, frequency in frame_data.iteritems()
+                for term, positions in frame_data.iteritems()
             )
 
             self._executemany(
-                'insert into positions_staging(frame_id, term, frequency) values (?, ?, ?)',
+                'insert into positions_staging(frame_id, term, frequency, positions) values (?, ?, ?, ?)',
                 insert_term_data
             )
 
@@ -492,29 +581,38 @@ class SqliteReader(StorageReader):
         else:
             where_clause = 'where term = ?'
 
-        for term in terms:
-            frames = self._execute(
-                """
-                select frame.id, field.name, stored
-                from term_posting post
-                inner join vocabulary vocab
-                    on vocab.id = post.term_id
-                inner join frame
-                    on frame.id = post.frame_id
-                inner join unstructured_field field
-                    on field.id = frame.field_id
-                {}
-                """.format(where_clause),
-                fields + [term]
-            )
+        data = (fields + [term] for term in terms)
+        frames = self._executemany(
+            """
+            select vocab.term, frame.id, field.name, post.positions
+            from term_posting post
+            inner join vocabulary vocab
+                on vocab.id = post.term_id
+            inner join frame
+                on frame.id = post.frame_id
+            inner join unstructured_field field
+                on field.id = frame.field_id
+            {}
+            """.format(where_clause),
+            data
+        )
 
-            positions = {}
+        row = next(frames)
 
-            for frame_id, field_name, stored_frame in frames:
-                term_positions = json.loads(stored_frame)['_positions'][term]
-                positions[frame_id] = term_positions
+        if row is not None:
+            current_term, frame_id, field_name, term_positions = row
+            positions = {frame_id: json.loads(term_positions)}
 
-            yield term, positions
+            for term, frame_id, field_name, term_positions in frames:
+                if term == current_term:
+                    term_positions = json.loads(term_positions)
+                    positions[frame_id] = term_positions
+                else:
+                    yield current_term, positions
+                    positions = {frame_id: json.loads(term_positions)}
+                    current_term = term
+            else:
+                yield current_term, positions
 
     def iterate_associations(self, term=None, include_fields=None, exclude_fields=None):
         """
@@ -616,9 +714,9 @@ class SqliteReader(StorageReader):
 
         """
         if document_ids is not None:
-            return (
-                self._execute('select * from document where id = ?', [document_id]).fetchone()
-                for document_id in document_ids
+            return self._executemany(
+                'select * from document where id = ?',
+                [[document_id] for document_id in document_ids]
             )
         else:
             return self._execute('select * from document')
@@ -633,15 +731,12 @@ class SqliteReader(StorageReader):
 
         """
         if frame_ids is not None:
-            return (
-                self._execute(
-                    'select frame.id, document_id, field.name, sequence, stored '
-                    'from frame '
-                    'inner join unstructured_field field '
-                    '   on field.id = frame.field_id '
-                    'where frame.id = ?', [frame_id]
-                ).fetchone()
-                for frame_id in frame_ids
+            return self._executemany(
+                'select frame.id, document_id, field.name, sequence, stored '
+                'from frame '
+                'inner join unstructured_field field '
+                '   on field.id = frame.field_id '
+                'where frame.id = ?', [[frame_id] for frame_id in frame_ids]
             )
         else:
             where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields)
