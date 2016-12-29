@@ -60,7 +60,7 @@ from __future__ import absolute_import, division, unicode_literals
 import logging
 import os
 import cPickle
-import sys
+from collections import defaultdict
 import ujson as json
 
 import nltk
@@ -297,6 +297,7 @@ class IndexWriter(object):
                 # Initialise our fields:
                 storage.begin()
 
+                storage.add_unstructured_fields([''])  # Metadata hack until we have document search
                 storage.add_unstructured_fields(self.__schema.get_indexed_text_fields())
                 storage.add_structured_fields(self.__schema.get_indexed_structured_fields())
 
@@ -381,7 +382,6 @@ class IndexWriter(object):
         term_positions = {}  # Term vector data:: field_name --> [{term1:freq, term2:freq}, {term2:freq, term3:freq}]
 
         metadata = {}  # Inverted frame metadata:: field_name -> field_value
-        # frame_ids = {}  # List of frame_id's across all fields.
 
         # Shell frame includes all non-indexed and categorical fields
         shell_frame = {}
@@ -469,7 +469,6 @@ class IndexWriter(object):
 
                         # Build the final frame and add to the index
                         frame.update(shell_frame)
-                        # frame_id = "{}-{}".format(document_id, frame_count)
                         # Serialised representation of the frame
                         frames[field_name].append(json.dumps(frame))
 
@@ -479,17 +478,12 @@ class IndexWriter(object):
         # Currently only frames are searchable. That means if a schema contains no text fields it isn't searchable
         # at all. This block constructs a surrogate frame for storage in a catchall container to handle this case.
         if not frames and metadata:
-            # frame_id = "{}-{}".format(document_id, frame_count)
             frame = {
-                # '_id': frame_id,
                 '_field': '',  # There is no text field
                 '_positions': {},
                 '_sequence_number': frame_count,
-                # '_doc_id': document_id,
             }
             frame.update(shell_frame)
-            # frames[''] = {frame_id: frame}
-            # frame_ids[''] = [frame_id]
 
         # Finally add the document to storage.
         doc_fields = {}
@@ -522,7 +516,8 @@ class IndexWriter(object):
         ``merge_threshold`` (float) is used to test when to merge two variants. When the ratio between word and name
         version of a term falls below this threshold the merge is carried out.
 
-        Note that only the search vocabulary and counts are affected. The _positions index is not updated.
+        The statistics used to determine which terms to fold are calculated from ``text_field``, but the
+        global term dictionary and statistics are folded and recalculated across all fields.
 
         """
 
@@ -567,78 +562,20 @@ class IndexWriter(object):
 
         logger.debug("Merged {} terms during manual merge.".format(count))
 
-    def _merge_terms(self, old_term, new_term, associations, positions, frequencies, frames):
+    def materialise_phrases(self, bigram_frame_positions):
         """
-        Merge ``old_term`` into ``new_term``, operating in-place on the provided index components.
+        Materialise the phrases identified by the find_bigrams function on this index.
 
-        If ``new_term`` is a false-y value, ``old_term`` is deleted. Updates all the passed index structures to reflect
-        the change.
-
-        Raises :exc:`TermNotFoundError` if the term does not exist in the index.
+        A bigram is identified as a string: 'term1 term2'. All instances of 'term1' and 'term2' that occur
+        as part of the given bigram are replaced by the bigram string. Instances of 'term1' and 'term2' that
+        are not part of the bigram are retained.
 
         """
-        try:
-            old_positions = positions[old_term]
-            new_positions = positions[new_term] if new_term in positions else {}
-        except KeyError:
-            raise TermNotFoundError("Term '{}' does not exist.".format(old_term))
+        count = len(bigram_frame_positions)
 
-        # Clear global associations for old term
-        if old_term in associations:
-            for term in associations[old_term]:
-                del associations[term][old_term]
-            del associations[old_term]
+        self.__storage._mangle_phrases(bigram_frame_positions)
 
-        # Update term positions globally and positions and associations in frames
-        for frame_id, frame_positions in old_positions.iteritems():
-
-            # Remove traces of old term from frame data
-            del frames[frame_id]['_positions'][old_term]
-
-            # Update global positions
-            if new_term:
-                try:
-                    new_positions[frame_id].extend(frame_positions)
-                except KeyError:
-                    # New term had not been recorded in this frame
-                    new_positions[frame_id] = frame_positions
-
-                # Update global associations
-                for term in frames[frame_id]['_positions']:
-                    if new_term not in frames[frame_id]['_positions'] and old_term != term and term != new_term:
-                        # Only count frames that do not contain the new spelling as those frames have already
-                        # been counted.
-                        # We need to change these separately because there is a very slim chance that new_term isn't
-                        # in the associations index yet while term will always be present.
-                        # Term first
-                        try:
-                            associations[term][new_term] += 1
-                        except KeyError:
-                            associations[term][new_term] = 1
-                        # Now new_term
-                        try:
-                            associations[new_term][term] += 1
-                        except KeyError:
-                            try:
-                                associations[new_term][term] = 1
-                            except KeyError:
-                                associations[new_term] = {term: 1}
-
-                # Update frame positions
-                try:
-                    frames[frame_id]['_positions'][new_term].extend(frame_positions)
-                except KeyError:
-                    # New term had not been recorded in this frame
-                    frames[frame_id]['_positions'][new_term] = frame_positions
-
-        # Update positions and frequency index
-        if new_term:
-            positions[new_term] = new_positions
-            frequencies[new_term] = len(new_positions)
-
-        # Finally, purge.
-        del positions[old_term]
-        del frequencies[old_term]
+        logger.debug("Materialised {} phrases within the index.".format(count))
 
     def _merge_terms_into_ngram(self, ngram_terms, new_term, associations, positions, frequencies, frames, max_gap=2):
         """
@@ -947,7 +884,7 @@ class IndexReader(object):
             positions = next(self.__storage._iterate_positions(terms=[term], include_fields=[field]))
             return positions[1]
         except StopIteration:
-            raise KeyError('{} not found in field {}'.format(term, field))
+            raise KeyError('"{}" not found in field "{}"'.format(term, field))
 
     def get_associations_index(self, field):
         """
@@ -1004,7 +941,7 @@ class IndexReader(object):
             frequency = next(self.__storage.get_term_frequencies([term], include_fields=[field]))
             return frequency[1]
         except StopIteration:
-            raise KeyError('{} not found in field {}'.format(term, field))
+            raise KeyError('"{}" not found in field "{}"'.format(term, field))
 
     def get_frame_count(self, field):
         """Return the int count of frames stored on this index."""
@@ -1211,7 +1148,8 @@ def find_bi_gram_words(frames, min_count=5, threshold=40.0):
     This function uses a :class:`caterpillar.processing.analysis.analyse.PotentialBiGramAnalyser` to identify potential
     bi-grams. Names and stopwords are not considered for bi-grams.
 
-    Returns a list of bi-gram strings that pass the criteria.
+    Returns a nested dict of {bigram: frame_id: [(position_start, position_end)]}. The keys of this dict identify
+    the discovered bigrams and the values indicate the frame_id and character boundaries of the bigram.
 
     """
     logger.debug("Identifying n-grams")
@@ -1222,13 +1160,22 @@ def find_bi_gram_words(frames, min_count=5, threshold=40.0):
     bi_gram_analyser = PotentialBiGramAnalyser()
     sentence_tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
     num_frames = 0
-    for _, frame in frames:
+    bigram_frame_positions = defaultdict(dict)
+
+    for frame_id, frame in frames:
         for sentence in sentence_tokenizer.tokenize(frame['_text'], realign_boundaries=True):
             terms_seen = []
             for token_list in bi_gram_analyser.analyse(sentence):
                 # Using a special filter that returns list of tokens. List of 1 means no bi-grams.
                 if len(token_list) > 1:  # We have a bi-gram people!
-                    candidate_bi_grams.inc(u"{} {}".format(token_list[0].value, token_list[1].value))
+                    bigram = u"{} {}".format(token_list[0].value, token_list[1].value)
+                    boundary = [token_list[0].index[0], token_list[1].index[1]]
+                    candidate_bi_grams.inc(bigram)
+                    try:
+                        bigram_frame_positions[bigram][frame_id] += boundary
+                    except KeyError:
+                        bigram_frame_positions[bigram][frame_id] = [boundary]
+
                 for t in token_list:  # Keep a list of terms we have seen so we can record freqs later.
                     if not t.stopped:  # Naughty stopwords!
                         terms_seen.append(t.value)
@@ -1246,4 +1193,6 @@ def find_bi_gram_words(frames, min_count=5, threshold=40.0):
         return score > threshold
     candidate_bi_gram_list = filter(filter_bi_grams, candidate_bi_grams.iteritems())
     logger.debug("Identified {} n-grams.".format(len(candidate_bi_gram_list)))
-    return [b[0] for b in candidate_bi_gram_list]
+    bigrams = {b[0] for b in candidate_bi_gram_list}
+    bigram_frames = {bigram: vals for bigram, vals in bigram_frame_positions.iteritems() if bigram in bigrams}
+    return bigram_frames

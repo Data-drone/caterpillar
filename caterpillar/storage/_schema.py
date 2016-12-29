@@ -287,7 +287,22 @@ create table vocabulary_mangle (
     new_term text
 );
 
+/* Staging tables for phrase mangling. */
+create table phrase_mangle (
+    bigram text,
+    left_unigram text,
+    right_unigram text,
+    frame_id integer,
+    frequency integer,
+    positions text
+);
+
+create table update_term_posting (
+    term_id integer, frame_id integer, frequency integer, positions text
+);
+
 commit;
+
 """
 
 # Prepare commit by precalculating and sorting everything.
@@ -377,16 +392,18 @@ insert into disk_index.unstructured_field(name)
     select * from unstructured_field;
 
 
-/* Update vocabulary with new terms: */
+/* Update vocabulary with new terms. Insert highest frequency first. */
 insert into disk_index.vocabulary(term)
-    select distinct
+    select
         term
     from term_statistics stats
     where not exists (
         select 1
         from vocabulary v
         where v.term = stats.term
-    );
+    )
+    group by term
+    order by sum(frequency) desc;
 
 
 /* Insert document and frame data */
@@ -521,13 +538,6 @@ insert into disk_index.plugin_data
     inner join disk_index.plugin_registry
         using(plugin_type, settings)
 ;
-
---insert or replace into disk_index.vocabulary
---    select vocab.id, new_term
---    from vocabulary_mangle
---    inner join disk_index.vocabulary vocab
---        on vocabulary_mangle.old_term = vocab.term;
-
 
 commit;
 detach database disk_index;

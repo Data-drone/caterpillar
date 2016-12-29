@@ -57,9 +57,9 @@ def test_add_get_document(tmp_dir):
         'An example document without anything fancy',
         {'test_field': 1, 'other_field': 'other'},
         {'text': ['An example', 'document without', 'anything fancy']},
-        {'text': [{'An': 1, 'example': 1},
-                  {'document': 1, 'without': 1},
-                  {'anything': 1, 'fancy': 1}]}
+        {'text': [{'An': [[0, 10]], 'example': [[0, 10]]},
+                  {'document': [[0, 10]], 'without': [[0, 10]]},
+                  {'anything': [[0, 10]], 'fancy': [[0, 10]]}]}
     )
 
     writer = SqliteWriter(tmp_dir, create=True)
@@ -86,10 +86,11 @@ def test_add_get_document(tmp_dir):
     for i in range(100):
         writer.add_analyzed_document('test', sample_format_document)
     writer.commit()
+
+    assert sum(i[1] for i in reader.get_frequencies()) == 606
     assert reader.count_documents() * 3 == 303 == reader.count_frames()
     assert reader_transaction.count_documents() == 1
     assert reader.count_vocabulary() == 6
-    assert sum(i[1] for i in reader.get_frequencies()) == 606
 
     reader_transaction.commit()
     assert reader_transaction.count_documents() == 101

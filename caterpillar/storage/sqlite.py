@@ -68,7 +68,7 @@ class SqliteWriter(StorageWriter):
             list(cursor.execute(disk_schema))
             connection.close()
 
-    def begin(self, writer=False):
+    def begin(self):
         """
         Begin a transaction.
 
@@ -96,11 +96,13 @@ class SqliteWriter(StorageWriter):
 
         First the on disk database is attached and the current maximum document and frame ID's are returned.
 
-        Then the content of the in memory cache is flushed to the database.
+        Then the content of the in memory cache is flushed to the database and then dropped.
 
         """
         max_document_id, max_frame_id, deleted_count = self._prepare_flush()
         self._flush(max_document_id, max_frame_id, deleted_count)
+        self._db_connection.close()
+        self._db_connection = None
         self.doc_no = 0
         self.frame_no = 0
         self.deleted_no = 0
@@ -149,27 +151,31 @@ class SqliteWriter(StorageWriter):
 
         If old_term is not present in the vocabulary, it will be ignored.
 
-        This is a destructive operation and should be used with care.
+        Note that this operation operates only on content that has been commited to disk already:
+        this function must be called in a write transaction *after* the documents to operate on
+        have been added.
+
+        This is a destructive operation that does not respect the writer interface and should be
+        used with care.
 
         """
         # Unwrap term mapping to a more friendly dictionary, accounting for the different data
         # structure in the merging unigrams to an n-gram case.
         uni_mapping = {}
-        phrase_mapping = {}
         for old_term, new_term in term_mapping:
             if isinstance(old_term, basestring):
                 uni_mapping[old_term] = new_term
             else:
-                for unigram in old_term:
-                    phrase_mapping[new_term] = unigram
+                raise ValueError('_mangle_terms can only remap single terms - use _mangle_phrases instead')
 
         self._executemany(
             'insert into vocabulary_mangle values(?, ?)',
             uni_mapping.iteritems()
         )
 
+        # TODO: clean up all the temporary tables so consecutive runs don't get confused.
         # Handle unigram case first: identify and merge all the matching positions.
-        change_rows = self._execute("""
+        change_unigrams = self._execute("""
             commit; attach database ? as disk_index; begin;
 
             -- Update the vocabulary with any new values:
@@ -188,16 +194,28 @@ class SqliteWriter(StorageWriter):
                 inner join disk_index.vocabulary new_vocab
                     on mangle.new_term = new_vocab.term;
 
+            -- Select all instances of old and new terms for updating statistics.
+            -- One row for each old term, matched with the columns for the new term.
             create table to_mangle_posting as
-                select post.*, vocab_map.new_id, frame.field_id
+                select
+                    post.frame_id,
+                    post.term_id,
+                    post.frequency + coalesce(old.frequency, 0) as frequency,
+                    post.positions,
+                    old.positions
                 from disk_index.term_posting post
                 inner join vocab_map
-                    on vocab_map.old_id = post.term_id
-                    or vocab_map.new_id = post.term_id
+                    on vocab_map.new_id = post.term_id
+                left outer join (select term_posting.*
+                                 from disk_index.term_posting
+                                 inner join vocab_map
+                                    on vocab_map.old_id = term_posting.term_id) old
+                    on old.term_id = post.term_id
+                    and old.frame_id = post.frame_id
                 inner join disk_index.frame
                     on post.frame_id = frame.id;
 
-            -- Clear out old values from tables.
+            -- Clear out old values from tables
             delete from disk_index.term_posting
                 where term_id in (select old_id from vocab_map union select new_id from vocab_map);
 
@@ -209,14 +227,16 @@ class SqliteWriter(StorageWriter):
 
             -- Update the term_statistics:
             insert or replace into disk_index.term_statistics(term_id, field_id, frequency, frames_occuring)
-                select new_id, field_id, sum(frequency), count(distinct frame_id)
+                select term_id, field_id, sum(frequency), count(distinct frame_id)
                 from to_mangle_posting
-                group by new_id, field_id;
+                inner join disk_index.frame
+                    on to_mangle_posting.frame_id = frame.id
+                group by term_id, field_id;
 
             -- Return the rows to have their postings merged
-            select frame_id, new_id, positions
+            select *
             from to_mangle_posting
-            order by frame_id, new_id;
+            order by frame_id, term_id;
 
             """, [self._db]
         )
@@ -232,26 +252,193 @@ class SqliteWriter(StorageWriter):
             )
 
         # Aggregate positions arrays
-        row = change_rows.fetchone()
-        if row is not None:
-            current_frame_id, current_term, positions = row
-            acc_positions = json.loads(positions)
-            for frame_id, term, positions in change_rows:
-                if current_frame_id == frame_id and term == current_term:
-                    acc_positions += json.loads(positions)
-                else:
-                    insert_row(
-                        [current_frame_id, current_term, len(acc_positions), json.dumps(acc_positions)]
-                    )
-                    current_frame_id = frame_id
-                    current_term = term
-                    acc_positions = json.loads(positions)
+
+        for row in change_unigrams:
+            frame_id, term_id, frequency, new_positions, old_positions = row
+
+            if old_positions is not None:
+                positions = json.dumps(json.loads(new_positions) + json.loads(old_positions))
             else:
-                insert_row(
-                    [current_frame_id, current_term, len(acc_positions), json.dumps(acc_positions)]
-                )
+                positions = new_positions
+
+            insert_row([frame_id, term_id, frequency, positions])
 
         self._execute('commit; detach disk_index; begin;')
+
+    def _mangle_phrases(self, bigram_frame_positions):
+        """Materialise the bigrams occuring in the identified positions of the given frames.
+
+        Replaces the unigram element of the term.
+
+        """
+
+        mangle_rows = (
+            (bigram, bigram.split(' ')[0], bigram.split(' ')[1], frame_id, len(positions), json.dumps(positions))
+            for bigram, frames in bigram_frame_positions.iteritems()
+            for frame_id, positions in frames.iteritems()
+        )
+
+        self._executemany(
+            'insert into phrase_mangle values(?, ?, ?, ?, ?, ?)',
+            mangle_rows
+        )
+
+        change_bigrams = self._execute("""
+            commit; attach database ? as disk_index; begin;
+
+            -- Update the vocabulary with any new values:
+            insert into disk_index.vocabulary(term)
+                select distinct bigram
+                from phrase_mangle mangle
+                where not exists (select 1
+                                  from disk_index.vocabulary
+                                  where term = bigram);
+
+            -- Temporary mapping table for vocabulary id's
+            create table phrase_map as
+                select distinct
+                    bigram, left_unigram, right_unigram,
+                    bi_vocab.id as bigram_id,
+                    left_vocab.id as left_id,
+                    right_vocab.id as right_id
+                from phrase_mangle mangle
+                inner join disk_index.vocabulary bi_vocab
+                    on mangle.bigram = bi_vocab.term
+                inner join disk_index.vocabulary left_vocab
+                    on mangle.left_unigram = left_vocab.term
+                inner join disk_index.vocabulary right_vocab
+                    on mangle.right_unigram = right_vocab.term;
+
+            -- Horrible temporary table for splitting term postings where bigrams consume unigrams.
+            -- This is one row per bigram, merging the left and right unigram postings into a single table.
+            create table to_mangle_phrase as
+                select
+                    phrase_mangle.frame_id,
+                    phrase_mangle.frequency as bigram_frequency,
+                    phrase_mangle.positions as bigram_positions,
+                    phrase_map.bigram_id,
+                    phrase_map.left_id,
+                    left_posting.frequency as left_frequency,
+                    left_posting.positions as left_positions,
+                    phrase_map.right_id,
+                    right_posting.frequency as right_frequency,
+                    right_posting.positions as right_positions
+                from phrase_mangle
+                inner join phrase_map
+                    on phrase_mangle.bigram = phrase_map.bigram
+                inner join disk_index.term_posting left_posting
+                    on phrase_map.left_id = left_posting.term_id
+                inner join disk_index.term_posting right_posting
+                    on phrase_map.right_id = right_posting.term_id;
+
+            -- For updating term statistics after all the mangling is done.
+            create table old_unigram_posting as
+                select term_posting.*
+                from disk_index.term_posting
+                inner join phrase_map
+                    on phrase_map.left_id = term_posting.term_id
+                    or phrase_map.right_id = term_posting.term_id
+                where frame_id in (select distinct frame_id from phrase_mangle);
+
+            -- Clear out old values from tables on disk.
+            delete from disk_index.term_posting
+            where term_id in (select left_id from phrase_map union select right_id from phrase_map)
+                and frame_id in (select distinct frame_id from phrase_mangle);
+
+            delete from disk_index.frame_posting
+            where frame_id in (select distinct frame_id from phrase_mangle)
+                and term_id in (select left_id from phrase_map union select right_id from phrase_map);
+
+            -- Return the rows to have their postings merged
+            select * from to_mangle_phrase;
+
+            """, [self._db]
+        )
+
+        def insert_split_rows(row):
+            def insert_row(values):
+                self._execute(
+                    """
+                    insert into update_term_posting(frame_id, term_id, frequency, positions)
+                        values(?, ?, ?, ?);
+                    """, values
+                )
+
+            def merge_positions(bigram_positions, unigram_positions):
+                valid_positions = []
+                bigram_positions = json.loads(bigram_positions)
+                for uni_position in json.loads(unigram_positions):
+                    for bigram_position in bigram_positions:
+                        # Remove the unigram position if it's within the bigram position.
+                        if bigram_position[0] <= uni_position[0] <= bigram_position[1]:
+                            continue
+                        valid_positions.append(uni_position)
+                return json.dumps(valid_positions)
+
+            bigram_frequency, left_frequency, right_frequency = row[1], row[5], row[8]
+            bigram_positions, left_positions, right_positions = row[2], row[6], row[9]
+            # Always insert the bigram information:
+            insert_row([row[0], row[3], bigram_frequency, bigram_positions])
+
+            # Some instances of left term that are not part of the bigram
+            if bigram_frequency < left_frequency:
+                left_frequency -= bigram_frequency
+                left_positions = merge_positions(bigram_positions, left_positions)
+                insert_row([row[0], row[4], left_frequency, left_positions])
+            # Instances of the right term that are not part of the bigram.
+            elif bigram_frequency < right_frequency:
+                right_frequency -= bigram_frequency
+                right_positions = merge_positions(bigram_positions, right_positions)
+                insert_row([row[0], row[4], right_frequency, right_positions])
+
+        # Aggregate or split positions arrays.
+        row = change_bigrams.fetchone()
+        if row is not None:
+            insert_split_rows(row)
+            for row in change_bigrams:
+                insert_split_rows(row)
+
+        # Finally update the term statistics and flush everything to disk
+        self._execute("""
+            -- Update the term_statistics:
+            with changed_terms as (
+                select term_id, frame.field_id, sum(frequency) as frequency, count(distinct frame_id) as frames_occuring
+                from update_term_posting post
+                inner join disk_index.frame
+                    on post.frame_id = frame.id
+                group by term_id, frame.field_id
+
+                union all
+
+                select term_id, field_id, -sum(frequency) as frequency, -count(distinct frame_id) as frames_occuring
+                from old_unigram_posting post
+                inner join disk_index.frame
+                    on post.frame_id = frame.id
+                group by term_id, field_id
+
+                union all
+
+                select term_id, field_id, frequency, frames_occuring
+                from disk_index.term_statistics
+                where term_id in (select left_id from phrase_map union select right_id from phrase_map)
+            )
+            insert or replace into disk_index.term_statistics(term_id, field_id, frequency, frames_occuring)
+                select term_id, field_id, sum(frequency), sum(frames_occuring)
+                from changed_terms
+                group by term_id, field_id;
+
+
+            -- Flush the updated data to the frame and term_posting
+            insert or replace into disk_index.frame_posting(term_id, frame_id, frequency, positions)
+                select *
+                from update_term_posting;
+
+            insert or replace into disk_index.term_posting(term_id, frame_id, frequency, positions)
+                select *
+                from update_term_posting;
+
+            commit; detach disk_index; begin;
+        """)
 
     def add_unstructured_fields(self, field_names):
         """Register an unstructured field on the index. """
