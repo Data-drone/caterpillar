@@ -304,7 +304,7 @@ def test_index_alice_merge_bigram(index_dir):
         bigram_index = os.path.join(tempfile.mkdtemp(), "bigram")
         merge_index = os.path.join(tempfile.mkdtemp(), "merge")
         try:
-            analyser = TestBiGramAnalyser(bi_grams.keys(), )
+            analyser = TestBiGramAnalyser(bi_grams)
             with IndexWriter(bigram_index, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser)))) as writer:
                 writer.add_document(text=data)
                 # Quick plumbing test.
@@ -327,8 +327,7 @@ def test_index_alice_merge_bigram(index_dir):
             analyser = TestAnalyser()
             with IndexWriter(merge_index, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser)))) as writer:
                 writer.add_document(text=data)
-            with IndexWriter(merge_index) as writer:
-                writer.materialise_phrases(bi_grams)
+                writer.merge_terms(terms_to_merge, 'text')
 
             # Verify indexes match
             with IndexReader(merge_index) as merges, IndexReader(bigram_index) as bigrams:

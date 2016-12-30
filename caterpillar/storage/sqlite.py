@@ -241,21 +241,21 @@ class SqliteWriter(StorageWriter):
                 select
                     term_id as left_term,
                     frame_id,
-                    positions as left_postions,
+                    positions as left_positions,
                     frequency as left_frequency
-                from term_positions post
+                from disk_index.term_posting post
                 inner join disk_index.frame
                     on post.frame_id = frame.id
                 where term_id = (select id from disk_index.vocabulary where term = :left_term)
                     and frame.field_id = (select id from disk_index.unstructured_field where name = :field)
             ),
-            with right as (
+            right as (
                 select
                     term_id as right_term,
                     frame_id,
                     positions as right_positions,
                     frequency as right_frequency
-                from term_positions post
+                from disk_index.term_posting post
                 inner join disk_index.frame
                     on post.frame_id = frame.id
                 where term_id = (select id from disk_index.vocabulary where term = :right_term)
@@ -273,7 +273,7 @@ class SqliteWriter(StorageWriter):
                     right_frequency
                 from left
                 inner join right
-                    on left.frame_id = right.frame_id
+                    on left.frame_id = right.frame_id;
 
             delete from disk_index.term_posting
                 where term_id in (select id from disk_index.vocabulary where term in (:left_term, :right_term))
@@ -292,83 +292,105 @@ class SqliteWriter(StorageWriter):
         def insert_row(values):
             self._execute('insert into bigram_merging values(?, ?, ?, ?)', values)
 
-        for frame_id, bigram_id, left_id, left_positions, right_id, right_positions in bigram_rows:
+        for frame_id, bigram_id, left_id, left_positions, _, right_id, right_positions, _ in bigram_rows:
 
-            left = [(start, end, 0) for start, end in json.loads('[{}]'.format(left_positions))]
-            right = [(start, end, 1) for start, end in json.loads('[{}]'.format(right_positions))]
+            if left_id != right_id:  # Different left and right terms
+                left = [(start, end, 0) for start, end in json.loads('[{}]'.format(left_positions))]
+                right = [(start, end, 1) for start, end in json.loads('[{}]'.format(right_positions))]
+                sorted_positions = sorted(left + right)
 
-            # Sort positions, then merge those that match the sequence
-            sorted_positions = sorted(left + right)
-            merged_positions = []
-            final_left = []
-            final_right = []
+                # Sort positions, then merge those that match the sequence
+                merged_positions = []
+                final_left = []
+                final_right = []
 
-            for first, second in zip(sorted_positions, sorted_positions[1:]):
-                # It's a bigram if the left term is follwed by the right term, and they are close enough.
-                if first[2] == 0 and second[2] == 1 and second[0] - first[1] <= max_char_gap:
-                    merged_positions.append([first[0], second[1]])
-                # Otherwise it's not, and we just keep the positions associated with that term.
-                else:
-                    if first[2] == 0:
-                        final_left.append(first[:2])
+                merged = False
+                for first, second in zip(sorted_positions, sorted_positions[1:]):
+                    if merged:  # second term has been consumed, so move along
+                        merged = False
+                        continue
+                    # It's a bigram if the left term is follwed by the right term, and they are close enough.
+                    if (
+                        first[2] == 0 and
+                        second[2] == 1 and
+                        # Needs to be greater than zero to handle repeating terms.
+                        0 < second[0] - first[1] <= max_char_gap
+                    ):
+                        merged_positions.append([first[0], second[1]])
+                        merged = True
+                    # Otherwise it's not, and we just keep the positions associated with that term.
                     else:
-                        final_right.append(first[:2])
+                        if first[2] == 0:
+                            final_left.append(first[:2])
+                        elif first[:2] != second[:2]:  # Avoid adding a repeated term twice.
+                            final_right.append(first[:2])
+                else:  # Don't forget the last position if it wasn't merged.
+                    if not merged:
+                        if second[2] == 0:
+                            final_left.append(second[:2])
+                        else:  # Avoid adding a repeated term twice.
+                            final_right.append(second[:2])
 
-            if final_left:
-                insert_row([left_id, frame_id, len(left_positions), json.dumps(left_positions)[1:-1]])
-            if final_right:
-                insert_row([right_id, frame_id, len(right_positions), json.dumps(right_positions)[1:-1]])
-            if merged_positions:
-                insert_row([bigram_id, frame_id, len(merged_positions), json.dumps(merged_positions)[1:-1]])
+                if final_left:
+                    insert_row([left_id, frame_id, len(final_left), json.dumps(final_left)[1:-1]])
+                if final_right and left_id != right_id:  # Handle terms with repeated
+                    insert_row([right_id, frame_id, len(final_right), json.dumps(final_right)[1:-1]])
+                if merged_positions:
+                    insert_row([bigram_id, frame_id, len(merged_positions), json.dumps(merged_positions)[1:-1]])
+
+            else:  # Special case for the same term occuring in a row.
+                positions = sorted([(start, end, 0) for start, end in json.loads('[{}]'.format(left_positions))])
+
+                merged_positions = []
+                final = []
+                merged = False
+
+                for first, second in zip(positions, positions[1:]):
+                    if merged:  # second term has been consumed, so move along
+                        merged = False
+                        continue
+                    if 0 < second[0] - first[1] <= max_char_gap:
+                        merged_positions.append([first[0], second[1]])
+                        merged = True
+                    else:
+                        final.append(first[:2])
+                else:  # Don't forget the last position if it wasn't merged.
+                    if not merged:
+                        final.append(second[:2])
+
+                if final:
+                    insert_row([left_id, frame_id, len(final), json.dumps(final)[1:-1]])
+                if merged_positions:
+                    insert_row([bigram_id, frame_id, len(merged_positions), json.dumps(merged_positions)[1:-1]])
 
         # Finally, insert all the new values and update the term_statistics
         self._execute("""
-            insert into disk_index.frame_posting
+            insert into disk_index.frame_posting(term_id, frame_id, frequency, positions)
                 select *
                 from bigram_merging;
 
-            insert into disk_index.term_posting
+            insert into disk_index.term_posting(term_id, frame_id, frequency, positions)
                 select *
                 from bigram_merging;
 
-            with change_summary as (
-                select
-                    term_id,
-                    (select id from disk_index.unstructured_field where name = :field) as field_id,
-                    sum(frequency) as document_frequency,
-                    count(frame_id) as frames_occuring
-                from bigram_merging
-                group by term_id
-
-                union all
-
-                select
-                    term_id,
-                    (select id from disk_index.unstructured_field where name = :field) as field_id,
-                    -sum(frequency) as frequency,
-                    -count(frame_id) as frames_occuring
-                from (select frame_id, left_term as term_id, left_frequency as frequency
-                      from bigram_staging
-                      union all
-                      select frame_id, right_term as term_id, right_frequency as frequency
-                      from bigram_staging)
-                group by term_id
-
-                union all
-
+            insert or replace into disk_index.term_statistics(term_id, field_id, frequency, frames_occuring)
                 select
                     term_id,
                     field_id,
-                    frequency,
-                    frames_occuring
-                from disk_index.term_statistics
-                where field_id = (select id from disk_index.unstructured_field where name = :field))
-            insert or replace into disk_index.term_statistics(term_id, field_id, frequency, frames_occuring)
-                select term_id, field_id, sum(frequency), sum(frames_occuring)
-                from change_summary
+                    sum(frequency) as frequency,
+                    count(frame_id) as frames_occuring
+                from disk_index.term_posting post
+                inner join disk_index.frame
+                    on frame.id = post.frame_id
+                where frame.field_id in (select id from disk_index.unstructured_field where name = :field)
+                    and term_id in (
+                        select id from disk_index.vocabulary where term in (:left_term, :right_term, :bigram)
+                    )
                 group by term_id, field_id;
 
-        """, {'field': field}
+            delete from bigram_staging;
+            delete from bigram_merging;
+        """, {'left_term': left_term, 'right_term': right_term, 'bigram': bigram, 'field': field}
         )
 
     def add_unstructured_fields(self, field_names):

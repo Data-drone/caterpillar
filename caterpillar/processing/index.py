@@ -567,7 +567,7 @@ class IndexWriter(object):
                     self.__storage._merge_term_variation(terms, '', text_field)
             else:
                 left_term, right_term = terms
-                self.__storage._merge_bigrams(terms, new_term, text_field)
+                self.__storage._merge_bigrams(terms[0], terms[1], new_term, text_field)
 
         logger.debug("Merged {} terms during manual merge.".format(count))
 
