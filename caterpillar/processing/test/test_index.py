@@ -308,8 +308,8 @@ def test_index_alice_merge_bigram(index_dir):
             with IndexWriter(bigram_index, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser)))) as writer:
                 writer.add_document(text=data)
                 # Quick plumbing test.
-                with pytest.raises(ValueError):
-                    writer._merge_terms_into_ngram("old", None, {}, {}, {}, {})
+                # with pytest.raises(ValueError):
+                # writer._merge_terms_into_ngram("old", None, {}, {}, {}, {})
 
             terms_to_merge = [[b.split(' '), b] for b in bi_grams]
 
@@ -436,6 +436,7 @@ def test_index_merge_terms(index_dir):
 
         writer = IndexWriter(index_dir)
         with writer:
+            # import pdb; pdb.set_trace()
             writer.merge_terms(merges=[
                 ('Alice', '',),  # delete
                 ('alice', 'tplink',),  # rename

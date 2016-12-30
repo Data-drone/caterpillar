@@ -60,7 +60,6 @@ from __future__ import absolute_import, division, unicode_literals
 import logging
 import os
 import cPickle
-from collections import defaultdict
 import ujson as json
 
 import nltk
@@ -539,7 +538,7 @@ class IndexWriter(object):
                     merges.append((w.title(), w))
 
         count = len(merges)
-        self.__storage._mangle_terms(merges)
+        self.merge_terms(merges, text_field)
 
         logger.debug("Merged {} terms during case folding.".format(count))
 
@@ -558,7 +557,14 @@ class IndexWriter(object):
         """
         count = len(merges)
 
-        self.__storage._mangle_terms(merges)
+        # Run through merges, and dispatch to unigram/bigram merging as appropriate
+
+        for terms, new_term in merges:
+            if isinstance(terms, basestring):
+                if new_term:
+                    self.__storage._merge_term_variation(terms, new_term, text_field)
+                else:  # Map falsey values to the empty string, removing them from consideration
+                    self.__storage._merge_term_variation(terms, '', text_field)
 
         logger.debug("Merged {} terms during manual merge.".format(count))
 
@@ -1162,21 +1168,15 @@ def find_bi_gram_words(frames, min_count=5, threshold=40.0):
     bi_gram_analyser = PotentialBiGramAnalyser()
     sentence_tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
     num_frames = 0
-    bigram_frame_positions = defaultdict(dict)
 
-    for frame_id, frame in frames:
+    for _, frame in frames:
         for sentence in sentence_tokenizer.tokenize(frame['_text'], realign_boundaries=True):
             terms_seen = []
             for token_list in bi_gram_analyser.analyse(sentence):
                 # Using a special filter that returns list of tokens. List of 1 means no bi-grams.
                 if len(token_list) > 1:  # We have a bi-gram people!
                     bigram = u"{} {}".format(token_list[0].value, token_list[1].value)
-                    boundary = [token_list[0].index[0], token_list[1].index[1]]
                     candidate_bi_grams.inc(bigram)
-                    try:
-                        bigram_frame_positions[bigram][frame_id] += boundary
-                    except KeyError:
-                        bigram_frame_positions[bigram][frame_id] = [boundary]
 
                 for t in token_list:  # Keep a list of terms we have seen so we can record freqs later.
                     if not t.stopped:  # Naughty stopwords!
@@ -1195,6 +1195,4 @@ def find_bi_gram_words(frames, min_count=5, threshold=40.0):
         return score > threshold
     candidate_bi_gram_list = filter(filter_bi_grams, candidate_bi_grams.iteritems())
     logger.debug("Identified {} n-grams.".format(len(candidate_bi_gram_list)))
-    bigrams = {b[0] for b in candidate_bi_gram_list}
-    bigram_frames = {bigram: vals for bigram, vals in bigram_frame_positions.iteritems() if bigram in bigrams}
-    return bigram_frames
+    return [b[0] for b in candidate_bi_gram_list]

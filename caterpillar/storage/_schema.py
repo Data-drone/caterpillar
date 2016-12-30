@@ -282,23 +282,12 @@ create table delete_plugin (
     settings text
 );
 
-create table vocabulary_mangle (
-    old_term text,
-    new_term text
-);
-
-/* Staging tables for phrase mangling. */
-create table phrase_mangle (
-    bigram text,
-    left_unigram text,
-    right_unigram text,
-    frame_id integer,
-    frequency integer,
-    positions text
-);
-
-create table update_term_posting (
-    term_id integer, frame_id integer, frequency integer, positions text
+create table term_merging (
+    term_id,
+    frame_id,
+    frequency,
+    positions,
+    primary key(term_id, frame_id)
 );
 
 commit;
@@ -543,7 +532,18 @@ insert into disk_index.plugin_data
         using(plugin_type, settings)
 ;
 
-commit;
-detach database disk_index;
+delete from structured_field;
+delete from unstructured_field;
+delete from document;
+delete from document_data;
+delete from deleted_document;
+delete from frame;
+delete from setting;
+delete from positions_staging;
+delete from plugin_data;
+delete from plugin_registry;
+delete from delete_plugin;
+drop table term_statistics;
+drop index term_idx;
 
 """

@@ -90,6 +90,7 @@ class SqliteWriter(StorageWriter):
         self.frame_no = 0
         self.deleted_no = 0
         self.committed = False
+        self._flushed = False
 
     def commit(self):
         """Commit a transaction.
@@ -100,11 +101,10 @@ class SqliteWriter(StorageWriter):
         method will need to be called before this method is usable for writing again.
 
         """
-        max_document_id, max_frame_id, deleted_count = self._prepare_flush()
-        self._flush(max_document_id, max_frame_id, deleted_count)
+        if not self._flushed:
+            self._flush()
+        self._execute('commit; detach database disk_index;')
         self.committed = True
-        self._db_connection.close()
-        self._db_connection = None
         self.doc_no = 0
         self.frame_no = 0
         self.deleted_no = 0
@@ -133,8 +133,9 @@ class SqliteWriter(StorageWriter):
         current_state = [row[0] for row in self._execute(prepare_flush, [self._db])]
         return current_state
 
-    def _flush(self, max_document_id, max_frame_id, deleted_count):
+    def _flush(self):
         """Actually perform the flush."""
+        max_document_id, max_frame_id, deleted_count = self._prepare_flush()
         self._execute(
             flush_cache,
             {
@@ -143,13 +144,14 @@ class SqliteWriter(StorageWriter):
                 'deleted': self.deleted_no + deleted_count,
                 'added': self.doc_no + max_document_id
             })
+        self._flushed = True  # Only needed for _merge_term_variants currently.
 
     def add_structured_fields(self, field_names):
         """Register a structured field on the index. """
         for f in field_names:
             self._execute('insert into structured_field(name) values(?)', [f])
 
-    def _mangle_terms(self, term_mapping):
+    def _merge_term_variation(self, old_term, new_term, field):
         """Mangle the terms in the stored vocabulary.
 
         term_mapping is a list of pairs ('old term', 'new term'). The old_term mapping can
@@ -165,138 +167,62 @@ class SqliteWriter(StorageWriter):
         have been added.
 
         This is a destructive operation that does not respect the writer interface and should be
-        used with care.
+        used with care. In memory contents are first flushed to disk, and commit is executed after
+        this operation.
 
         """
-        # Unwrap term mapping to a more friendly dictionary, accounting for the different data
-        # structure in the merging unigrams to an n-gram case.
-        uni_mapping = {}
-        for old_term, new_term in term_mapping:
-            if isinstance(old_term, basestring):
-                uni_mapping[old_term] = new_term
-            else:
-                raise ValueError('_mangle_terms can only remap single terms - use _mangle_phrases instead')
+        # Flush only if necessary, as this method needs to work on the on disk representation.
+        if not self._flushed:
+            self._flush()
 
-        self._executemany(
-            'insert into vocabulary_mangle values(?, ?)',
-            uni_mapping.iteritems()
-        )
+        # Make sure new term is in the vocabulary, then stage all the old and new terms for merging
+        self._execute("""
+            insert or ignore into disk_index.vocabulary(term) values(:new_term);
 
-        # TODO: clean up all the temporary tables so consecutive runs don't get confused.
-        # Handle unigram case first: identify and merge all the matching positions.
-        change_unigrams = self._execute("""
-            commit; attach database ? as disk_index; begin;
+            insert into term_merging
+                select (select id from disk_index.vocabulary where term = :new_term) as term_id,
+                    frame_id,
+                    sum(frequency),
+                    group_concat(positions, ',')
+                from disk_index.term_posting post
+                inner join disk_index.frame
+                    on post.frame_id = frame.id
+                inner join disk_index.unstructured_field field
+                    on frame.field_id = field.id
+                where term_id in (select id from disk_index.vocabulary where term in (:old_term, :new_term))
+                    and field.name = :field
+                group by frame_id;
 
-            -- Update the vocabulary with any new values:
-            insert into disk_index.vocabulary(term)
-                select distinct new_term
-                from vocabulary_mangle mangle
-                where not exists (select 1
-                                 from disk_index.vocabulary
-                                 where term = new_term);
-
-            create table vocab_map as
-                select distinct mangle.*, vocab.id as old_id, new_vocab.id as new_id
-                from vocabulary_mangle mangle
-                inner join disk_index.vocabulary vocab
-                    on mangle.old_term = vocab.term
-                inner join disk_index.vocabulary new_vocab
-                    on mangle.new_term = new_vocab.term;
-
-            -- Select all instances of old and new terms for updating statistics.
-            -- One row for each old term and new term, combining them if they occur in the same frame
-            with old_posting as (
-                select frame_id, frequency, positions, new_id as term_id
-                from disk_index.term_posting
-                inner join vocab_map
-                    vocab_map.old_id = term_posting.term_id
-            ),
-            new_posting as (
-                select frame_id, frequency, positions, new_id as term_id
-                from disk_index.term_posting
-                inner join vocab_map
-                    vocab_map.new_id = term_posting.term_id
-            )
-            create table to_mangle_posting as
-                select frame_id, term_id,
-                    coalesce(old_frequency, 0) + coalesce(new_frequency, 0) as frequency,
-                    coalesce(old_postings, '[]') as old_postings,
-                    coalesce(new_postings, '[]') as new_postings
-                from ( -- Simulates a full outer join
-                    select
-                        old.frame_id as frame_id,
-                        new.term_id as term_id,
-                        old.frequency as old_frequency,
-                        old.positions as old_positions,
-                        new.frequency as new_frequency,
-                        new.positions as new_positions
-                    from old_posting old
-                    left outer join new_posting new
-                        on old.term_id = new.term_id
-                        and old.frame_id = new.frame_id
-                    union
-                    select
-                        new.frame_id as frame_id,
-                        new.term_id as term_id,
-                        old.frequency as old_frequency,
-                        old.positions as old_positions,
-                        new.frequency as new_frequency,
-                        new.positions as new_positions
-                    from new_posting new
-                    left outer join old_posting old
-                        on old.term_id = new.term_id
-                        and old.frame_id = new.frame_id
-                );
-
-            -- Clear out old values from tables
             delete from disk_index.term_posting
-                where term_id in (select old_id from vocab_map union select new_id from vocab_map);
+                where term_id in (select id from disk_index.vocabulary where term in (:old_term, :new_term))
+                    and frame_id in (select distinct frame_id from term_merging);
 
             delete from disk_index.frame_posting
-                where term_id in (select old_id from vocab_map union select new_id from vocab_map);
+                where term_id in (select id from disk_index.vocabulary where term in (:old_term, :new_term))
+                    and frame_id in (select distinct frame_id from term_merging);
 
             delete from disk_index.term_statistics
-                where term_id in (select old_id from vocab_map union select new_id from vocab_map);
+                where term_id in (select id from disk_index.vocabulary where term = :old_term)
+                    and field_id = (select id from disk_index.unstructured_field where name = :field);
 
-            -- Update the term_statistics:
-            insert or replace into disk_index.term_statistics(term_id, field_id, frequency, frames_occuring)
-                select term_id, field_id, sum(frequency), count(distinct frame_id)
-                from to_mangle_posting
-                inner join disk_index.frame
-                    on to_mangle_posting.frame_id = frame.id
-                group by term_id, field_id;
+            insert or replace into disk_index.term_statistics
+                select term_id,
+                       (select id from disk_index.unstructured_field where name = :field),
+                       sum(frequency),
+                       count(frame_id),
+                       0 -- document count not currently fully implemented
+                from term_merging;
 
-            -- Return the rows to have their postings merged
-            select *
-            from to_mangle_posting
-            order by frame_id, term_id;
+            insert into disk_index.term_posting
+                select * from term_merging;
 
-            """, [self._db]
+            insert into disk_index.frame_posting(term_id, frame_id, frequency, positions)
+                select * from term_merging;
+
+            delete from term_merging;
+
+            """, {'new_term': new_term, 'old_term': old_term, 'field': field}
         )
-
-        def insert_row(values):
-            self._execute(
-                """
-                insert into disk_index.term_posting(frame_id, term_id, frequency, positions)
-                    values(?, ?, ?, ?);
-                insert into disk_index.frame_posting(frame_id, term_id, frequency, positions)
-                    values(?, ?, ?, ?);
-                """, values * 2
-            )
-
-        # Aggregate positions arrays
-
-        for row in change_unigrams:
-            frame_id, term_id, frequency, new_positions, old_positions = row
-
-            if old_positions is not None:
-                positions = json.dumps(json.loads(new_positions) + json.loads(old_positions))
-            else:
-                positions = new_positions
-
-            insert_row([frame_id, term_id, frequency, positions])
-
-        self._execute('commit; detach disk_index; begin;')
 
     def _mangle_phrases(self, bigram_frame_positions):
         """Materialise the bigrams occuring in the identified positions of the given frames.
@@ -573,7 +499,8 @@ class SqliteWriter(StorageWriter):
             # Term vectors for the frames, note that the dictionary is sorted for consistency with insert_frames
             frame_term_data = (frame for field, frame_list in sorted(frame_terms.iteritems()) for frame in frame_list)
             insert_term_data = (
-                (frame_count + self.frame_no, term, len(positions), json.dumps(positions))
+                # Strip the leading and trailing '[' from the json string so aggregation becomes string concatenation.
+                (frame_count + self.frame_no, term, len(positions), json.dumps(positions)[1:-1])
                 for frame_count, frame_data in enumerate(frame_term_data)
                 for term, positions in frame_data.iteritems()
             )
@@ -689,13 +616,13 @@ class SqliteReader(StorageReader):
             )
         )
 
-        if plugin_id is None:
+        if not plugin_id:
             raise PluginNotFoundError('Plugin not found in this index')
 
         else:
             plugin_state = self._execute(
                 "select key, value from plugin_data where plugin_id = ?;",
-                plugin_id
+                plugin_id[0]
             )
 
             for row in plugin_state:
@@ -706,9 +633,9 @@ class SqliteReader(StorageReader):
         row = list(self._execute(
             'select plugin_type, settings from plugin_registry where plugin_id = ?', [plugin_id]
         ))
-        if row is None:
+        if not row:
             raise PluginNotFoundError
-        plugin_type, settings = row
+        plugin_type, settings = row[0]
         state = self._execute("select key, value from plugin_data where plugin_id = ?", [plugin_id]).fetchall()
         return plugin_type, settings, state
 
@@ -819,25 +746,25 @@ class SqliteReader(StorageReader):
             inner join unstructured_field field
                 on field.id = frame.field_id
             {}
+            order by term, frame.id
             """.format(where_clause),
             data
         )
 
-        row = next(frames)
+        current_term = None
 
-        if row is not None:
-            current_term, frame_id, field_name, term_positions = row
-            positions = {frame_id: json.loads(term_positions)}
-
-            for term, frame_id, field_name, term_positions in frames:
-                if term == current_term:
-                    term_positions = json.loads(term_positions)
-                    positions[frame_id] = term_positions
-                else:
-                    yield current_term, positions
-                    positions = {frame_id: json.loads(term_positions)}
-                    current_term = term
+        for term, frame_id, field_name, term_positions in frames:
+            if current_term is None:
+                positions = {frame_id: json.loads('[{}]'.format(term_positions))}
+                current_term = term
+            elif term == current_term:
+                positions[frame_id] = json.loads('[{}]'.format(term_positions))
             else:
+                yield current_term, positions
+                positions = {frame_id: json.loads('[{}]'.format(term_positions))}
+                current_term = term
+        else:
+            if current_term is not None:
                 yield current_term, positions
 
     def iterate_associations(self, term=None, include_fields=None, exclude_fields=None):
