@@ -224,180 +224,152 @@ class SqliteWriter(StorageWriter):
             """, {'new_term': new_term, 'old_term': old_term, 'field': field}
         )
 
-    def _mangle_phrases(self, bigram_frame_positions):
-        """Materialise the bigrams occuring in the identified positions of the given frames.
-
-        Replaces the unigram element of the term.
+    def _merge_bigrams(self, left_term, right_term, bigram, field, max_char_gap=2):
+        """
+        Merge adjacent occurences of left_term and right_term into the bigram phrase.
 
         """
+        # Flush only if necessary, as this method needs to work on the on disk representation.
+        if not self._flushed:
+            self._flush()
 
-        mangle_rows = (
-            (bigram, bigram.split(' ')[0], bigram.split(' ')[1], frame_id, len(positions), json.dumps(positions))
-            for bigram, frames in bigram_frame_positions
-            for frame_id, positions in frames.iteritems()
-        )
+        bigram_rows = self._execute("""
+            insert or ignore into disk_index.vocabulary(term) values(:bigram);
 
-        self._executemany(
-            'insert into phrase_mangle values(?, ?, ?, ?, ?, ?)',
-            mangle_rows
-        )
-
-        change_bigrams = self._execute("""
-            commit; attach database ? as disk_index; begin;
-
-            -- Update the vocabulary with any new values:
-            insert into disk_index.vocabulary(term)
-                select distinct bigram
-                from phrase_mangle mangle
-                where not exists (select 1
-                                  from disk_index.vocabulary
-                                  where term = bigram);
-
-            -- Temporary mapping table for vocabulary id's
-            create table phrase_map as
-                select distinct
-                    bigram, left_unigram, right_unigram,
-                    bi_vocab.id as bigram_id,
-                    left_vocab.id as left_id,
-                    right_vocab.id as right_id
-                from phrase_mangle mangle
-                inner join disk_index.vocabulary bi_vocab
-                    on mangle.bigram = bi_vocab.term
-                inner join disk_index.vocabulary left_vocab
-                    on mangle.left_unigram = left_vocab.term
-                inner join disk_index.vocabulary right_vocab
-                    on mangle.right_unigram = right_vocab.term;
-
-            -- Horrible temporary table for splitting term postings where bigrams consume unigrams.
-            -- This is one row per bigram, merging the left and right unigram postings into a single table.
-            create table to_mangle_phrase as
+            -- Select rows for frames where both left term and right term occur.
+            with left as (
                 select
-                    phrase_mangle.frame_id,
-                    phrase_mangle.frequency as bigram_frequency,
-                    phrase_mangle.positions as bigram_positions,
-                    phrase_map.bigram_id,
-                    phrase_map.left_id,
-                    left_posting.frequency as left_frequency,
-                    left_posting.positions as left_positions,
-                    phrase_map.right_id,
-                    right_posting.frequency as right_frequency,
-                    right_posting.positions as right_positions
-                from phrase_mangle
-                inner join phrase_map
-                    on phrase_mangle.bigram = phrase_map.bigram
-                inner join disk_index.term_posting left_posting
-                    on phrase_map.left_id = left_posting.term_id
-                inner join disk_index.term_posting right_posting
-                    on phrase_map.right_id = right_posting.term_id;
+                    term_id as left_term,
+                    frame_id,
+                    positions as left_postions,
+                    frequency as left_frequency
+                from term_positions post
+                inner join disk_index.frame
+                    on post.frame_id = frame.id
+                where term_id = (select id from disk_index.vocabulary where term = :left_term)
+                    and frame.field_id = (select id from disk_index.unstructured_field where name = :field)
+            ),
+            with right as (
+                select
+                    term_id as right_term,
+                    frame_id,
+                    positions as right_positions,
+                    frequency as right_frequency
+                from term_positions post
+                inner join disk_index.frame
+                    on post.frame_id = frame.id
+                where term_id = (select id from disk_index.vocabulary where term = :right_term)
+                    and frame.field_id = (select id from disk_index.unstructured_field where name = :field)
+            )
+            insert into bigram_staging
+                select
+                    left.frame_id,
+                    (select id from vocabulary where term = :bigram) as new_term_id,
+                    left_term,
+                    left_positions,
+                    left_frequency,
+                    right_term,
+                    right_positions,
+                    right_frequency
+                from left
+                inner join right
+                    on left.frame_id = right.frame_id
 
-            -- For updating term statistics after all the mangling is done.
-            create table old_unigram_posting as
-                select term_posting.*
-                from disk_index.term_posting
-                inner join phrase_map
-                    on phrase_map.left_id = term_posting.term_id
-                    or phrase_map.right_id = term_posting.term_id
-                where frame_id in (select distinct frame_id from phrase_mangle);
-
-            -- Clear out old values from tables on disk.
             delete from disk_index.term_posting
-            where term_id in (select left_id from phrase_map union select right_id from phrase_map)
-                and frame_id in (select distinct frame_id from phrase_mangle);
+                where term_id in (select id from disk_index.vocabulary where term in (:left_term, :right_term))
+                    and frame_id in (select distinct frame_id from bigram_staging);
 
             delete from disk_index.frame_posting
-            where frame_id in (select distinct frame_id from phrase_mangle)
-                and term_id in (select left_id from phrase_map union select right_id from phrase_map);
+                where term_id in (select id from disk_index.vocabulary where term in (:left_term, :right_term))
+                    and frame_id in (select distinct frame_id from bigram_staging);
 
-            -- Return the rows to have their postings merged
-            select * from to_mangle_phrase;
+            -- Select out the rows to merge the positions of
+            select * from bigram_staging;
 
-            """, [self._db]
+            """, {'left_term': left_term, 'right_term': right_term, 'bigram': bigram, 'field': field}
         )
 
-        def insert_split_rows(row):
-            def insert_row(values):
-                self._execute(
-                    """
-                    insert into update_term_posting(frame_id, term_id, frequency, positions)
-                        values(?, ?, ?, ?);
-                    """, values
-                )
+        def insert_row(values):
+            self._execute('insert into bigram_merging values(?, ?, ?, ?)', values)
 
-            def merge_positions(bigram_positions, unigram_positions):
-                valid_positions = []
-                bigram_positions = json.loads(bigram_positions)
-                for uni_position in json.loads(unigram_positions):
-                    for bigram_position in bigram_positions:
-                        # Remove the unigram position if it's within the bigram position.
-                        if bigram_position[0] <= uni_position[0] <= bigram_position[1]:
-                            continue
-                        valid_positions.append(uni_position)
-                return json.dumps(valid_positions)
+        for frame_id, bigram_id, left_id, left_positions, right_id, right_positions in bigram_rows:
 
-            bigram_frequency, left_frequency, right_frequency = row[1], row[5], row[8]
-            bigram_positions, left_positions, right_positions = row[2], row[6], row[9]
-            # Always insert the bigram information:
-            insert_row([row[0], row[3], bigram_frequency, bigram_positions])
+            left = [(start, end, 0) for start, end in json.loads('[{}]'.format(left_positions))]
+            right = [(start, end, 1) for start, end in json.loads('[{}]'.format(right_positions))]
 
-            # Some instances of left term that are not part of the bigram
-            if bigram_frequency < left_frequency:
-                left_frequency -= bigram_frequency
-                left_positions = merge_positions(bigram_positions, left_positions)
-                insert_row([row[0], row[4], left_frequency, left_positions])
-            # Instances of the right term that are not part of the bigram.
-            elif bigram_frequency < right_frequency:
-                right_frequency -= bigram_frequency
-                right_positions = merge_positions(bigram_positions, right_positions)
-                insert_row([row[0], row[4], right_frequency, right_positions])
+            # Sort positions, then merge those that match the sequence
+            sorted_positions = sorted(left + right)
+            merged_positions = []
+            final_left = []
+            final_right = []
 
-        # Aggregate or split positions arrays.
-        row = change_bigrams.fetchone()
-        if row is not None:
-            insert_split_rows(row)
-            for row in change_bigrams:
-                insert_split_rows(row)
+            for first, second in zip(sorted_positions, sorted_positions[1:]):
+                # It's a bigram if the left term is follwed by the right term, and they are close enough.
+                if first[2] == 0 and second[2] == 1 and second[0] - first[1] <= max_char_gap:
+                    merged_positions.append([first[0], second[1]])
+                # Otherwise it's not, and we just keep the positions associated with that term.
+                else:
+                    if first[2] == 0:
+                        final_left.append(first[:2])
+                    else:
+                        final_right.append(first[:2])
 
-        # Finally update the term statistics and flush everything to disk
+            if final_left:
+                insert_row([left_id, frame_id, len(left_positions), json.dumps(left_positions)[1:-1]])
+            if final_right:
+                insert_row([right_id, frame_id, len(right_positions), json.dumps(right_positions)[1:-1]])
+            if merged_positions:
+                insert_row([bigram_id, frame_id, len(merged_positions), json.dumps(merged_positions)[1:-1]])
+
+        # Finally, insert all the new values and update the term_statistics
         self._execute("""
-            -- Update the term_statistics:
-            with changed_terms as (
-                select term_id, frame.field_id, sum(frequency) as frequency, count(distinct frame_id) as frames_occuring
-                from update_term_posting post
-                inner join disk_index.frame
-                    on post.frame_id = frame.id
-                group by term_id, frame.field_id
+            insert into disk_index.frame_posting
+                select *
+                from bigram_merging;
+
+            insert into disk_index.term_posting
+                select *
+                from bigram_merging;
+
+            with change_summary as (
+                select
+                    term_id,
+                    (select id from disk_index.unstructured_field where name = :field) as field_id,
+                    sum(frequency) as document_frequency,
+                    count(frame_id) as frames_occuring
+                from bigram_merging
+                group by term_id
 
                 union all
 
-                select term_id, field_id, -sum(frequency) as frequency, -count(distinct frame_id) as frames_occuring
-                from old_unigram_posting post
-                inner join disk_index.frame
-                    on post.frame_id = frame.id
-                group by term_id, field_id
+                select
+                    term_id,
+                    (select id from disk_index.unstructured_field where name = :field) as field_id,
+                    -sum(frequency) as frequency,
+                    -count(frame_id) as frames_occuring
+                from (select frame_id, left_term as term_id, left_frequency as frequency
+                      from bigram_staging
+                      union all
+                      select frame_id, right_term as term_id, right_frequency as frequency
+                      from bigram_staging)
+                group by term_id
 
                 union all
 
-                select term_id, field_id, frequency, frames_occuring
+                select
+                    term_id,
+                    field_id,
+                    frequency,
+                    frames_occuring
                 from disk_index.term_statistics
-                where term_id in (select left_id from phrase_map union select right_id from phrase_map)
-            )
+                where field_id = (select id from disk_index.unstructured_field where name = :field))
             insert or replace into disk_index.term_statistics(term_id, field_id, frequency, frames_occuring)
                 select term_id, field_id, sum(frequency), sum(frames_occuring)
-                from changed_terms
+                from change_summary
                 group by term_id, field_id;
 
-
-            -- Flush the updated data to the frame and term_posting
-            insert or replace into disk_index.frame_posting(term_id, frame_id, frequency, positions)
-                select *
-                from update_term_posting;
-
-            insert or replace into disk_index.term_posting(term_id, frame_id, frequency, positions)
-                select *
-                from update_term_posting;
-
-            commit; detach disk_index; begin;
-        """)
+        """, {'field': field}
+        )
 
     def add_unstructured_fields(self, field_names):
         """Register an unstructured field on the index. """

@@ -290,6 +290,27 @@ create table term_merging (
     primary key(term_id, frame_id)
 );
 
+create table bigram_staging (
+    frame_id,
+    term_id,
+    left_term,
+    left_positions,
+    left_frequency,
+    right_term,
+    right_positions,
+    right_frequency,
+    primary key(term_id, frame_id)
+);
+
+create table bigram_merging (
+    term_id,
+    frame_id,
+    frequency,
+    positions,
+    primary key(term_id, frame_id)
+);
+
+
 commit;
 begin immediate;
 
