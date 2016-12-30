@@ -302,6 +302,7 @@ create table update_term_posting (
 );
 
 commit;
+begin immediate;
 
 """
 
@@ -394,8 +395,7 @@ insert into disk_index.unstructured_field(name)
 
 /* Update vocabulary with new terms. Insert highest frequency first. */
 insert into disk_index.vocabulary(term)
-    select
-        term
+    select term
     from term_statistics stats
     where not exists (
         select 1
@@ -436,6 +436,7 @@ insert into disk_index.frame(id, document_id, field_id, sequence, stored)
         on fields.name = frame.field_name;
 
 
+/* Term and frame posting data */
 insert into disk_index.frame_posting(frame_id, term_id, frequency, positions)
     select
         pos.frame_id + :max_frame,
@@ -474,12 +475,13 @@ with update_stat as (
         on fields.name = stats.field_name
 
     union all
+
     select *
     from deleted_term_statistics
 ),
 updated_term as (
-select distinct term_id, field_id from update_stat)
-
+select distinct term_id, field_id from update_stat
+)
 insert or replace into disk_index.term_statistics
     select
         term_id,
@@ -494,6 +496,7 @@ insert or replace into disk_index.term_statistics
           from disk_index.term_statistics
           where (term_id, field_id) in (select * from updated_term))
     group by term_id, field_id;
+
 
 -- Update settings
 insert into disk_index.setting
@@ -515,6 +518,7 @@ create table delete_plugin_id as
 
 delete from disk_index.plugin_data
 where plugin_id in (select * from delete_plugin_id);
+
 delete from disk_index.plugin_registry
 where plugin_id in (select * from delete_plugin_id);
 

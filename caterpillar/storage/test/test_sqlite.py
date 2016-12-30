@@ -30,7 +30,7 @@ def test_add_get_delete_fields(tmp_dir):
     writer = SqliteWriter(tmp_dir, create=True)
 
     add_fields1 = ['test', 'test2']
-    add_fields2 = ['test1']
+    add_fields2 = ['test1', '']
     writer.begin()
     writer.add_structured_fields(add_fields1)
     writer.add_unstructured_fields(add_fields2)
@@ -53,13 +53,16 @@ def test_alternate_document_format(tmp_dir):
 
 
 def test_add_get_document(tmp_dir):
+
     sample_format_document = (
         'An example document without anything fancy',
         {'test_field': 1, 'other_field': 'other'},
         {'text': ['An example', 'document without', 'anything fancy']},
-        {'text': [{'An': [[0, 10]], 'example': [[0, 10]]},
-                  {'document': [[0, 10]], 'without': [[0, 10]]},
-                  {'anything': [[0, 10]], 'fancy': [[0, 10]]}]}
+        {'text': [
+            {'An': [[0, 10]], 'example': [[0, 10]]},
+            {'document': [[0, 10]], 'without': [[0, 10]]},
+            {'anything': [[0, 10]], 'fancy': [[0, 10]]}
+        ]}
     )
 
     writer = SqliteWriter(tmp_dir, create=True)
@@ -76,8 +79,8 @@ def test_add_get_document(tmp_dir):
 
     reader = SqliteReader(tmp_dir)
 
-    doc = reader.iterate_documents([1])  # Cheating with sequential document_id's here
-    assert next(doc)[1] == sample_format_document[0]
+    doc = list(reader.iterate_documents([1]))[0]  # Cheating with sequential document_id's here
+    assert doc[1] == sample_format_document[0]
     assert reader.count_documents() == 1 == reader_transaction.count_documents()
     assert reader.count_vocabulary() == 6 == reader_transaction.count_vocabulary()
 
@@ -87,10 +90,10 @@ def test_add_get_document(tmp_dir):
         writer.add_analyzed_document('test', sample_format_document)
     writer.commit()
 
-    assert sum(i[1] for i in reader.get_frequencies()) == 606
     assert reader.count_documents() * 3 == 303 == reader.count_frames()
     assert reader_transaction.count_documents() == 1
     assert reader.count_vocabulary() == 6
+    assert sum(i[1] for i in reader.get_frequencies()) == 606
 
     reader_transaction.commit()
     assert reader_transaction.count_documents() == 101

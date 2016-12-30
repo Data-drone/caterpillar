@@ -570,10 +570,12 @@ class IndexWriter(object):
         as part of the given bigram are replaced by the bigram string. Instances of 'term1' and 'term2' that
         are not part of the bigram are retained.
 
+        For consistency, phrases will always be materialised in lexicographical order of the bigrams.
+
         """
         count = len(bigram_frame_positions)
 
-        self.__storage._mangle_phrases(bigram_frame_positions)
+        self.__storage._mangle_phrases(sorted(bigram_frame_positions.iteritems()))
 
         logger.debug("Materialised {} phrases within the index.".format(count))
 

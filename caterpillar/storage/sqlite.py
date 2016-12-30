@@ -64,7 +64,7 @@ class SqliteWriter(StorageWriter):
             cursor = connection.cursor()
 
             # Setup schema and necessary pragmas (on disk)
-            # The database is never written to directly, hence it is closed after initilisation.
+            # The database is never written to directly, hence it is closed after initialisation.
             list(cursor.execute(disk_schema))
             connection.close()
 
@@ -86,21 +86,23 @@ class SqliteWriter(StorageWriter):
         # See section 8 for the edge cases: https://www.sqlite.org/wal.html
         self._db_connection.setbusytimeout(1000)
         list(self._execute(cache_schema))
-        self._db_connection.cursor().execute('begin immediate')
         self.doc_no = 0  # local only for this write transaction.
         self.frame_no = 0
         self.deleted_no = 0
+        self.committed = False
 
     def commit(self):
         """Commit a transaction.
 
         First the on disk database is attached and the current maximum document and frame ID's are returned.
 
-        Then the content of the in memory cache is flushed to the database and then dropped.
+        Then the content of the in memory cache is flushed to the database. The cache is then dropped. The begin
+        method will need to be called before this method is usable for writing again.
 
         """
         max_document_id, max_frame_id, deleted_count = self._prepare_flush()
         self._flush(max_document_id, max_frame_id, deleted_count)
+        self.committed = True
         self._db_connection.close()
         self._db_connection = None
         self.doc_no = 0
@@ -115,9 +117,16 @@ class SqliteWriter(StorageWriter):
         self.deleted_no = 0
 
     def close(self):
-        """Close this storage object and all its resources, rendering it UNUSABLE."""
-        self._db_connection.close()
-        self._db_connection = None
+        """
+        Close this storage object and all its resources, rendering it UNUSABLE.
+
+        This operates immediately: if the data has not been committed it will be destroyed.
+
+        """
+        # If we have committed, the resources have already been released.
+        if not self.committed:
+            self._db_connection.close()
+            self._db_connection = None
 
     def _prepare_flush(self):
         """Prepare to flush the cached data to the index. """
@@ -195,25 +204,49 @@ class SqliteWriter(StorageWriter):
                     on mangle.new_term = new_vocab.term;
 
             -- Select all instances of old and new terms for updating statistics.
-            -- One row for each old term, matched with the columns for the new term.
-            create table to_mangle_posting as
-                select
-                    post.frame_id,
-                    post.term_id,
-                    post.frequency + coalesce(old.frequency, 0) as frequency,
-                    post.positions,
-                    old.positions
-                from disk_index.term_posting post
+            -- One row for each old term and new term, combining them if they occur in the same frame
+            with old_posting as (
+                select frame_id, frequency, positions, new_id as term_id
+                from disk_index.term_posting
                 inner join vocab_map
-                    on vocab_map.new_id = post.term_id
-                left outer join (select term_posting.*
-                                 from disk_index.term_posting
-                                 inner join vocab_map
-                                    on vocab_map.old_id = term_posting.term_id) old
-                    on old.term_id = post.term_id
-                    and old.frame_id = post.frame_id
-                inner join disk_index.frame
-                    on post.frame_id = frame.id;
+                    vocab_map.old_id = term_posting.term_id
+            ),
+            new_posting as (
+                select frame_id, frequency, positions, new_id as term_id
+                from disk_index.term_posting
+                inner join vocab_map
+                    vocab_map.new_id = term_posting.term_id
+            )
+            create table to_mangle_posting as
+                select frame_id, term_id,
+                    coalesce(old_frequency, 0) + coalesce(new_frequency, 0) as frequency,
+                    coalesce(old_postings, '[]') as old_postings,
+                    coalesce(new_postings, '[]') as new_postings
+                from ( -- Simulates a full outer join
+                    select
+                        old.frame_id as frame_id,
+                        new.term_id as term_id,
+                        old.frequency as old_frequency,
+                        old.positions as old_positions,
+                        new.frequency as new_frequency,
+                        new.positions as new_positions
+                    from old_posting old
+                    left outer join new_posting new
+                        on old.term_id = new.term_id
+                        and old.frame_id = new.frame_id
+                    union
+                    select
+                        new.frame_id as frame_id,
+                        new.term_id as term_id,
+                        old.frequency as old_frequency,
+                        old.positions as old_positions,
+                        new.frequency as new_frequency,
+                        new.positions as new_positions
+                    from new_posting new
+                    left outer join old_posting old
+                        on old.term_id = new.term_id
+                        and old.frame_id = new.frame_id
+                );
 
             -- Clear out old values from tables
             delete from disk_index.term_posting
@@ -274,7 +307,7 @@ class SqliteWriter(StorageWriter):
 
         mangle_rows = (
             (bigram, bigram.split(' ')[0], bigram.split(' ')[1], frame_id, len(positions), json.dumps(positions))
-            for bigram, frames in bigram_frame_positions.iteritems()
+            for bigram, frames in bigram_frame_positions
             for frame_id, positions in frames.iteritems()
         )
 
@@ -649,23 +682,30 @@ class SqliteReader(StorageReader):
 
     def get_plugin_state(self, plugin_type, plugin_settings):
         """Return a dictionary of key-value pairs identifying that state of this plugin."""
-        plugin_id = self._execute("select plugin_id from plugin_registry where plugin_type = ? and settings = ?",
-                                  (plugin_type, plugin_settings)).fetchone()
+        plugin_id = list(
+            self._execute(
+                "select plugin_id from plugin_registry where plugin_type = ? and settings = ?",
+                (plugin_type, plugin_settings)
+            )
+        )
 
         if plugin_id is None:
             raise PluginNotFoundError('Plugin not found in this index')
 
         else:
-            plugin_state = self._execute("select key, value from plugin_data where plugin_id = ?;",
-                                         plugin_id)
+            plugin_state = self._execute(
+                "select key, value from plugin_data where plugin_id = ?;",
+                plugin_id
+            )
+
             for row in plugin_state:
                 yield row
 
     def get_plugin_by_id(self, plugin_id):
         """Return the settings and state of the plugin identified by ID."""
-        row = self._execute(
+        row = list(self._execute(
             'select plugin_type, settings from plugin_registry where plugin_id = ?', [plugin_id]
-        ).fetchone()
+        ))
         if row is None:
             raise PluginNotFoundError
         plugin_type, settings = row
@@ -674,8 +714,7 @@ class SqliteReader(StorageReader):
 
     def list_known_plugins(self):
         """ Return a list of (plugin_type, settings, id) triples for each plugin stored in the index. """
-        return [row for row in self._execute("select plugin_type, settings, plugin_id from plugin_registry;")
-                if row is not None]
+        return list(self._execute("select plugin_type, settings, plugin_id from plugin_registry;"))
 
     @property
     def structured_fields(self):
@@ -693,14 +732,14 @@ class SqliteReader(StorageReader):
         """Return the number of unique terms occuring in the given combinations of fields. """
         where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields)
 
-        vocab_size = self._execute(
+        vocab_size = list(self._execute(
             'select count(distinct term_id) '
             'from term_statistics stats '
             'inner join unstructured_field field '
             '    on stats.field_id = field.id ' + where_clause,
             fields
-        ).fetchone()
-        return vocab_size[0]
+        ))
+        return vocab_size[0][0]
 
     def get_frequencies(self, include_fields=None, exclude_fields=None):
         """Return a generator of all the term frequencies in the given fields."""
@@ -880,17 +919,17 @@ class SqliteReader(StorageReader):
 
     def count_documents(self):
         """Returns the number of documents in the index."""
-        return self._execute('select count(*) from document').fetchone()[0]
+        return list(self._execute('select count(*) from document'))[0][0]
 
     def count_frames(self, include_fields=None, exclude_fields=None):
         """Returns the number of documents in the index."""
         where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields)
-        return self._execute(
+        return list(self._execute(
             'select count(*) from frame '
             'inner join unstructured_field field '
             '   on field.id = frame.field_id ' + where_clause,
             fields
-        ).fetchone()[0]
+        ))[0][0]
 
     def iterate_documents(self, document_ids=None):
         """Returns a generator  of (document_id, stored_document) pairs for the entire index.
@@ -1010,9 +1049,9 @@ class SqliteReader(StorageReader):
         documents count the number of times add_analyzed_document and delete_document were
         succesfully called on a writer for this index.
         """
-        revision = self._execute(
+        revision = list(self._execute(
             'select * from index_revision where revision_number=(select max(revision_number) from index_revision)'
-        ).fetchone()
+        ))
         return revision
 
     def _execute(self, query, data=None):
