@@ -7,14 +7,13 @@ import csv
 import pickle
 import shutil
 import tempfile
-import mock
 import multiprocessing as mp
 import multiprocessing.dummy as mt  # threading dummy with same interface as multiprocessing
 
 import pytest
 
-from caterpillar.storage.sqlite import SqliteStorage
 from caterpillar.storage import Storage
+from caterpillar.storage.sqlite import SqliteStorage
 from caterpillar.processing.analysis.analyse import EverythingAnalyser
 from caterpillar.processing.index import *
 from caterpillar.processing.schema import ID, NUMERIC, TEXT, FieldType, Schema
@@ -120,7 +119,8 @@ def test_index_alice(index_dir):
                                                            document=TEXT(analyser=analyser, indexed=False),
                                                            blank=NUMERIC(indexed=True), ref=ID(indexed=True))))
         with writer:
-            writer.add_document(text=data, document='alice.txt', blank=None, ref=123, frame_size=2)
+            doc_id = writer.add_document(text=data, document='alice.txt', blank=None,
+                                         ref=123, frame_size=2)
 
         with IndexReader(index_dir) as reader:
             assert sum(1 for _ in reader.get_term_positions('nice', 'text')) == 3
@@ -146,15 +146,15 @@ def test_index_alice(index_dir):
             assert 'field2' in schema
 
         with IndexWriter(index_dir) as writer:
-            writer.delete_document(1)
+            writer.delete_document(doc_id)
 
         with IndexReader(index_dir) as reader:
             with pytest.raises(DocumentNotFoundError):
-                reader.get_document(1)
+                reader.get_document(doc_id)
 
-        # with IndexWriter(index_dir) as writer:
-        #     with pytest.raises(DocumentNotFoundError):
-        #         writer.delete_document(1)
+        with IndexWriter(index_dir) as writer:
+            # TODO: add the details of the transaction with the writer...  with pytest.raises(DocumentNotFoundError):
+            writer.delete_document(doc_id)
 
         with IndexReader(index_dir) as reader:
             assert 'Alice' not in reader.get_frequencies('text')
@@ -225,7 +225,7 @@ def test_index_frames_docs_alice(index_dir):
 
             frame_id = reader.get_term_positions('Alice', 'text').keys()[0]
             frame = reader.get_frame(frame_id, 'text')
-            assert frame['_id'] == frame_id
+            assert frame_id == frame['_id']
 
             doc_id = frame['_doc_id']
             assert doc_id == reader.get_document(doc_id)['_id']
@@ -304,12 +304,9 @@ def test_index_alice_merge_bigram(index_dir):
         bigram_index = os.path.join(tempfile.mkdtemp(), "bigram")
         merge_index = os.path.join(tempfile.mkdtemp(), "merge")
         try:
-            analyser = TestBiGramAnalyser(bi_grams)
+            analyser = TestBiGramAnalyser(bi_grams, )
             with IndexWriter(bigram_index, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser)))) as writer:
                 writer.add_document(text=data)
-                # Quick plumbing test.
-                # with pytest.raises(ValueError):
-                # writer._merge_terms_into_ngram("old", None, {}, {}, {}, {})
 
             terms_to_merge = [[b.split(' '), b] for b in bi_grams]
 
@@ -343,7 +340,7 @@ def test_index_alice_merge_bigram(index_dir):
                 merge_associations = {k: v for k, v in merges.get_associations_index('text')}
                 for term, associations in bigrams.get_associations_index('text'):
                     assert merge_associations[term] == associations
-                # Frame positions
+                # Term positions index
                 frame_mappings = {}
                 merge_frames = sorted({k: v for k, v in merges.get_frames('text')}.values(),
                                       key=lambda t: t['_sequence_number'])
@@ -351,7 +348,6 @@ def test_index_alice_merge_bigram(index_dir):
                                        key=lambda t: t['_sequence_number'])
                 for i, merge_frame in enumerate(merge_frames):
                     frame_mappings[bigram_frames[i]['_id']] = merge_frame['_id']
-                    assert merge_frame['_positions'] == bigram_frames[i]['_positions']
                 # Global positions
                 merge_positions = {k: v for k, v in merges.get_positions_index('text')}
                 for term, positions in bigrams.get_positions_index('text'):
@@ -435,7 +431,6 @@ def test_index_merge_terms(index_dir):
 
         writer = IndexWriter(index_dir)
         with writer:
-            # import pdb; pdb.set_trace()
             writer.merge_terms(merges=[
                 ('Alice', '',),  # delete
                 ('alice', 'tplink',),  # rename
@@ -468,6 +463,8 @@ def test_index_alice_case_folding(index_dir):
                                                            document=TEXT(analyser=analyser, indexed=False))))
         with writer:
             writer.add_document(text=data, document='alice.txt', frame_size=2)
+
+        with writer:
             writer.fold_term_case('text')
 
         with IndexReader(index_dir) as reader:
@@ -500,10 +497,13 @@ def test_index_case_fold_no_new_term(index_dir):
     """
     with open(os.path.abspath('caterpillar/test_resources/case_fold_no_assoc.csv'), 'rbU') as f:
         analyser = TestAnalyser()
-        with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser)))) as writer:
+        writer = IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser))))
+        with writer:
             csv_reader = csv.reader(f)
             for row in csv_reader:
                 writer.add_document(text=row[0])
+
+        with writer:
             writer.fold_term_case('text')
 
         with IndexReader(index_dir) as reader:
@@ -620,14 +620,14 @@ def test_index_document_delete(index_dir):
         data = f.read()
         with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT))) as writer:
             writer.add_document(text=data)
-            writer.add_document(text=data)
+            doc_id = writer.add_document(text=data)
 
         with IndexReader(index_dir) as reader:
             assert reader.get_frame_count('text') == 104
             assert reader.get_term_frequency('Alice', 'text') == 46
 
         with IndexWriter(index_dir) as writer:
-            writer.delete_document(1)
+            writer.delete_document(doc_id)
 
         with IndexReader(index_dir) as reader:
             assert reader.get_frame_count('text') == 52

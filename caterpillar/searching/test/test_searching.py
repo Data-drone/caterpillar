@@ -32,8 +32,9 @@ def test_searching_alice(index_dir):
         # Merge bigrams
         with IndexReader(index_dir) as reader:
             bigrams = find_bi_gram_words(reader.get_frames('text'))
+
         with IndexWriter(index_dir) as writer:
-            writer.materialise_phrases(bigrams)
+            writer.merge_terms([((bigram.split(' ')[0], bigram.split(' ')[1]), bigram) for bigram in bigrams], 'text')
 
         with IndexReader(index_dir) as reader:
             searcher = reader.searcher()
@@ -129,8 +130,9 @@ def test_searching_alice_simple(index_dir):
         # Merge bigrams
         with IndexReader(index_dir) as reader:
             bigrams = find_bi_gram_words(reader.get_frames('text'))
+
         with IndexWriter(index_dir) as writer:
-            writer.materialise_phrases(bigrams)
+            writer.merge_terms([((bigram.split(' ')[0], bigram.split(' ')[1]), bigram) for bigram in bigrams], 'text')
 
         with IndexReader(index_dir) as reader:
             searcher = reader.searcher(scorer_cls=TfidfScorer)
@@ -283,8 +285,13 @@ def test_searching_reserved_words(index_dir):
         data = f.read()
         config = IndexConfig(SqliteStorage, schema=schema.Schema(
             text=schema.TEXT(analyser=TestAnalyser(stopword_list=[]))))
-        with IndexWriter(index_dir, config) as writer:
+
+        writer = IndexWriter(index_dir, config)
+
+        with writer:
             writer.add_document(text=data, frame_size=2)
+
+        with writer:
             writer.fold_term_case('text')
 
         with IndexReader(index_dir) as reader:

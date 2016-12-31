@@ -8,11 +8,11 @@ class SearchHit(object):
     Represents a single frame that matched the search.
 
     """
-    def __init__(self, frame_id, search_field, frame):
+    def __init__(self, frame_id, search_field, frame, term_frequencies):
         self.frame_id = frame_id
         self.doc_id = frame['_doc_id']
         self.score = 1
-        self.tfs = {k: len(v) for k, v in frame['_positions'].iteritems()}
+        self.tfs = term_frequencies
         # Extract the important data off the frame so it is easily available
         self.data = {k: v for k, v in frame.items() if k == '_field' or k[0] != '_'}  # Don't expose private frame items
         self.data['_id'] = frame_id

@@ -518,6 +518,9 @@ class IndexWriter(object):
         The statistics used to determine which terms to fold are calculated from ``text_field``, but the
         global term dictionary and statistics are folded and recalculated across all fields.
 
+        This method only works on content committed to disk. It will need to be run in a separate writer if you
+        wish to fold newly added documents.
+
         """
 
         merges = []
@@ -558,7 +561,6 @@ class IndexWriter(object):
         count = len(merges)
 
         # Run through merges, and dispatch to unigram/bigram merging as appropriate
-
         for terms, new_term in merges:
             if isinstance(terms, basestring):
                 if new_term:

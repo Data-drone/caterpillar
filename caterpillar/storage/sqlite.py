@@ -183,7 +183,7 @@ class SqliteWriter(StorageWriter):
                 select (select id from disk_index.vocabulary where term = :new_term) as term_id,
                     frame_id,
                     sum(frequency),
-                    group_concat(positions, ',')
+                    group_concat(positions, ',') -- Concatenate the JSON strings together.
                 from disk_index.term_posting post
                 inner join disk_index.frame
                     on post.frame_id = frame.id
@@ -749,13 +749,13 @@ class SqliteReader(StorageReader):
 
         for term, frame_id, field_name, term_positions in frames:
             if current_term is None:
-                positions = {frame_id: json.loads('[{}]'.format(term_positions))}
+                positions = {frame_id: sorted(json.loads('[{}]'.format(term_positions)))}
                 current_term = term
             elif term == current_term:
-                positions[frame_id] = json.loads('[{}]'.format(term_positions))
+                positions[frame_id] = sorted(json.loads('[{}]'.format(term_positions)))
             else:
                 yield current_term, positions
-                positions = {frame_id: json.loads('[{}]'.format(term_positions))}
+                positions = {frame_id: sorted(json.loads('[{}]'.format(term_positions)))}
                 current_term = term
         else:
             if current_term is not None:

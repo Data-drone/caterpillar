@@ -1,6 +1,7 @@
 # Copyright (C) 2012-2014 Kapiche
 # Author: Kris Rogers <kris@kapiche.com>
 """Tests for the match module."""
+
 from caterpillar.searching.query import BaseQuery, QueryResult
 from caterpillar.searching.query.match import MatchAllQuery, MatchSomeQuery
 
@@ -10,13 +11,14 @@ class MockTestQuery(BaseQuery):
     A contrived query that simply returns the ``frames`` and ``term_weights`` passed into the ``__init__`` method.
 
     """
-    def __init__(self, frames, text_field='text', term_weights=None):
+    def __init__(self, frames, text_field='text', term_weights=None, term_frequencies=None):
         self.frames = set(frames)
         self.term_weights = term_weights or {}
         self.text_field = text_field
+        self.term_frequencies = term_frequencies or {}
 
     def evaluate(self, index):
-        return QueryResult(self.frames, self.term_weights, self.text_field)
+        return QueryResult(self.frames, self.term_weights, self.text_field, self.term_frequencies)
 
 
 def test_match_all():
