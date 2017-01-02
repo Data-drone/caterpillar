@@ -22,7 +22,6 @@ Field Equality:
     score=9 -- Text frames which have 'score' metadata  of '9'. (<, <=, >, >= operators supported for numeric fields)
 
 """
-from collections import defaultdict
 import regex
 from lrparsing import Grammar, ParseError, Prio, Ref, Repeat, Token, Tokens
 
@@ -144,7 +143,6 @@ class _QueryStringParser(object):
             raise QueryError("Cannot use field comparison syntax for non-categorical field '{}'".format(field_name))
 
         # Categorical field
-        #
         wildcard = False
         if '?' in field_value:
             # Insert regex pattern for single character wildcard (ie not a white-space char).
@@ -169,7 +167,7 @@ class _QueryStringParser(object):
                     # Wildcard equality must compare with all possible field values
                     wildcard_expr = '^' + field_value + '$'
                     for value in frames_by_value:
-                        if field.equals_wildcard(value, wildcard_expr):
+                        if value is not None and field.equals_wildcard(value, wildcard_expr):
                             node.frame_ids.update(frames_by_value[value])
                 else:
                     # Direct equality is an easy, direct lookup on metadata index
@@ -183,7 +181,7 @@ class _QueryStringParser(object):
                     raise QueryError("Wildcards only permitted for field searching when using the '=' operator.")
                 # Look for values that match the field comparison expression
                 for value in frames_by_value:
-                    if field.evaluate_op(operator, value, field_value):
+                    if value is not None and field.evaluate_op(operator, value, field.value_of(field_value)):
                         # Found a match, add the frames
                         node.frame_ids.update(set(frames_by_value[value]))
         except (NotImplementedError, ValueError) as e:
@@ -218,14 +216,20 @@ class _QueryStringParser(object):
                             node.frame_ids.update(set(matched_frames.keys()))
                             node.matched_terms.add(term)
                             for frame_id, positions in matched_frames.iteritems():
-                                node.term_frequencies[frame_id][term] = len(positions)
+                                try:
+                                    node.term_frequencies[frame_id][term] = len(positions)
+                                except KeyError:
+                                    node.term_frequencies[frame_id] = {term: len(positions)}
                 else:
                     try:
                         matched_frames = self.index.get_term_positions(value, self.text_field)
                         node.frame_ids.update(set(matched_frames.keys()))
                         node.matched_terms.add(value)
                         for frame_id, positions in matched_frames.iteritems():
-                            node.term_frequencies[frame_id][value] = len(positions)
+                            try:
+                                node.term_frequencies[frame_id][value] = len(positions)
+                            except KeyError:
+                                node.term_frequencies[frame_id] = {value: len(positions)}
                     except KeyError:
                         # Term not matched in index
                         pass
@@ -237,6 +241,7 @@ class _QueryStringParser(object):
         """
         node.frame_ids = node[1].frame_ids
         node.matched_terms = node[1].matched_terms
+        node.term_frequencies = node[1].term_frequencies
         term = self._extract_term_value(node[1])
         weighting_expr = node[2][1]
         weighting_factor = weighting_expr.split('^')[1]
@@ -252,7 +257,8 @@ class _QueryStringParser(object):
         node.frame_ids = node[1].frame_ids.intersection(node[3].frame_ids)
         node.matched_terms = node[1].matched_terms.union(node[3].matched_terms)
         node.term_frequencies = {
-            frame: dict(node[1].term_frequencies[frame], **node[3].term_frequencies[frame]) for frame in node.frame_ids
+            frame: dict(node[1].term_frequencies.get(frame, {}), **node[3].term_frequencies.get(frame, {}))
+            for frame in node.frame_ids
         }
 
     def _evaluate_not_op(self, node):
@@ -329,7 +335,7 @@ class _QueryStringNode(tuple):
         self.frame_ids = set()
         self.term_weights = dict()
         self.matched_terms = set()
-        self.term_frequencies = defaultdict(dict)
+        self.term_frequencies = dict()
 
         super(_QueryStringNode, self).__init__(node)
 

@@ -801,6 +801,8 @@ class SqliteReader(StorageReader):
         term_filter = 'where outer.term = ?' if term is not None else ''
         terms = [term] if term is not None else []
 
+        # TODO: Write a fast path if term is specified.
+
         rows = self._execute(
             """
             with frames as (
