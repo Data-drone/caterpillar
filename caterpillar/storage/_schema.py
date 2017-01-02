@@ -504,7 +504,9 @@ insert or replace into disk_index.term_statistics
           union all
           select *
           from disk_index.term_statistics
-          where (term_id, field_id) in (select * from updated_term))
+          where term_id in (select term_id from updated_term)
+            and field_id in (select field_id from updated_term)
+    )
     group by term_id, field_id;
 
 
