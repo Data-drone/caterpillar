@@ -88,7 +88,6 @@ class SqliteWriter(StorageWriter):
         list(self._execute(cache_schema))
         self.doc_no = 0  # local only for this write transaction.
         self.frame_no = 0
-        self.deleted_no = 0
         self.committed = False
         self._flushed = False
 
@@ -109,16 +108,14 @@ class SqliteWriter(StorageWriter):
         self.committed = True
         self.doc_no = 0
         self.frame_no = 0
-        self.deleted_no = 0
 
-        return self.__last_added_documents
+        return self.__last_added_documents, self.__deleted_documents
 
     def rollback(self):
         """Rollback a transaction on an IndexWriter."""
         self._execute('rollback')
         self.doc_no = 0
         self.frame_no = 0
-        self.deleted_no = 0
 
     def close(self):
         """
@@ -133,21 +130,28 @@ class SqliteWriter(StorageWriter):
             self._db_connection = None
 
     def _prepare_flush(self):
-        """Prepare to flush the cached data to the index. """
-        current_state = [row[0] for row in self._execute(prepare_flush, [self._db])]
-        return current_state
+        """Prepare to flush the cached data to the index.
+
+        This method returns the state of the index for synchronising document counts and a list of ID's
+        for deleted documents.
+
+        """
+        return list(self._execute(prepare_flush, [self._db]))
 
     def _flush(self):
         """Actually perform the flush."""
-        max_document_id, max_frame_id, deleted_count = self._prepare_flush()
+        index_sync_data = self._prepare_flush()
+        revision, max_document_id, deleted_count, max_frame_id = index_sync_data[0]
+        self.__deleted_documents = index_sync_data[1:]
         self.__last_added_documents = list(range(max_document_id + 1, max_document_id + 1 + self.doc_no))
         self._execute(
             flush_cache,
             {
                 'max_doc': max_document_id + 1,
                 'max_frame': max_frame_id + 1,
-                'deleted': self.deleted_no + deleted_count,
-                'added': self.doc_no + max_document_id
+                'deleted': deleted_count + len(self.__deleted_documents),
+                'added': self.doc_no + max_document_id,
+                'added_frames': self.frame_no + max_frame_id
             })
         self._flushed = True  # Only needed for _merge_term_variants currently.
 
@@ -518,7 +522,6 @@ class SqliteWriter(StorageWriter):
         """Delete a document with the given id from the index. """
         document_id_gen = ((document_id,) for document_id in document_ids)
         self._executemany('insert into deleted_document(id) values(?)', document_id_gen)
-        self.deleted_no += len(document_ids)
 
     def set_plugin_state(self, plugin_type, plugin_settings, plugin_state):
         """ Set the plugin state in the index to the given state.
@@ -828,22 +831,24 @@ class SqliteReader(StorageReader):
             fields + terms
         )
 
-        first_row = rows.fetchone()
-        if first_row is not None:
-            current_term, other_term, count = first_row
-            current_dict = {other_term: count}
+        current_term = None
 
-            for term, other_term, count in rows:
-                if current_term == term:
-                    current_dict[other_term] = count
-                else:
-                    yield current_term, current_dict
-                    current_term = term
-                    current_dict = {other_term: count}
-            # Make sure to yield the final row.
-            yield current_term, current_dict
-        else:
-            yield None, {}
+        for term, other_term, count in rows:
+            if current_term is None:
+                current_dict = {other_term: count}
+                current_term = term
+
+            elif current_term == term:
+                current_dict[other_term] = count
+
+            else:
+                yield current_term, current_dict
+                current_term = term
+                current_dict = {other_term: count}
+
+        else:  # Make sure to yield the final row.
+            if current_term is not None:
+                yield current_term, current_dict
 
     def count_documents(self):
         """Returns the number of documents in the index."""
@@ -980,7 +985,7 @@ class SqliteReader(StorageReader):
         revision = list(self._execute(
             'select * from index_revision where revision_number=(select max(revision_number) from index_revision)'
         ))
-        return revision
+        return revision[0]
 
     def _execute(self, query, data=None):
         cursor = self._db_connection.cursor()

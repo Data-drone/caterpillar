@@ -313,7 +313,7 @@ class IndexWriter(object):
 
     def commit(self):
         """Commit changes made by this writer by calling :meth:`.flush` then ``commit()`` on the storage instance."""
-        self.last_committed_documents = self.__storage.commit()
+        self.last_committed_documents, self.last_deleted_documents = self.__storage.commit()
         self.__committed = True
 
     def rollback(self):
@@ -621,9 +621,9 @@ class IndexWriter(object):
         for field_name, field in fields.iteritems():
             self.__schema.add(field_name, field)
             if field_name in self.__schema.get_indexed_text_fields():
-                self.__storage.add_unstructured_fields(field_name)
+                self.__storage.add_unstructured_fields([field_name])
             if field_name in self.__schema.get_indexed_structured_fields():
-                self.__storage.add_structured_fields(field_name)
+                self.__storage.add_structured_fields([field_name])
 
         self.__config.schema = self.__schema
         # Save updated schema
@@ -788,12 +788,15 @@ class IndexReader(object):
 
     def get_term_association(self, term, association, field):
         """Returns a count of term associations between ``term`` (str) and ``association`` (str)."""
-        term, associations = next(self.__storage.iterate_associations(term=term, include_fields=[field]))
         try:
-            count = associations[association]
-        except KeyError:
-            count = 0
-        return count
+            term, associations = next(self.__storage.iterate_associations(term=term, include_fields=[field]))
+            try:
+                count = associations[association]
+            except KeyError:
+                raise KeyError('"{}" not associated with term "{}".'.format(association, term))
+            return count
+        except StopIteration:
+            raise KeyError('"{}" not found in associations index.'.format(term))
 
     def get_frequencies(self, field):
         """

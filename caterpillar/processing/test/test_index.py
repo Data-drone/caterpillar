@@ -31,6 +31,14 @@ def test_index_open(index_dir):
                                     document=TEXT(analyser=analyser, indexed=False),
                                     flag=FieldType(analyser=EverythingAnalyser(),
                                     indexed=True, categorical=True))))
+
+        # Just initialise the index to check the first revision number
+        with writer:
+            pass
+
+        with IndexReader(index_dir) as reader:
+            assert reader.revision == (0, 0, 0, 0)
+
         with writer:
             writer.add_document(text1=data, text2=data, document='alice.txt', flag=True, frame_size=2)
 
@@ -45,6 +53,10 @@ def test_index_open(index_dir):
             assert reader.get_frame_count('text2') == 52
             assert isinstance(reader.get_schema()['text1'], TEXT)
             assert isinstance(reader.get_schema()['text2'], TEXT)
+            assert reader.revision == (1, 1, 0, 104)
+
+            with pytest.raises(DocumentNotFoundError):
+                reader.get_frame(10000, 'text1')
 
         # Adding the same document twice should double the frame, term_frequencies and document counts
         with writer:
@@ -56,6 +68,7 @@ def test_index_open(index_dir):
             assert reader.get_document_count() == 2
             assert reader.get_frame_count('text1') == 104
             assert isinstance(reader.get_schema()['text1'], TEXT)
+            assert reader.revision == (2, 2, 0, 208)
 
         path = tempfile.mkdtemp()
         new_dir = os.path.join(path, "no_reader")
@@ -132,14 +145,18 @@ def test_index_alice(index_dir):
             assert reader.get_term_association('key', 'golden', 'text') == \
                 reader.get_term_association('golden', 'key', 'text') == 3
 
+            with pytest.raises(KeyError):
+                reader.get_term_association('nonsenseterminthisindex', 'otherterm', 'text')
+
+            with pytest.raises(KeyError):
+                reader.get_term_association('Alice', 'nonsenseterminthisindex', 'text')
+
             assert reader.get_vocab_size('text') == sum(1 for _ in reader.get_frequencies('text')) == 500
             assert reader.get_term_frequency('Alice', 'text') == 23
-
-            # Make sure this works
-            reader.__sizeof__()
+            assert reader.revision == (1, 1, 0, 52)
 
         with IndexWriter(index_dir) as writer:
-            writer.add_fields(field1=TEXT, field2=NUMERIC)
+            writer.add_fields(field1=TEXT, field2=NUMERIC(indexed=True))
 
         with IndexReader(index_dir) as reader:
             schema = reader.get_schema()
@@ -149,17 +166,23 @@ def test_index_alice(index_dir):
         with IndexWriter(index_dir) as writer:
             writer.delete_document(doc_id)
 
+        assert len(writer.last_deleted_documents) == 1
+
         with IndexReader(index_dir) as reader:
             with pytest.raises(DocumentNotFoundError):
                 reader.get_document(doc_id)
+            assert reader.revision == (2, 1, 1, 52)
 
         with IndexWriter(index_dir) as writer:
             writer.delete_document(doc_id)
+
+        assert len(writer.last_deleted_documents) == 0
 
         with IndexReader(index_dir) as reader:
             assert 'Alice' not in reader.get_frequencies('text')
             assert 'Alice' not in reader.get_associations_index('text')
             assert 'Alice' not in reader.get_positions_index('text')
+            assert reader.revision == (2, 1, 1, 52)
 
         # Test not text
         with IndexWriter(index_dir) as writer:

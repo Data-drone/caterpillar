@@ -145,26 +145,32 @@ create table plugin_data (
 /*
 An internal representation of the state of the index documents.
 
-Each count is incremented by one when a document is added or deleted. Both numbers are
-monotonically increasing and the system is serialised: these numbers can be used to represent
-the current state of the system, and can be used to measure some degree of change between
-different versions.
+The state of the documents in the index is represented by a tuple of:
+    (revision_number, added_document_count, deleted_document_count, added_frame_count)
 
-For example, if a plugin was run at revision (100, 4), and the current state of the index is
-(200, 50), then there is a significant difference between the corpus at the time the plugin
-was run and now.
+Each number is monotonically increasing and represents the current state of the index over it's
+lifetime. The next document and frame added to the index will have ID's of added_document_count + 1
+and added_frame_count + 1.
 
 The revision number is incremented by one whenever a write transaction adds or deletes documents
 from an index.
+
+For example, a reader might run an operation when the state of the index was (5, 100, 5, 2000), while
+the current state is (15, 130, 45, 2200). This index that 30 new documents and 200 new frames were added
+in 10 commits, and 40 documents were deleted since that operation was run.
+
 */
 create table index_revision (
     revision_number integer primary key,
     added_document_count integer,
     deleted_document_count integer,
-    constraint unique_revision unique(added_document_count, deleted_document_count) on conflict replace
+    added_frame_count integer,
+    constraint unique_revision unique(
+        added_document_count, deleted_document_count, added_frame_count
+    ) on conflict ignore
 );
 
-insert into index_revision values (0, 0, 0);
+insert into index_revision values (0, 0, 0, 0);
 
 
 create table setting (
@@ -348,10 +354,11 @@ attach database ? as disk_index;
 begin immediate; -- Begin the true transaction for on disk writing
 
 -- Max document and frame id's at the start of the write process.
-select coalesce(max(id), 0) from disk_index.document;
-select coalesce(max(id), 0) from disk_index.frame;
-select deleted_document_count from index_revision
+select * from index_revision
 where revision_number = (select max(revision_number) from index_revision);
+
+-- Actual ID's of deleted documents, for reporting succesful deletion and updating delete counts
+select distinct id from deleted_document where id in (select id from disk_index.document);
 
 """
 
@@ -516,7 +523,8 @@ insert into disk_index.setting
     from setting;
 
 -- Update the revision number of the database
-insert or replace into index_revision(added_document_count, deleted_document_count) values(:added, :deleted);
+insert into index_revision(added_document_count, deleted_document_count, added_frame_count)
+    values(:added, :deleted, :added_frames);
 
 -- Update the plugins
 create table delete_plugin_id as
