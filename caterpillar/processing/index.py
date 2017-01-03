@@ -789,7 +789,9 @@ class IndexReader(object):
     def get_term_association(self, term, association, field):
         """Returns a count of term associations between ``term`` (str) and ``association`` (str)."""
         try:
-            term, associations = next(self.__storage.iterate_associations(term=term, include_fields=[field]))
+            term, associations = next(
+                self.__storage.iterate_associations(term=term, association=association, include_fields=[field])
+            )
             try:
                 count = associations[association]
             except KeyError:

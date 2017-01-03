@@ -769,7 +769,7 @@ class SqliteReader(StorageReader):
             if current_term is not None:
                 yield current_term, positions
 
-    def iterate_associations(self, term=None, include_fields=None, exclude_fields=None):
+    def iterate_associations(self, term=None, association=None, include_fields=None, exclude_fields=None):
         """
         Term associations for this Index.
 
@@ -784,8 +784,7 @@ class SqliteReader(StorageReader):
                 ...
             }
 
-        Optionally a single term may be specified, in which case the associations for just that term will be
-        returned.
+        Optionally the term or both the term and the association may be supplied.
 
         This method is a generator which yields a dict of {other_term: count, ...} for every term in the index.
 
@@ -799,36 +798,41 @@ class SqliteReader(StorageReader):
         if fields:
             joined_where = """
                 inner join frame
-                    on frame.id = post.frame_id
+                    on frame.id = frame_post.frame_id
                 inner join unstructured_field field
                     on field.id = frame.field_id
                 {}""".format(where_clause)
         else:
             joined_where = ''
 
-        term_filter = 'where outer.term = ?' if term is not None else ''
+        # If a term is specified, add it to the join condition.
+        term_filter = 'and left_vocab.term = ?' if term is not None else ''
         terms = [term] if term is not None else []
-
-        # TODO: Write a fast path if term is specified.
+        association_filter = 'and right_vocab.term = ?' if association is not None else ''
+        associations = [association] if association is not None else []
 
         rows = self._execute(
             """
-            with frames as (
-                select vocab.term, frame_id
-                from frame_posting post
-                inner join vocabulary vocab
-                    on post.term_id = vocab.id
+            select
+                left_vocab.term,
+                right_vocab.term,
+                count(*)
+            from term_posting term_post
+            inner join frame_posting frame_post
+                on term_post.frame_id = frame_post.frame_id
+                and term_post.term_id != frame_post.term_id
+            inner join vocabulary left_vocab
+                on left_vocab.id = term_post.term_id
                 {}
-            )
-            select outer.term, inner.term, count(distinct outer.frame_id)
-            from frames as outer
-            inner join frames as inner
-                on outer.frame_id = inner.frame_id
-                and outer.term != inner.term
+            inner join vocabulary right_vocab
+                on right_vocab.id = frame_post.term_id
+                {}
+
             {}
-            group by outer.term, inner.term
-            order by outer.term, inner.term""".format(joined_where, term_filter),
-            fields + terms
+
+            group by left_vocab.term, right_vocab.term
+            order by left_vocab.term """.format(term_filter, association_filter, joined_where),
+            terms + associations + fields
         )
 
         current_term = None
@@ -1024,13 +1028,6 @@ class SqliteReader(StorageReader):
         else:
             where_clause = ''
         return where_clause, fields
-
-    @staticmethod
-    def _chunks(l, n=999):
-        """Yield successive n-sized chunks from l."""
-        l = list(l)
-        for i in xrange(0, len(l), n):
-            yield l[i:i + n]
 
 
 SqliteStorage = Storage(SqliteReader, SqliteWriter)
