@@ -154,8 +154,9 @@ def test_index_stored_fields():
                                               Schema(text=TEXT(analyser=analyser, stored=False),
                                                      test=NUMERIC(stored=True),
                                                      test2=BOOLEAN(stored=False)))) as writer:
-            doc_id = writer.add_document(text="hello world", test=777, test2=True,
-                                         frame_size=2)
+            writer.add_document(text="hello world", test=777, test2=True, frame_size=2)
+
+        doc_id = writer.last_committed_documents[0]
 
         with IndexReader(tmp_dir) as reader:
             searcher = reader.searcher()

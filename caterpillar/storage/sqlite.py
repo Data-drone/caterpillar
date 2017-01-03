@@ -100,6 +100,8 @@ class SqliteWriter(StorageWriter):
         Then the content of the in memory cache is flushed to the database. The cache is then dropped. The begin
         method will need to be called before this method is usable for writing again.
 
+        Returns a list of the added documents.
+
         """
         if not self._flushed:
             self._flush()
@@ -108,6 +110,8 @@ class SqliteWriter(StorageWriter):
         self.doc_no = 0
         self.frame_no = 0
         self.deleted_no = 0
+
+        return self.__last_added_documents
 
     def rollback(self):
         """Rollback a transaction on an IndexWriter."""
@@ -136,6 +140,7 @@ class SqliteWriter(StorageWriter):
     def _flush(self):
         """Actually perform the flush."""
         max_document_id, max_frame_id, deleted_count = self._prepare_flush()
+        self.__last_added_documents = list(range(max_document_id + 1, max_document_id + 1 + self.doc_no))
         self._execute(
             flush_cache,
             {

@@ -119,8 +119,9 @@ def test_index_alice(index_dir):
                                                            document=TEXT(analyser=analyser, indexed=False),
                                                            blank=NUMERIC(indexed=True), ref=ID(indexed=True))))
         with writer:
-            doc_id = writer.add_document(text=data, document='alice.txt', blank=None,
-                                         ref=123, frame_size=2)
+            writer.add_document(text=data, document='alice.txt', blank=None, ref=123, frame_size=2)
+
+        doc_id = writer.last_committed_documents[0]
 
         with IndexReader(index_dir) as reader:
             assert sum(1 for _ in reader.get_term_positions('nice', 'text')) == 3
@@ -153,7 +154,6 @@ def test_index_alice(index_dir):
                 reader.get_document(doc_id)
 
         with IndexWriter(index_dir) as writer:
-            # TODO: add the details of the transaction with the writer...  with pytest.raises(DocumentNotFoundError):
             writer.delete_document(doc_id)
 
         with IndexReader(index_dir) as reader:
@@ -516,8 +516,9 @@ def test_index_utf8(index_dir):
                                                     Schema(text=TEXT(analyser=analyser),
                                                            document=TEXT(analyser=analyser, indexed=False))))
         with writer:
-            doc_id = writer.add_document(text=data, document='mt_warning_utf8.txt', frame_size=2)
-            assert doc_id
+            writer.add_document(text=data, document='mt_warning_utf8.txt', frame_size=2)
+
+        assert writer.last_committed_documents
 
 
 def test_index_latin1(index_dir):
@@ -528,8 +529,7 @@ def test_index_latin1(index_dir):
                                                     Schema(text=TEXT(analyser=analyser),
                                                            document=TEXT(analyser=analyser, indexed=False))))
         with writer:
-            doc_id = writer.add_document(text=data, document='mt_warning_latin1.txt', frame_size=2, encoding='latin1')
-            assert doc_id
+            writer.add_document(text=data, document='mt_warning_latin1.txt', frame_size=2, encoding='latin1')
 
             with pytest.raises(IndexError):
                 # Bad encoding
@@ -538,18 +538,21 @@ def test_index_latin1(index_dir):
             # Ignore bad encoding errors
             writer.add_document(text=data, document='mt_warning_latin1.txt', frame_size=2, encoding_errors='ignore')
 
+        assert len(writer.last_committed_documents) == 2
+
 
 def test_index_encoding(index_dir):
     analyser = TestAnalyser()
     writer = IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser))))
     with writer:
-        doc_id = writer.add_document(text=u'This is a unicode string to test our field decoding.', frame_size=2)
-        assert doc_id is not None
+        writer.add_document(text=u'This is a unicode string to test our field decoding.', frame_size=2)
 
         with open(os.path.abspath('caterpillar/test_resources/mt_warning_utf8.txt'), 'r') as f:
             data = f.read()
         with pytest.raises(IndexError):
             writer.add_document(text=data, frame_size=2, encoding='ascii')
+
+    assert len(writer.last_committed_documents) == 1
 
 
 def test_index_state(index_dir):

@@ -255,6 +255,9 @@ class IndexWriter(object):
         self.__rm_frames = {}
         self.__rm_documents = set()
 
+        # Attribute to store the details of the most recent commit
+        self.last_committed_documents = []
+
     def __enter__(self):
         self.begin()
         return self
@@ -310,7 +313,7 @@ class IndexWriter(object):
 
     def commit(self):
         """Commit changes made by this writer by calling :meth:`.flush` then ``commit()`` on the storage instance."""
-        self.__storage.commit()
+        self.last_committed_documents = self.__storage.commit()
         self.__committed = True
 
     def rollback(self):
