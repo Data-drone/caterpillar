@@ -60,7 +60,7 @@ class IndexSearcher(object):
             for fid in frame_ids:
                 hits.append(SearchHit(
                     fid, text_field, self.index_reader.get_frame(fid, text_field),
-                    query_result.term_frequencies[text_field][fid]
+                    query_result.term_frequencies[text_field].get(fid, {})
                 ))
 
         num_matches = len(hits)

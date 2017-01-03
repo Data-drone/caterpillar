@@ -481,8 +481,17 @@ class IndexWriter(object):
                 '_field': '',  # There is no text field
                 '_positions': {},
                 '_sequence_number': frame_count,
+                '_metadata': metadata
             }
             frame.update(shell_frame)
+            try:
+                frames[''].append(json.dumps(frame))
+            except KeyError:
+                frames[''] = [json.dumps(frame)]
+            try:
+                term_positions[''].append(frame['_positions'])
+            except:
+                term_positions[''] = [frame['_positions']]
 
         # Finally add the document to storage.
         doc_fields = {}

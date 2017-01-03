@@ -468,10 +468,6 @@ def test_index_alice_case_folding(index_dir):
             writer.fold_term_case('text')
 
         with IndexReader(index_dir) as reader:
-            positions_index = {k: v for k, v in reader.get_positions_index('text')}
-            for frame_id, frame in reader.get_frames('text'):
-                for term in frame['_positions']:
-                    assert frame_id in positions_index[term]
 
             # Check that associations never exceed frequency of either term
             associations = {k: v for k, v in reader.get_associations_index('text')}
@@ -481,7 +477,7 @@ def test_index_alice_case_folding(index_dir):
                     assert assoc <= frequencies[term] and assoc <= frequencies[other_term]
 
             # Check frequencies against positions
-            frequencies = {k: v for k, v in reader.get_frequencies('text')}
+            positions_index = {k: v for k, v in reader.get_positions_index('text')}
             for term, freq in frequencies.items():
                 assert freq == len(positions_index[term])
 

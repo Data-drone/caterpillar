@@ -216,7 +216,6 @@ def test_searching_nps(index_dir):
                 == searcher.count(QSQ('point or points or pointed', 'would_like'))
 
             # Verify uniqueness of returned results
-            import pdb; pdb.set_trace()
             docs = set()
             result_count = 0
             for field in ['liked', 'disliked', 'would_like']:
