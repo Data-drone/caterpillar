@@ -188,17 +188,17 @@ class StorageReader(object):
     @abc.abstractproperty
     def structured_fields(self):
         """Get a list of the structured field names on this index."""
-        return
+        raise NotImplementedError
 
     @abc.abstractproperty
     def unstructured_fields(self):
         """Get a list of the unstructured field names on this index."""
-        return
+        raise NotImplementedError
 
     @abc.abstractproperty
     def revision(self):
         """An object representing the current revision number of this index."""
-        return
+        raise NotImplementedError
 
     @abc.abstractmethod
     def get_plugin_state(self, plugin_name, plugin_settings):

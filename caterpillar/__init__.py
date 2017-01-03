@@ -1,7 +1,7 @@
 # Copyright (c) 2012-2014 Kapiche Limited
 # Author: Ryan Stuart <ryan@kapiche.com>
 import os
-
+from abc import abstractproperty
 
 version_file = open(os.path.join(os.path.dirname(__file__), 'VERSION'), 'r')
 full_version = version_file.read().strip().split('-')
@@ -16,8 +16,11 @@ def abstract_method_tester(abc):
 
     def tester(self, abc_method_name):
         abc_method = abc.__dict__[abc_method_name]
-        args = (None,) * (abc_method.func_code.co_argcount-1)
-        abc_method(self, *args)
+        if isinstance(abc_method, abstractproperty):
+            abstractproperty(self)
+        else:
+            args = (None,) * (abc_method.func_code.co_argcount - 1)
+            abc_method(self, *args)
 
     methods = {}
     methods.update((
