@@ -320,20 +320,19 @@ class SqliteWriter(StorageWriter):
                         continue
                     # It's a bigram if the left term is follwed by the right term, and they are close enough.
                     if (
-                        first[2] == 0 and
-                        second[2] == 1 and
-                        # Needs to be greater than zero to handle repeating terms.
+                        first[2] == 0 and second[2] == 1 and
+                        # Don't attempt to handle overlapping terms
                         0 < second[0] - first[1] <= max_char_gap
                     ):
                         merged_positions.append([first[0], second[1]])
                         merged = True
-                    # Otherwise it's not, and we just keep the positions associated with that term.
+                    # Not a bigram - keep the positions associated with that term.
                     else:
                         if first[2] == 0:
                             final_left.append(first[:2])
-                        elif first[:2] != second[:2]:  # Avoid adding a repeated term twice.
+                        else:  # Avoid adding a repeated term twice.
                             final_right.append(first[:2])
-                else:  # Don't forget the last position if it wasn't merged.
+                else:  # The last position if it wasn't merged.
                     if not merged:
                         if second[2] == 0:
                             final_left.append(second[:2])
@@ -342,7 +341,7 @@ class SqliteWriter(StorageWriter):
 
                 if final_left:
                     insert_row([left_id, frame_id, len(final_left), json.dumps(final_left)[1:-1]])
-                if final_right and left_id != right_id:  # Handle terms with repeated
+                if final_right:
                     insert_row([right_id, frame_id, len(final_right), json.dumps(final_right)[1:-1]])
                 if merged_positions:
                     insert_row([bigram_id, frame_id, len(merged_positions), json.dumps(merged_positions)[1:-1]])
@@ -456,65 +455,75 @@ class SqliteWriter(StorageWriter):
         """
         # TODO: pick a better specifier for the document format name here.
         if document_format == 'test':
-            document, structured_data, frames, frame_terms = document_data
+            try:
+                # Create a savepoint so we don't have any problems with the field addition.
+                self._execute('savepoint document')
 
-            # Stage the document.
-            self._execute(
-                'insert into document(id, stored) values (?, ?)',
-                [self.doc_no, document]
-            )
+                document, structured_data, frames, frame_terms = document_data
 
-            # Stage the structured fields:
-            insert_rows = ((self.doc_no, field, value) for field, value in structured_data.iteritems())
-            self._executemany(
-                'insert into document_data(document_id, field_name, value) values (?, ?, ?)',
-                insert_rows
-            )
+                # Stage the document.
+                self._execute(
+                    'insert into document(id, stored) values (?, ?)',
+                    [self.doc_no, document]
+                )
 
-            # Check frame data is consistent and pull out a frame count.
-            number_frames = {field: len(values) for field, values in frames.iteritems()}
-            number_frame_terms = {field: len(values) for field, values in frames.iteritems()}
+                # Stage the structured fields:
+                insert_rows = ((self.doc_no, field, value) for field, value in structured_data.iteritems())
+                self._executemany(
+                    'insert into document_data(document_id, field_name, value) values (?, ?, ?)',
+                    insert_rows
+                )
 
-            if number_frames.keys() != number_frame_terms.keys():
-                raise ValueError('Inconsistent fields between frames and frame_terms')
-            for field in number_frames:
-                if number_frames[field] != number_frame_terms[field]:
-                    raise ValueError('Number of frames and frame_terms does not match for field {}'.format(field))
+                # Check frame data is consistent and pull out a frame count.
+                number_frames = {field: len(values) for field, values in frames.iteritems()}
+                number_frame_terms = {field: len(values) for field, values in frame_terms.iteritems()}
 
-            total_frames = sum(number_frames.values())
+                if number_frames.keys() != number_frame_terms.keys():
+                    raise ValueError('Inconsistent fields between frames and frame_terms')
+                for field in number_frames:
+                    if number_frames[field] != number_frame_terms[field]:
+                        raise ValueError('Number of frames and frame_terms does not match for field {}'.format(field))
 
-            # Stage the frames:
-            insert_frames = (
-                [self.doc_no, field, seq, frame]
-                for field, frame_list in sorted(frames.iteritems())
-                for seq, frame in enumerate(frame_list)
-            )
-            insert_frames_numbered = (
-                (frame_count + self.frame_no, a[0], a[1], a[2], a[3])
-                for frame_count, a in enumerate(insert_frames)
-            )
+                total_frames = sum(number_frames.values())
 
-            self._executemany(
-                'insert into frame(id, document_id, field_name, sequence, stored) values (?, ?, ?, ?, ?)',
-                insert_frames_numbered
-            )
+                # Stage the frames:
+                insert_frames = (
+                    [self.doc_no, field, seq, frame]
+                    for field, frame_list in sorted(frames.iteritems())
+                    for seq, frame in enumerate(frame_list)
+                )
+                insert_frames_numbered = (
+                    (frame_count + self.frame_no, a[0], a[1], a[2], a[3])
+                    for frame_count, a in enumerate(insert_frames)
+                )
 
-            # Term vectors for the frames, note that the dictionary is sorted for consistency with insert_frames
-            frame_term_data = (frame for field, frame_list in sorted(frame_terms.iteritems()) for frame in frame_list)
-            insert_term_data = (
-                # Strip the leading and trailing '[' from the json string so aggregation becomes string concatenation.
-                (frame_count + self.frame_no, term, len(positions), json.dumps(positions)[1:-1])
-                for frame_count, frame_data in enumerate(frame_term_data)
-                for term, positions in frame_data.iteritems()
-            )
+                self._executemany(
+                    'insert into frame(id, document_id, field_name, sequence, stored) values (?, ?, ?, ?, ?)',
+                    insert_frames_numbered
+                )
 
-            self._executemany(
-                'insert into positions_staging(frame_id, term, frequency, positions) values (?, ?, ?, ?)',
-                insert_term_data
-            )
+                # Term vectors for the frames, note that the dictionary is sorted for consistency with insert_frames
+                frame_term_data = (
+                    frame for field, frame_list in sorted(frame_terms.iteritems()) for frame in frame_list
+                )
+                insert_term_data = (
+                    # The leading and trailing [] are stripped so positions can be concatenated as strings.
+                    (frame_count + self.frame_no, term, len(positions), json.dumps(positions)[1:-1])
+                    for frame_count, frame_data in enumerate(frame_term_data)
+                    for term, positions in frame_data.iteritems()
+                )
 
-            self.frame_no += total_frames
-            self.doc_no += 1
+                self._executemany(
+                    'insert into positions_staging(frame_id, term, frequency, positions) values (?, ?, ?, ?)',
+                    insert_term_data
+                )
+
+                self._execute('release document')  # rollup this savepoint into the transaction.
+                self.frame_no += total_frames
+                self.doc_no += 1
+            except Exception as e:
+                self._execute('rollback to savepoint document')
+                raise e
         else:
             raise ValueError('Unknown document_format {}'.format(document_format))
 
@@ -670,49 +679,35 @@ class SqliteReader(StorageReader):
         ))
         return vocab_size[0][0]
 
-    def get_frequencies(self, include_fields=None, exclude_fields=None):
-        """Return a generator of all the term frequencies in the given fields."""
-        where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields)
-
-        frequencies = self._execute(
-            'select voc.term, sum(frames_occuring)'
-            'from term_statistics stats '
-            'inner join vocabulary voc '
-            '   on voc.id = stats.term_id '
-            'inner join unstructured_field field '
-            '   on stats.field_id = field.id ' + where_clause +
-            'group by voc.term', fields
-        )
-        return frequencies
-
-    def get_term_frequencies(self, terms, include_fields=None, exclude_fields=None):
+    def iterate_term_frequencies(self, terms=None, include_fields=None, exclude_fields=None):
         """Return a generator of frequencies over the list of terms supplied. """
         where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields)
 
-        term_parameters = ', '.join(['?'] * len(terms))
+        if terms is not None:
+            term_filter = 'and voc.term in ({})'.format(', '.join(['?'] * len(terms)))
+        else:
+            term_filter = ''
 
-        frequencies = self._execute(
-            'select voc.term, sum(frames_occuring)'
-            'from term_statistics stats '
-            'inner join vocabulary voc '
-            '   on voc.id = stats.term_id '
-            'inner join unstructured_field field '
-            '   on stats.field_id = field.id ' + where_clause +
-            '   and voc.term in ({})'.format(term_parameters) +
-            'group by voc.term', fields + terms
+        terms = terms or []
+
+        frequencies = self._execute("""
+            select voc.term, sum(frames_occuring)
+            from term_statistics stats
+            inner join vocabulary voc
+               on voc.id = stats.term_id
+               {}
+            inner join unstructured_field field
+               on stats.field_id = field.id
+               {}
+            group by voc.term
+            """.format(term_filter, where_clause), terms + fields
         )
         return frequencies
 
     def _iterate_positions(self, terms=None, include_fields=None, exclude_fields=None):
-        """Iterate through the positions array for the given term.
+        """Iterate through the positions index.
 
-        Currently this relies on the _positions field being stored in the frame, and is not
-        easily accessible otherwise. This is provided as a backwards compatability measure,
-        not a robust implementation of character level position information.
-
-        If you just want term-frequency information, the iterate_... provides the ...
-        TODO: implement and point to the new iterators for term-frequency information.
-        TODO: implement and point at the low level search operators.
+        By default, all terms are iterated. Optionally a list of terms can be provided.
 
         """
         where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields)

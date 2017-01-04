@@ -557,7 +557,7 @@ class IndexWriter(object):
 
         logger.debug("Merged {} terms during case folding.".format(count))
 
-    def merge_terms(self, merges, text_field):
+    def merge_terms(self, merges, text_field, bigram_max_char_gap=2):
         """
         Merge the terms in ``merges`` across the whole index.
 
@@ -581,7 +581,9 @@ class IndexWriter(object):
                     self.__storage._merge_term_variation(terms, '', text_field)
             else:
                 left_term, right_term = terms
-                self.__storage._merge_bigrams(terms[0], terms[1], new_term, text_field)
+                self.__storage._merge_bigrams(
+                    terms[0], terms[1], new_term, text_field, max_char_gap=bigram_max_char_gap
+                )
 
         logger.debug("Merged {} terms during manual merge.".format(count))
 
@@ -592,9 +594,9 @@ class IndexWriter(object):
 
         """
         # low level calls to plugin storage subsystem.
-        plugin_id = self.__storage.set_plugin_state(plugin.get_type(),
-                                                    plugin.get_settings(),
-                                                    plugin.get_state())
+        plugin_id = self.__storage.set_plugin_state(
+            plugin.get_type(), plugin.get_settings(), plugin.get_state()
+        )
         return plugin_id
 
     def delete_plugin_instance(self, plugin):
@@ -817,12 +819,12 @@ class IndexReader(object):
             all of the terms positions returned by :meth:`.get_term_position`.
 
         """
-        return self.__storage.get_frequencies(include_fields=[field])
+        return self.__storage.iterate_term_frequencies(include_fields=[field])
 
     def get_term_frequency(self, term, field):
         """Return the frequency of ``term`` (str) as an int."""
         try:
-            frequency = next(self.__storage.get_term_frequencies([term], include_fields=[field]))
+            frequency = next(self.__storage.iterate_term_frequencies(terms=[term], include_fields=[field]))
             return frequency[1]
         except StopIteration:
             raise KeyError('"{}" not found in field "{}"'.format(term, field))

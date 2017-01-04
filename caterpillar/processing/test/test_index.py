@@ -393,6 +393,31 @@ def test_index_alice_merge_bigram(index_dir):
             shutil.rmtree(merge_index)
 
 
+def test_bigram_merge_char_thresh(index_dir):
+    with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'r') as f:
+        f.seek(0)
+        data = f.read()
+        with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT))) as writer:
+            writer.add_document(text=data)
+
+    # Don't merge any bigrams
+    with IndexWriter(index_dir) as writer:
+        writer.merge_terms(
+            [[('golden', 'key'), 'golden key'], [('twinkle', 'twinkle'), 'twinkle twinkle']],
+            'text', bigram_max_char_gap=0
+        )
+
+    with IndexReader(index_dir) as reader:
+        with pytest.raises(KeyError):
+            reader.get_term_frequency('golden key', 'text') == 0
+
+    with IndexWriter(index_dir) as writer:
+        writer.merge_terms([[('golden', 'key',), 'golden key']], 'text', bigram_max_char_gap=2)
+
+    with IndexReader(index_dir) as reader:
+        assert reader.get_term_frequency('golden key', 'text') == 6
+
+
 def test_index_moby_case_folding(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/moby.txt'), 'r') as f:
         data = f.read()
