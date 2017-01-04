@@ -506,7 +506,7 @@ class IndexWriter(object):
 
         document = json.dumps(doc_fields)
 
-        self.__storage.add_analyzed_document('test', (document, metadata, frames, term_positions))
+        self.__storage.add_analyzed_document('v1', (document, metadata, frames, term_positions))
 
         logger.debug('Tokenization of document complete. {} frames staged for storage.'.format(len(frames)))
 

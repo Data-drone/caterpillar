@@ -432,14 +432,14 @@ class SqliteWriter(StorageWriter):
         Arguments
 
             document_format: str
-                A string representing the format of the passed data. Currently only 'test'
+                A string representing the format of the passed data. Currently only 'v1'
                 is supported.
             document_data:
                 The data for the document, in the format expected for document_data.
 
         Valid Document Formats
 
-            document_format == 'test':
+            document_format == 'v1':
             An iterable of
                 - a string representation of the whole document
                 - a dictionary of field_name:field_value pairs for the document level structured data
@@ -453,8 +453,7 @@ class SqliteWriter(StorageWriter):
             and there should be a one-one correspondence between frame representations and term:frequency vectors.
 
         """
-        # TODO: pick a better specifier for the document format name here.
-        if document_format == 'test':
+        if document_format == 'v1':
             try:
                 # Create a savepoint so we don't have any problems with the field addition.
                 self._execute('savepoint document')
@@ -514,7 +513,7 @@ class SqliteWriter(StorageWriter):
                 )
 
                 self._executemany(
-                    'insert into positions_staging(frame_id, term, frequency, positions) values (?, ?, ?, ?)',
+                    'insert into stage_posting(frame_id, term, frequency, positions) values (?, ?, ?, ?)',
                     insert_term_data
                 )
 

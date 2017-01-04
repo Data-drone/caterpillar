@@ -103,13 +103,8 @@ class StorageWriter(object):
         return
 
     @abc.abstractmethod
-    def add_analyzed_document(self, document, structured_data, frames):
-        """Take a document analyzed by an analyzer, and store it.
-
-        TODO: specify the datatype expected here.
-        TODO: work out how we can do this backwards compatibly? ie, specify a type string?
-
-        """
+    def add_analyzed_document(self, document_format, document_data):
+        """Take a document analyzed by an analyzer, and store it."""
         return
 
     @abc.abstractmethod

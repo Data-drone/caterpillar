@@ -255,7 +255,7 @@ create table frame (
 );
 
 /* One row per term occuring in a frame */
-create table positions_staging (
+create table stage_posting (
     frame_id integer,
     term text,
     frequency integer,
@@ -327,7 +327,7 @@ begin immediate;
 # ID's during the script execution.
 prepare_flush = """
 -- For generating the Term-frame_id table
-create index term_idx on positions_staging(term);
+create index term_idx on stage_posting(term);
 
 -- Generate term statistics of added documents
 create table term_statistics as
@@ -337,7 +337,7 @@ create table term_statistics as
         sum(frequency) as frequency,
         count(distinct frame_id) as frames_occuring,
         count(distinct document_id) as documents_occuring
-    from positions_staging pos
+    from stage_posting pos
     inner join frame
         on frame_id = frame.id
     group by
@@ -460,7 +460,7 @@ insert into disk_index.frame_posting(frame_id, term_id, frequency, positions)
         vocab.id,
         frequency,
         positions
-    from positions_staging pos-- TODO: Rename this table in both the schema and the cache
+    from stage_posting pos
     inner join disk_index.vocabulary vocab
         on vocab.term = pos.term;
 
@@ -471,7 +471,7 @@ insert into disk_index.term_posting(term_id, frame_id, frequency, positions)
         pos.frame_id + :max_frame,
         frequency,
         positions
-    from positions_staging pos-- TODO: Rename this table in both the schema and the cache
+    from stage_posting pos
     inner join disk_index.vocabulary vocab
         on vocab.term = pos.term
     order by vocab.id;
@@ -570,7 +570,7 @@ delete from document_data;
 delete from deleted_document;
 delete from frame;
 delete from setting;
-delete from positions_staging;
+delete from stage_posting;
 delete from plugin_data;
 delete from plugin_registry;
 delete from delete_plugin;

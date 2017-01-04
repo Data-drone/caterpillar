@@ -78,12 +78,12 @@ def test_bad_document_format(tmp_dir):
 
     # Non matching fields
     with pytest.raises(ValueError):
-        writer.add_analyzed_document('test', bad_document)
+        writer.add_analyzed_document('v1', bad_document)
 
     # Non matching numbers of frames and positions:
     bad_document[2] = {'text': ['An example', 'frame']}
     with pytest.raises(ValueError):
-        writer.add_analyzed_document('test', bad_document)
+        writer.add_analyzed_document('v1', bad_document)
 
     with pytest.raises(ValueError):
         writer.add_analyzed_document('unknown_format', bad_document)
@@ -110,7 +110,7 @@ def test_add_get_document(tmp_dir):
     writer.begin()
     writer.add_structured_fields(['test_field', 'other_field'])
     writer.add_unstructured_fields(['text'])
-    writer.add_analyzed_document('test', sample_format_document)
+    writer.add_analyzed_document('v1', sample_format_document)
 
     with pytest.raises(apsw.SQLError):
         writer._execute('select * from nonexistent_table')
@@ -137,7 +137,7 @@ def test_add_get_document(tmp_dir):
     # Add 100 more documents:
     writer.begin()
     for i in range(100):
-        writer.add_analyzed_document('test', sample_format_document)
+        writer.add_analyzed_document('v1', sample_format_document)
     writer.commit()
 
     assert reader.count_documents() * 3 == 303 == reader.count_frames()
@@ -186,7 +186,7 @@ def test_iterators(tmp_dir):
     writer.add_structured_fields(['test_field', 'other_field'])
     writer.add_unstructured_fields(['text'])
     for i in range(100):
-        writer.add_analyzed_document('test', sample_format_document)
+        writer.add_analyzed_document('v1', sample_format_document)
     writer.commit()
 
     assert len(writer._SqliteWriter__last_added_documents) == 100
