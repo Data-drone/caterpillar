@@ -853,6 +853,8 @@ class SqliteReader(StorageReader):
         else:  # Make sure to yield the final row.
             if current_term is not None:
                 yield current_term, current_dict
+            else:
+                yield None, {}
 
     def count_documents(self):
         """Returns the number of documents in the index."""

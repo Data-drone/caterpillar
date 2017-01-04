@@ -788,17 +788,16 @@ class IndexReader(object):
 
     def get_term_association(self, term, association, field):
         """Returns a count of term associations between ``term`` (str) and ``association`` (str)."""
-        try:
-            term, associations = next(
-                self.__storage.iterate_associations(term=term, association=association, include_fields=[field])
-            )
-            try:
-                count = associations[association]
-            except KeyError:
-                raise KeyError('"{}" not associated with term "{}".'.format(association, term))
-            return count
-        except StopIteration:
-            raise KeyError('"{}" not found in associations index.'.format(term))
+
+        term, associations = next(
+            self.__storage.iterate_associations(term=term, association=association, include_fields=[field])
+        )
+        if term is None:
+            raise KeyError('"{}" not associated with term "{}" or has no associations.'.format(association, term))
+
+        count = associations[association]
+
+        return count
 
     def get_frequencies(self, field):
         """

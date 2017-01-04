@@ -16,29 +16,40 @@ def test_querystring_query_basic(index_dir):
     """Test querystring query basic functionality."""
     with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'rbU') as f:
         data = f.read()
-        with IndexWriter(index_dir, IndexConfig(SqliteStorage, schema=schema.Schema(text=schema.TEXT))) as writer:
-            writer.add_document(text=data)
+        config = IndexConfig(SqliteStorage, schema=schema.Schema(text1=schema.TEXT, text2=schema.TEXT))
+        with IndexWriter(index_dir, config) as writer:
+            writer.add_document(text1=data, text2=data)
 
     # Simple terms
     with IndexReader(index_dir) as reader:
-        alice_count = len(QueryStringQuery('Alice', 'text').evaluate(reader).frame_ids['text'])
-        king_count = len(QueryStringQuery('King', 'text').evaluate(reader).frame_ids['text'])
+        alice_count = len(QueryStringQuery('Alice', 'text1').evaluate(reader).frame_ids['text1'])
+        king_count = len(QueryStringQuery('King', 'text1').evaluate(reader).frame_ids['text1'])
         assert alice_count > 0
         assert king_count > 0
         # Boolean operators
-        alice_and_king_count = len(QueryStringQuery('Alice AND King', 'text').evaluate(reader).frame_ids['text'])
-        alice_not_king_count = len(QueryStringQuery('Alice NOT King', 'text').evaluate(reader).frame_ids['text'])
-        alice_or_king_count = len(QueryStringQuery('Alice OR King', 'text').evaluate(reader).frame_ids['text'])
-        king_not_alice_count = len(QueryStringQuery('King NOT Alice', 'text').evaluate(reader).frame_ids['text'])
+        alice_and_king_count = len(QueryStringQuery('Alice AND King', 'text1').evaluate(reader).frame_ids['text1'])
+        alice_not_king_count = len(QueryStringQuery('Alice NOT King', 'text1').evaluate(reader).frame_ids['text1'])
+        alice_or_king_count = len(QueryStringQuery('Alice OR King', 'text1').evaluate(reader).frame_ids['text1'])
+        king_not_alice_count = len(QueryStringQuery('King NOT Alice', 'text1').evaluate(reader).frame_ids['text1'])
         assert alice_not_king_count == alice_count - alice_and_king_count
         assert king_not_alice_count == king_count - alice_and_king_count
         assert alice_or_king_count == alice_not_king_count + king_not_alice_count + alice_and_king_count
         # Wildcards
-        assert len(QueryStringQuery('*ice', 'text').evaluate(reader).frame_ids['text']) > alice_count
-        assert len(QueryStringQuery('K??g', 'text').evaluate(reader).frame_ids['text']) == king_count
+        assert len(QueryStringQuery('*ice', 'text1').evaluate(reader).frame_ids['text1']) > alice_count
+        assert len(QueryStringQuery('K??g', 'text1').evaluate(reader).frame_ids['text1']) == king_count
 
         with pytest.raises(QueryError):
             QueryStringQuery('Alice', 'not_a_field').evaluate(reader)
+
+        # Boolean Operators across fields
+        field1 = QueryStringQuery('Alice AND King', 'text1').evaluate(reader)
+        field2 = QueryStringQuery('Alice AND King', 'text2').evaluate(reader)
+
+        and_fields = field1 & field2
+        or_fields = field1 | field2
+
+        assert len(and_fields.frame_ids['text1']) == len(and_fields.frame_ids['text2']) == 0
+        assert len(or_fields.frame_ids['text1']) == len(or_fields.frame_ids['text2']) == alice_and_king_count
 
 
 def test_querystring_query_advanced(index_dir):

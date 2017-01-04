@@ -56,7 +56,7 @@ def test_index_open(index_dir):
             assert reader.revision == (1, 1, 0, 104)
 
             with pytest.raises(DocumentNotFoundError):
-                reader.get_frame(10000, 'text1')
+                reader.get_frame(10000, 'text1`')
 
         # Adding the same document twice should double the frame, term_frequencies and document counts
         with writer:
