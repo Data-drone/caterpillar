@@ -175,15 +175,6 @@ class IndexWriter(object):
     ``timeout`` argument to `begin()`. If `begin()` times-out when trying to get a lock, then
     :exc:`IndexWriteLockedError` is raised.
 
-    Writes to an index are internally buffered until they reach :const:`IndexWriter.RAM_BUFFER_MB` when `flush()` is
-    called. Alternatively a caller is free to call flush whenever they like. Calling flush will take any in-memory
-    writes recorded by this class and write them to the underlying storage object using the methods it provides.
-
-    .. note::
-        The behaviour of `flush()` depends on the underlying :class:`Storage <chrysalis.data.storage.Storage>`
-        implementation used. Some implementations might just record the writes in memory. Consult the specific storage
-        type for more information.
-
     Once you have performed all the writes/deletes you like you need to call :meth:`.commit` to finalise the
     transaction. Alternatively, if there was a problem during your transaction, you can call :meth:`.rollback` instead
     to revert any changes you made using this writer. **IMPORTANT** - Finally, you need to call :meth:`.close` to
@@ -194,8 +185,8 @@ class IndexWriter(object):
         >>> writer = IndexWriter('/some/path/to/an/index')
         >>> try:
         ...     writer.begin(timeout=2)  # timeout in 2 seconds
-        ...     # Do stuff, like add_document(), flush() etc...
-        ...     writer.commit()  # Write the changes (calls flush)...
+        ...     # Do stuff, like add_document() etc...
+        ...     writer.commit()  # Write the changes...
         ... except IndexWriteLockedError:
         ...     # Do something else, maybe try again
         ... except SomeOtherException:
@@ -249,11 +240,6 @@ class IndexWriter(object):
             self.__schema = self.__config.schema
             self.__lock = None  # Should declare in __init__ and not outside.
         self.__committed = False
-        # Internal index buffers we will update when flush() is called.
-        self.__new_frames = {}
-        self.__new_documents = {}
-        self.__rm_frames = {}
-        self.__rm_documents = set()
 
         # Attribute to store the details of the most recent commit
         self.last_committed_documents = []
@@ -314,7 +300,7 @@ class IndexWriter(object):
             self.__storage.begin()
 
     def commit(self):
-        """Commit changes made by this writer by calling :meth:`.flush` then ``commit()`` on the storage instance."""
+        """Commit changes made by this writer by calling :meth:``commit()`` on the storage instance."""
         self.last_committed_documents, self.last_deleted_documents, self.last_updated_plugins = self.__storage.commit()
         self.__committed = True
 
@@ -367,8 +353,6 @@ class IndexWriter(object):
 
         Raises :exc:`TypeError` if something other then str or bytes is given for a TEXT field and :exec:`IndexError`
         if there are any problems decoding a field.
-
-        This method will call :meth:`.flush` if the internal buffers go over :const:`.RAM_BUFFER_SIZE`.
 
         Returns the id (str) of the document added.
 
