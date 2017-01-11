@@ -83,6 +83,7 @@ create table document_data (
 );
 
 
+/* Storage for frames, structured to link between document level metadata and frame level text information. */
 create table frame (
     id integer primary key,
     document_id integer,

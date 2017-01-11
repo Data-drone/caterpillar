@@ -378,7 +378,6 @@ class IndexWriter(object):
         """
         logger.debug('Adding document')
         schema_fields = self.__schema.items()
-        # document_id = uuid.uuid4().hex
         sentence_tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
 
         # Build the frames by performing required analysis.
@@ -416,68 +415,67 @@ class IndexWriter(object):
                     or not field.indexed or field.categorical:
                 continue
 
+            # Start the index for this field
+            frames[field_name] = []
+            term_positions[field_name] = []
+
+            # Index non-categorical fields
+            field_data = fields[field_name]
+            expected_types = (str, bytes, unicode)
+            if isinstance(field_data, str) or isinstance(field_data, bytes):
+                try:
+                    field_data = fields[field_name] = field_data.decode(encoding, encoding_errors)
+                except UnicodeError as e:
+                    raise IndexError("Couldn't decode the {} field - {}".format(field_name, e))
+            elif type(field_data) not in expected_types:
+                raise TypeError("Expected str or bytes or unicode for text field {} but got {}".
+                                format(field_name, type(field_data)))
+            if frame_size > 0:
+                # Break up into paragraphs
+                paragraphs = ParagraphTokenizer().tokenize(field_data)
             else:
-                # Start the index for this field
-                frames[field_name] = []
-                term_positions[field_name] = []
+                # Otherwise, the whole document is considered as one paragraph
+                paragraphs = [Token(field_data)]
 
-                # Index non-categorical fields
-                field_data = fields[field_name]
-                expected_types = (str, bytes, unicode)
-                if isinstance(field_data, str) or isinstance(field_data, bytes):
-                    try:
-                        field_data = fields[field_name] = field_data.decode(encoding, encoding_errors)
-                    except UnicodeError as e:
-                        raise IndexError("Couldn't decode the {} field - {}".format(field_name, e))
-                elif type(field_data) not in expected_types:
-                    raise TypeError("Expected str or bytes or unicode for text field {} but got {}".
-                                    format(field_name, type(field_data)))
+            for paragraph in paragraphs:
+                # Next we need the sentences grouped by frame
                 if frame_size > 0:
-                    # Break up into paragraphs
-                    paragraphs = ParagraphTokenizer().tokenize(field_data)
+                    sentences = sentence_tokenizer.tokenize(paragraph.value, realign_boundaries=True)
+                    sentences_by_frames = [sentences[i:i + frame_size]
+                                           for i in xrange(0, len(sentences), frame_size)]
                 else:
-                    # Otherwise, the whole document is considered as one paragraph
-                    paragraphs = [Token(field_data)]
+                    sentences_by_frames = [[paragraph.value]]
+                for sentence_list in sentences_by_frames:
+                    # Build our frames
+                    frame = {
+                        '_field': field_name,
+                        '_positions': {},
+                        '_sequence_number': frame_count,
+                        '_metadata': metadata  # Inject the document level structured data into the frame
+                    }
+                    if field.stored:
+                        frame['_text'] = " ".join(sentence_list)
+                    for sentence in sentence_list:
+                        # Tokenize and index
+                        tokens = field.analyse(sentence)
 
-                for paragraph in paragraphs:
-                    # Next we need the sentences grouped by frame
-                    if frame_size > 0:
-                        sentences = sentence_tokenizer.tokenize(paragraph.value, realign_boundaries=True)
-                        sentences_by_frames = [sentences[i:i + frame_size]
-                                               for i in xrange(0, len(sentences), frame_size)]
-                    else:
-                        sentences_by_frames = [[paragraph.value]]
-                    for sentence_list in sentences_by_frames:
-                        # Build our frames
-                        frame = {
-                            '_field': field_name,
-                            '_positions': {},
-                            '_sequence_number': frame_count,
-                            '_metadata': metadata  # Inject the document level structured data into the frame
-                        }
-                        if field.stored:
-                            frame['_text'] = " ".join(sentence_list)
-                        for sentence in sentence_list:
-                            # Tokenize and index
-                            tokens = field.analyse(sentence)
+                        # Record positional information
+                        for token in tokens:
+                            # Add to the list of terms we have seen if it isn't already there.
+                            if not token.stopped:
+                                # Record word positions
+                                try:
+                                    frame['_positions'][token.value].append(token.index)
+                                except KeyError:
+                                    frame['_positions'][token.value] = [token.index]
 
-                            # Record positional information
-                            for token in tokens:
-                                # Add to the list of terms we have seen if it isn't already there.
-                                if not token.stopped:
-                                    # Record word positions
-                                    try:
-                                        frame['_positions'][token.value].append(token.index)
-                                    except KeyError:
-                                        frame['_positions'][token.value] = [token.index]
+                    # Build the final frame and add to the index
+                    frame.update(shell_frame)
+                    # Serialised representation of the frame
+                    frames[field_name].append(json.dumps(frame))
 
-                        # Build the final frame and add to the index
-                        frame.update(shell_frame)
-                        # Serialised representation of the frame
-                        frames[field_name].append(json.dumps(frame))
-
-                        # Generate the term-frequency vector for the frame:
-                        term_positions[field_name].append(frame['_positions'])
+                    # Generate the term-frequency vector for the frame:
+                    term_positions[field_name].append(frame['_positions'])
 
         # Currently only frames are searchable. That means if a schema contains no text fields it isn't searchable
         # at all. This block constructs a surrogate frame for storage in a catchall container to handle this case.

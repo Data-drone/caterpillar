@@ -63,9 +63,12 @@ class SqliteWriter(StorageWriter):
             connection = apsw.Connection(self._db, flags=apsw.SQLITE_OPEN_READWRITE | apsw.SQLITE_OPEN_CREATE)
             cursor = connection.cursor()
 
-            # Setup schema and necessary pragmas (on disk)
-            # The database is never written to directly, hence it is closed after initialisation.
+            # Setup schema and necessary pragmas (on disk). Note that the disk_schema script returns rows from the
+            # pragma statements - the list call makes sure that all statements are run, even if we don't care about the
+            # returned rows.
             list(cursor.execute(disk_schema))
+
+            # The database is never written to directly, hence it is closed after initialisation.
             connection.close()
 
     def begin(self):
