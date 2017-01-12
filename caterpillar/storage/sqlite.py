@@ -968,6 +968,78 @@ class SqliteReader(StorageReader):
         else:  # Make sure to yield the final row.
             yield current_field, current_value, document_ids
 
+    def iterate_bigram_positions(self, bigrams, include_fields=None, exclude_fields=None):
+        """Return an iterator of (left_term, right_term, frame_id, frequency) tuples for the specified list of bigrams.
+
+        Bigrams are supplied as a list of tuples: [('apple', 'pie'), ('whipped', 'cream')].
+
+        """
+        bigrams = self._executemany("""
+            select
+                left_vocab.term,
+                right_vocab.term,
+                left_post.frame_id,
+                1 as frequency
+            from term_posting left_post
+            inner join term_posting right_post
+                on left_post.frame_id = right_post.frame_id
+            inner join vocabulary left_vocab
+                on left_vocab.id = left_post.term_id
+                and left_vocab.term = ?
+            inner join vocabulary right_vocab
+                on right_vocab.id = right_post.term_id
+                and right_vocab.term = ?
+            where (left_post.positions & (right_post.positions >> 1)) > 0
+        """, bigrams)
+
+        return bigrams
+
+    def find_bigrams(self, include_fields=None, exclude_fields=None, min_count=5, max_count=1000, threshold=40):
+        """Find significant collocations of words.
+
+        Currently operates over all fields in the index.
+
+        Args
+
+            min_count: specifies the minimum number of times a bigram must occur to be considered. It is also
+                used to prefilter the vocabulary for terms that don't occur enough to form a bigram.
+            max_count: specifies the maximum number of frames that a term can occur in to be considered a bigram.
+                Can be used to exclude both commonly occuring words and limit the number of comparisons made.
+
+        """
+        bigrams = self._execute("""
+            with bigrams as (
+                select
+                    left_post.term_id as left_id,
+                    right_post.term_id as right_id,
+                    count(*) * 1.0 as bigram_count
+                from term_posting left_post
+                inner join frame_posting right_post
+                    on left_post.frame_id = right_post.frame_id
+                where (left_post.positions & (right_post.positions >> 1)) > 0
+                group by left_post.term_id, right_post.term_id
+                having bigram_count > :min_count
+            ),
+            field_statistics as (
+                select ts.term_id, term, sum(frames_occuring) as frames_occuring
+                from term_statistics ts
+                inner join vocabulary
+                    on vocabulary.id = ts.term_id
+                group by ts.term_id, term
+            )
+            select left_stats.term, right_stats.term
+            from bigrams
+            inner join field_statistics left_stats
+                on left_stats.term_id = bigrams.left_id
+            inner join field_statistics right_stats
+                on right_stats.term_id = bigrams.right_id
+            where (bigram_count /
+                (1.0 * left_stats.frames_occuring * right_stats.frames_occuring) *
+                (select count(*) from field_statistics)) > :threshold
+        """, {'min_count': min_count, 'max_count': max_count, 'threshold': threshold})
+
+        return bigrams
+
     def get_settings(self, names):
         """Get the settings identified by the given names. """
         variable_binding = ', '.join(['?'] * len(names))

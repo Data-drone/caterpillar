@@ -58,6 +58,10 @@ create table term_statistics (
     foreign key(field_id) references field(id)
 );
 
+create index term_frequency_stats_index on term_statistics(frequency, term_id);
+create index term_frame_stats_index on term_statistics(frames_occuring, term_id);
+
+
 
 /* The source table for the document representation. */
 create table document (
