@@ -449,7 +449,7 @@ class SqliteWriter(StorageWriter):
                     field_name: list of string representations of each frames
                 }
                 - a dictionary {
-                    field_name: list of {term: [[word1 boundary], [word2 boundary]]} vectors for each frame
+                    field_name: list of {term: [[word1 token_position], [word2 token_position]]} vectors for each frame
                 }
             For the frame data (3rd and 4th elements), the frames should be in document sequence order
             and there should be a one-one correspondence between frame representations and term:frequency vectors.
@@ -509,7 +509,7 @@ class SqliteWriter(StorageWriter):
                 )
                 insert_term_data = (
                     # The leading and trailing [] are stripped so positions can be concatenated as strings.
-                    (frame_count + self.frame_no, term, len(positions), json.dumps(positions)[1:-1])
+                    (frame_count + self.frame_no, term, len(positions), _bitwise_encode(positions))
                     for frame_count, frame_data in enumerate(frame_term_data)
                     for term, positions in frame_data.iteritems()
                 )
@@ -522,6 +522,7 @@ class SqliteWriter(StorageWriter):
                 self._execute('release document')  # rollup this savepoint into the transaction.
                 self.frame_no += total_frames
                 self.doc_no += 1
+
             except Exception as e:
                 self._execute('rollback to savepoint document')
                 raise e
@@ -1029,3 +1030,28 @@ class SqliteReader(StorageReader):
 
 
 SqliteStorage = Storage(SqliteReader, SqliteWriter)
+
+
+def _bitwise_encode(ordinal_positions):
+    """
+    Converts the sorted list of integers to a bitstring.
+
+    The integer i is indicated in the positions by setting the i'th bit of the string to 1.
+
+    Superpositions of integers up to 62 (positions 0, 1, ... 62) can be represented exactly.
+
+    For integers larger than 62, an approximate matching scheme is used: the position i % 63
+    is recorded instead. If the match is approximate, the high bit will set: the output integer is
+    negative if the match is approximate.
+
+    """
+
+    p = 0
+
+    for i in ordinal_positions:
+        p |= 1 << i % 63
+
+    if i > 62:
+        p = -p
+
+    return p

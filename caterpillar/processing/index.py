@@ -162,6 +162,10 @@ class IndexConfig(object):
         """Dump this instance as a string for serialization."""
         return cPickle.dumps(self)
 
+    def __call__(self, document):
+        """Analyze the provided document, """
+        pass
+
 
 class IndexWriter(object):
 
@@ -448,6 +452,7 @@ class IndexWriter(object):
                     else:
                         sentences_by_frames = [[paragraph.value]]
                     for sentence_list in sentences_by_frames:
+                        token_position = 0
                         # Build our frames
                         frame = {
                             '_field': field_name,
@@ -467,9 +472,11 @@ class IndexWriter(object):
                                 if not token.stopped:
                                     # Record word positions
                                     try:
-                                        frame['_positions'][token.value].append(token.index)
+                                        frame['_positions'][token.value].append(token_position)
                                     except KeyError:
-                                        frame['_positions'][token.value] = [token.index]
+                                        frame['_positions'][token.value] = [token_position]
+
+                                token_position += 1
 
                         # Build the final frame and add to the index
                         frame.update(shell_frame)

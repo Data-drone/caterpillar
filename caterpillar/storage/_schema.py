@@ -106,7 +106,7 @@ create table term_posting (
     term_id integer,
     frame_id integer,
     frequency integer,
-    positions text, -- Ugly hack to allow compatible bigram merging.
+    positions integer,
     primary key(term_id, frame_id),
     foreign key(term_id) references term(id),
     foreign key(frame_id) references frame(id)
@@ -118,7 +118,7 @@ create table frame_posting (
     frame_id integer,
     term_id integer,
     frequency integer,
-    positions text,
+    positions integer,
     primary key(frame_id, term_id),
     foreign key(term_id) references term(id) on delete cascade
     foreign key(frame_id) references frame(id) on delete cascade
