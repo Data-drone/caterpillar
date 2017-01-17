@@ -23,7 +23,7 @@ import apsw
 
 from caterpillar.storage import StorageWriter, StorageReader, Storage, StorageNotFoundError, \
     DuplicateStorageError, PluginNotFoundError
-from ._schema import disk_schema, cache_schema, prepare_flush, flush_cache
+from ._sqlite_schema import disk_schema, cache_schema, prepare_flush, flush_cache
 
 
 logger = logging.getLogger(__name__)
