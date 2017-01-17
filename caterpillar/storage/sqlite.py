@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 class SqliteWriter(StorageWriter):
     """
-    This class utilises SQLite to store data structures to disk.
+    This class uses SQLite to write data structures to disk.
 
     Reader / writer isolation here is provided by using `WAL mode <http://www.sqlite.org/wal.html>`_. There are no
     changes to the default checkpoint behaviour of SQLite, which at the time of writing defaults to 1000 pages.
@@ -578,26 +578,15 @@ class SqliteWriter(StorageWriter):
 
 class SqliteReader(StorageReader):
     """
-    Abstract class used to read the contents of an index.
+    Reader class for data stored in SQLite by SQLiteWriter.
 
-    Implementers must provide primitives for implementing atomic transactions. That is, they must provide
-    :meth:`.begin`, :meth:`.commit`, and meth:`.rollback`.
-
-    Storage implementations must also ensure that they provide reader/writer isolation. That is, if a storage instance
-    is created and a transaction started, any write operations made in that transaction should not be visible to any
-    existing or new storage instances. After the transaction is committed, the changes should not be visible to any
-    existing instances that have called :meth:`.begin` but should be visible to any new or existing storage instances
-    that are yet to call :meth:`.begin`.
-
-    The :meth:`.__init__` method of a storage implementation should take care of the required bootstrap required to open
-    existing storage **OR** create new storage (via a ``create`` flag). It also needs to support a ``readonly`` flag.
-
-    Finally, storage instances **MUST** be thread-safe.
+    A reader is transactionally isolated from writers by SQLite's Write Ahead Log. Calling the begin() method
+    of this class begins a read transaction that does not end until commit is explicitly called.
 
     """
 
     def __init__(self, path):
-        """Open or create a reader for the given storage location."""
+        """Open a reader for the given storage location."""
         self._db_path = path
         self._db = os.path.join(path, 'storage.db')
 
@@ -770,7 +759,7 @@ class SqliteReader(StorageReader):
 
     def iterate_associations(self, term=None, association=None, include_fields=None, exclude_fields=None):
         """
-        Term associations for this Index.
+        Term associations for this index.
 
         This is used to record when two terms co-occur in a frame. Be aware that only 1 co-occurrence for two terms
         is recorded per frame no matter the frequency of each term. The format is as follows::

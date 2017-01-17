@@ -47,7 +47,6 @@ Here is a quick example:
     >>> config = index.IndexConfig(SqliteStorage, schema.Schema(text=schema.TEXT))
     >>> with index.IndexWriter('/tmp/test_index', config) as writer:
     ...     writer.add_document(text="This is my text")...
-    '935ed96520ab44879a6e76195a9d7046'
     >>> with index.IndexReader('/tmp/test_index') as reader:
     ...     reader.get_document_count()
     ...
@@ -218,7 +217,7 @@ class IndexWriter(object):
         Open an existing index for writing or create a new index for writing.
 
         If ``path`` (str) doesn't exist and ``config`` is not None, then a new index will created when :meth:`begin` is
-        called (after the lock is acquired. Otherwise, :exc:`IndexNotFoundError` is raised.
+        called (after the lock is acquired). Otherwise, :exc:`IndexNotFoundError` is raised.
 
         If present, ``config`` (IndexConfig) must be an instance of :class:`IndexConfig`.
 
@@ -354,10 +353,9 @@ class IndexWriter(object):
         Raises :exc:`TypeError` if something other then str or bytes is given for a TEXT field and :exec:`IndexError`
         if there are any problems decoding a field.
 
-        Returns the id (str) of the document added.
-
-        Internally what is happening here is that a document is broken up into its fields and a mini-index of the
-        document is generated and stored with our buffers for writing out later.
+        Documents are assigned an ID only at commit time. the attribute ``last_committed_documents`` of the
+        writer contains the ID's of the documents added in the last completed write transaction for that
+        writer.
 
         """
         logger.debug('Adding document')
@@ -498,7 +496,9 @@ class IndexWriter(object):
         """
         Delete the document with given ``document_id`` (str).
 
-        If the document does not exist, no error will be raised.
+        If the document does not exist, no error will be raised. The ``IndexWriter`` attribute
+        ``last_deleted_documents`` contains the ID's of documents that were present in the
+        index and deleted during the last transaction.
 
         """
         self.__storage.delete_documents([document_id])
@@ -573,6 +573,9 @@ class IndexWriter(object):
         """ Write the state of the given plugin to the index.
 
         Any existing state for this plugin instance will be overwritten.
+
+        The ID's of updated plugins are available in the last_updated_plugins attribute of the
+        IndexWriter after the transaction is committed.
 
         """
         # low level calls to plugin storage subsystem.

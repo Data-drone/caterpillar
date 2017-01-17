@@ -4,6 +4,9 @@
 All communication with persistent storage devices is done via an implementation of :class:`.Storage`, which provides
 a key/value object interface to the underlying persistence device and transactions so we can enforce ACID.
 
+The :class:`.Storage` is a composite of a :class:`.StorageWriter` and :class:`.StorageReader`. Writers can modify
+the Index, while readers can only perform read operations.
+
 Anyone can write an implementation of :class:`.Storage`, but it is envisaged for the most part that these
 implementations will usually be wrappers around other tools like SQLite or RockDB. No point re-inventing the wheel!
 
