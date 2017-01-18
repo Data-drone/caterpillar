@@ -44,7 +44,7 @@ class QueryStringQuery(BaseQuery):
 
         if (
             self.text_field is not None and
-            self.text_field not in index_reader._IndexReader__storage.unstructured_fields
+            self.text_field not in index_reader.get_schema().get_indexed_text_fields()
         ):
             raise QueryError("Specified text field {} doesn't exist".format(self.text_field))
 
