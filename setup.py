@@ -69,7 +69,7 @@ setup(
     keywords='indexing text analytics',
     install_requires=requires,
     extras_require={
-        'test': ['tox', 'pytest', 'pytest-cov', 'coverage', 'pep8', 'mock'],
+        'test': ['tox', 'pytest', 'coverage', 'pep8', 'mock'],
     },
     cmdclass={'test': Tox},
     author='Kapiche',
