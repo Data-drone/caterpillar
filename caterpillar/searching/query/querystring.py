@@ -215,21 +215,21 @@ class _QueryStringParser(object):
                             matched_frames = self.index.get_term_positions(term, self.text_field)
                             node.frame_ids.update(set(matched_frames.keys()))
                             node.matched_terms.add(term)
-                            for frame_id, positions in matched_frames.iteritems():
+                            for frame_id, frequency in matched_frames.iteritems():
                                 try:
-                                    node.term_frequencies[frame_id][term] = len(positions)
+                                    node.term_frequencies[frame_id][term] = frequency
                                 except KeyError:
-                                    node.term_frequencies[frame_id] = {term: len(positions)}
+                                    node.term_frequencies[frame_id] = {term: frequency}
                 else:
                     try:
                         matched_frames = self.index.get_term_positions(value, self.text_field)
                         node.frame_ids.update(set(matched_frames.keys()))
                         node.matched_terms.add(value)
-                        for frame_id, positions in matched_frames.iteritems():
+                        for frame_id, frequency in matched_frames.iteritems():
                             try:
-                                node.term_frequencies[frame_id][value] = len(positions)
+                                node.term_frequencies[frame_id][value] = frequency
                             except KeyError:
-                                node.term_frequencies[frame_id] = {value: len(positions)}
+                                node.term_frequencies[frame_id] = {value: frequency}
                     except KeyError:
                         # Term not matched in index
                         pass

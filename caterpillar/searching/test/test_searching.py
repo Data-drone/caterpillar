@@ -6,7 +6,7 @@ import os
 
 import pytest
 
-from caterpillar.processing.index import find_bi_gram_words, IndexReader, IndexWriter, IndexConfig
+from caterpillar.processing.index import IndexReader, IndexWriter, IndexConfig
 from caterpillar.processing import schema
 from caterpillar.searching.query import QueryError
 from caterpillar.searching.query.match import MatchAllQuery, MatchSomeQuery
@@ -26,29 +26,18 @@ def test_searching_alice(index_dir):
         with IndexWriter(index_dir, config) as writer:
             writer.add_document(text=data, frame_size=2)
 
-        with IndexWriter(index_dir, config) as writer:
-            writer.fold_term_case('text')
-
-        # Merge bigrams
-        with IndexReader(index_dir) as reader:
-            bigrams = find_bi_gram_words(reader.get_frames('text'))
-
-        with IndexWriter(index_dir) as writer:
-            writer.merge_terms([((bigram.split(' ')[0], bigram.split(' ')[1]), bigram) for bigram in bigrams], 'text')
-
         with IndexReader(index_dir) as reader:
             searcher = reader.searcher()
             assert searcher.count(QSQ("King", 'text')) == searcher.count(QSQ("K?ng", 'text'))
-            assert searcher.count(QSQ("Queen or K??g", 'text')) == 123 == \
+            assert searcher.count(QSQ("Queen or K??g", 'text')) == 122 == \
                 searcher.count(QSQ("King or Queen", 'text'))
             assert searcher.count(QSQ("King AND Queen", 'text')) == 4 == \
                 searcher.count(MatchAllQuery([QSQ('King', 'text'), QSQ('Queen', 'text')])) == \
                 searcher.count(QSQ('King', 'text')) - searcher.count(QSQ('King not Queen', 'text'))
-            assert searcher.count(QSQ("King NOT Queen", 'text')) == 56
-            assert searcher.count(QSQ('golden key', 'text')) == 6
+            assert searcher.count(QSQ("King NOT Queen", 'text')) == 55
             assert searcher.count(QSQ('*ing', 'text')) == 512
             assert searcher.count(QSQ("Alice and (thought or little)", 'text')) == \
-                searcher.count(QSQ("Alice and thought or Alice and little", 'text')) == 95 == \
+                searcher.count(QSQ("Alice and thought or Alice and little", 'text')) == 69 == \
                 searcher.count(MatchAllQuery([QSQ('Alice', 'text'),
                                MatchSomeQuery([QSQ('thought', 'text'), QSQ('little', 'text')])]))
             assert searcher.count(QSQ("thistermdoesntexist", 'text')) == 0
@@ -73,12 +62,12 @@ def test_searching_alice(index_dir):
             results = searcher.search(QSQ("Alice or voice^0.2", 'text'), limit=voice_hits)
             for hit in results:
                 misses = misses + (1 if "voice" not in hit.tfs else 0)
-            assert misses == 30
+            assert misses == 35
             misses = 0
             results = searcher.search(QSQ("Alice or voice^0.5", 'text'), limit=voice_hits)
             for hit in results:
                 misses = misses + (1 if "voice" not in hit.tfs else 0)
-            assert misses == 15
+            assert misses == 10
             results = searcher.search(QSQ("Alice or voice^20", 'text'), limit=voice_hits)
             for hit in results:
                 assert "voice" in hit.tfs
@@ -91,12 +80,12 @@ def test_searching_alice(index_dir):
             results = searcher.search(QSQ("Alice^20 or voice", 'text'), limit=0)
             for hit in results[-voice_hits:]:
                 misses = misses + (1 if "voice" not in hit.tfs else 0)
-            assert misses == 16
+            assert misses == 11
 
             results = searcher.search(QSQ("King not (court or evidence)", 'text'))
             assert len(results) == 25
             assert len(results.term_weights) == 1
-            assert results.num_matches == 53 == searcher.count(MatchAllQuery([QSQ('King', 'text')],
+            assert results.num_matches == 52 == searcher.count(MatchAllQuery([QSQ('King', 'text')],
                                                                [QSQ('court or evidence', 'text')]))
             for hit in results:
                 assert "evidence" not in hit.data['text']
@@ -127,13 +116,6 @@ def test_searching_alice_simple(index_dir):
         with IndexWriter(index_dir, config) as writer:
             writer.add_document(text=data, frame_size=2)
 
-        # Merge bigrams
-        with IndexReader(index_dir) as reader:
-            bigrams = find_bi_gram_words(reader.get_frames('text'))
-
-        with IndexWriter(index_dir) as writer:
-            writer.merge_terms([((bigram.split(' ')[0], bigram.split(' ')[1]), bigram) for bigram in bigrams], 'text')
-
         with IndexReader(index_dir) as reader:
             searcher = reader.searcher(scorer_cls=TfidfScorer)
             results = searcher.search(QSQ('Alice or Caterpillar', 'text'))
@@ -151,13 +133,6 @@ def test_searching_mt_warning(index_dir):
         config = IndexConfig(SqliteStorage, schema=schema.Schema(text=schema.TEXT(analyser=analyser)))
         with IndexWriter(index_dir, config) as writer:
             writer.add_document(text=data, frame_size=2)
-
-        # Merge bigrams
-        with IndexReader(index_dir) as reader:
-            bigrams = find_bi_gram_words(reader.get_frames('text'))
-        with IndexWriter(index_dir) as writer:
-            writer.merge_terms(merges=[((bigram.split(' ')[0], bigram.split(' ')[1]), bigram) for bigram in bigrams],
-                               text_field='text')
 
         with IndexReader(index_dir) as reader:
             searcher = reader.searcher()
@@ -291,13 +266,10 @@ def test_searching_reserved_words(index_dir):
         with writer:
             writer.add_document(text=data, frame_size=2)
 
-        with writer:
-            writer.fold_term_case('text')
-
         with IndexReader(index_dir) as reader:
             searcher = reader.searcher()
             assert searcher.count(QSQ('"and"', 'text')) == \
-                sum(1 for _ in reader.get_term_positions('and', 'text')) == 469
+                sum(1 for _ in reader.get_term_positions('and', 'text')) == 460
             assert searcher.count(QSQ('"or"', 'text')) == 0
             assert searcher.count(QSQ('"not"', 'text')) == 117
 
