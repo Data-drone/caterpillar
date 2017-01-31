@@ -451,7 +451,7 @@ def test_alice_case_folding(index_dir):
             writer.add_document(text=data)
 
         with IndexReader(index_dir) as reader:
-            normalise_case = reader.get_case_fold_terms('text')
+            normalise_case = reader.get_case_fold_terms(['text'])
             for term, normalise_term in normalise_case:
                 assert term.title() == normalise_term or term.lower() == normalise_term
                 assert reader.get_term_frequency(term, 'text') < reader.get_term_frequency(normalise_term, 'text')
