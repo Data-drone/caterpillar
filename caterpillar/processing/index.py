@@ -926,7 +926,7 @@ class IndexReader(object):
         plugin_type, settings, state = self.__storage.get_plugin_by_id(plugin_id)
         return plugin_type, settings, dict(state)
 
-    def get_case_fold_terms(self, include_fields=None, merge_threshold=0.7):
+    def get_case_fold_terms(self, include_fields=None, exclude_fields=None, merge_threshold=0.7):
         """Suggest case normalised variations on terms.
 
         Operates across all fields in the corpus.
@@ -934,7 +934,9 @@ class IndexReader(object):
         """
         # Merge frequencies across all fields specified
         frequencies_index = {
-            term: freq for term, freq in self.__storage.iterate_term_frequencies(include_fields=include_fields)
+            term: freq for term, freq in self.__storage.iterate_term_frequencies(
+                include_fields=include_fields, exclude_fields=exclude_fields
+            )
         }
 
         normalise_variants = []

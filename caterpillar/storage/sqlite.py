@@ -959,7 +959,8 @@ class SqliteReader(StorageReader):
         """
         fields = include_fields or exclude_fields or []
         valid_fields = self.structured_fields if structured else self.unstructured_fields
-        invalid_fields = [field for field in fields if field not in valid_fields]
+        # Catch None as a valid field to allow current reader level interface to specify None as a field.
+        invalid_fields = [field for field in fields if field not in valid_fields and field is not None]
 
         if invalid_fields:
             raise ValueError('Invalid fields: {} do not exist or are not indexed'.format(invalid_fields))
