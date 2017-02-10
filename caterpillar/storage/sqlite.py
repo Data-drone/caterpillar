@@ -344,7 +344,6 @@ class SqliteReader(StorageReader):
     of this class begins a read transaction that does not end until commit is explicitly called.
 
     """
-
     def __init__(self, path):
         """Open or create a reader for the given storage location."""
 
@@ -361,6 +360,17 @@ class SqliteReader(StorageReader):
     def begin(self):
         """Begin a read transaction."""
         self._db_connection.cursor().execute('begin')
+        # Temporary table for searches - only visible to this reader.
+        self._db_connection.cursor().execute("""
+            create temporary table term_search_driver(
+                term_id integer primary key,
+                term text,
+                weight float default 1.0,
+                all_count integer,
+                n_count integer,
+                exclude_count integer
+            )
+            """)
 
     def commit(self):
         """End the read transaction."""
@@ -826,6 +836,179 @@ class SqliteReader(StorageReader):
 
         for left_term, right_term, frame_id, positions in bigrams:
             yield ((left_term, right_term), frame_id, _count_bitwise_matches(positions))
+
+    def filter_metadata(self):
+        """
+        Support metadata only searches - this is not possible with search_or_filter
+        because that is driven by the term_search.
+
+        """
+        return None
+
+    def search_or_filter(
+        self, return_documents=False, include_fields=None, exclude_fields=None,
+        all_of=[], any_of=[], n_of=(0, []), none_of=[], metadata={},
+        limit=0, pagination_key=None, search=True
+    ):
+        """
+        Omnibus function for searching and filtering by terms and metadata.
+
+        Because most of the logic is similar across filtering and searching, this function
+        supports everything. The IndexReader provides a more coherent interface to present
+        to the user.
+
+        Currently only conjunctive metadata searches are supported.
+
+        The cost of a search is driven by the cost of the largest intermediate item set:
+        a search in an English language index for the term 'and' will be expensive.
+
+        Only tfidf is currently supported.
+
+        """
+
+        # Validate that each term occurs only once across all specifiers.
+        search_terms = all_of + n_of[1] + none_of + any_of
+        if len(set(search_terms)) != len(search_terms):
+            raise ValueError('A term can only appear once across all search parameters')
+
+        # TODO: validate n_of terms here: 0 < n_of[0] < len(n_of)
+        # Warn on n=0 and n=len(n_of), error for n < 0, n > len(n_of)
+
+        # TODO: build in the term_weighting using tfidf here - insert into the table and go from there.
+        # counters for each inclusion criteria
+        counters = [[1, None, None], [None, 1, None], [None, None, 1], [None, None, None]]
+        row_counters = [
+            j for i, term_set in enumerate([all_of, n_of[1], none_of, any_of])
+            for j in [counters[i]] * len(term_set)
+            if len(term_set)
+        ]
+
+        # Truncate the temporary driving table
+        self._execute('delete from term_search_driver')
+
+        # Stage the terms to the driving table.
+        self._executemany("""
+            insert into term_search_driver(term_id, term, all_count, n_count, exclude_count)
+                select id as term_id, ?1, ?2, ?3, ?4
+                from vocabulary
+                where term = ?1
+                order by term_id
+            """, [[term] + counter for term, counter in zip(search_terms, row_counters)]
+        )
+
+        parameters = []
+
+        # Generate the where clause, including the metadata specific details.
+        where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields)
+
+        if metadata or fields or return_documents:
+            subset_clause = 'inner join frame on post.frame_id = frame.id '
+
+            if fields:
+                subset_clause += ' and frame.field_id in (select id from unstructured_field field ' + where_clause + ')'
+                parameters += fields
+
+            # Note that by this point, all of the metadata values must be analysed and the operators validated by the
+            # IndexReader. In this storage layer we are dealing only with the representation of the value in the
+            # database.
+            if metadata:
+
+                metadata_clauses = []
+                valid_metadata_operators = set(('<', '>', '<=', '>=', '='))
+
+                for metadata_field, operators in metadata.items():
+                    # White list valid operators for the SQL here. Arbitrary operators are an SQL injection
+                    # vulnerability.
+
+                    this_field = """
+                        select document_id from document_data
+                        where field_id = (select id from structured_field where name = ?)
+                    """
+                    parameters.append(metadata_field)
+
+                    for operator, value in operators.items():
+                        if operator not in valid_metadata_operators:
+                            raise ValueError('{} is not a supported operator'.format(operator))
+
+                        this_field += 'and value {} ?'.format(operator, value)
+
+                        parameters.append(value)
+
+                    metadata_clauses.append(this_field)
+
+                # Note that all metadata queries are intersections: all metadata clauses must be matched.
+                subset_clause += 'and document_id in ({})'.format(' intersect '.join(metadata_clauses))
+
+        if return_documents:
+            groupby_clause = 'group by document_id'
+        else:
+            groupby_clause = 'group by frame_id'
+
+        having_clause = ''
+        # Construct term_inclusion clauses: avoid checking things that aren't needed.
+        if all_of:
+            # if all_count is NULL, term || all_count evaluates to null, and is not counted in the distinct
+            having_clause += 'and count(distinct term || all_count) = ? '
+            parameters.append(len(all_of))
+
+        if n_of[0]:
+            having_clause += 'and count(distinct term || n_count) >= ? '
+            parameters.append(n_of[0])
+
+        if none_of:
+            having_clause += 'and max(exclude_count) = 0 '
+
+        if pagination_key:
+            having_clause += 'and (score < ? or (score = ? and frame_id < ?))'
+            parameters.extend([pagination_key[0], pagination_key[0], pagination_key[1]])
+
+        if search:
+            search_clause = 'order by score desc, frame_id desc '
+            if limit:
+                search_clause += 'limit ?'
+                parameters.append(limit)
+
+        results = self._execute(
+            """
+            select
+                /*
+                Quantize the scoring results for two reasons:
+                    1. Pagination depends on exact score comparison - floats are not reliable for
+                       this, especially when considering network transfers, encoding in JSON etc.
+                    2. Robustness to small changes in IDF values - for example if a pagination
+                       request occurs after some new documents are added to the result set.
+
+                The resulting score is accurate to within .1 of the original score.
+                */
+                cast(sum(frequency * ts.weight)*10 as integer) as score,
+                {frame_or_document}
+            from term_search_driver ts
+
+            cross join term_posting post -- TODO: note the use of cross join here is an optimisation.
+                on ts.term_id = post.term_id
+
+            {subset_clause}
+
+            {groupby}
+
+            having 1 -- no-op clause to simplify query construction.
+                {having}
+
+            -- Return the most relevant results first, ordering ties by frame_id for efficient pagination.
+            {search_clause}
+            """.format(
+                frame_or_document='document_id' if return_documents else 'frame_id',
+                subset_clause=subset_clause,
+                groupby=groupby_clause,
+                having=having_clause,
+                search_clause=search_clause
+            ), parameters
+        )
+
+        return results
+
+    def filter(self):
+        return None
 
     def find_significant_bigrams(self, include_fields=None, exclude_fields=None, min_count=5, threshold=40):
         """Find significant collocations of words.

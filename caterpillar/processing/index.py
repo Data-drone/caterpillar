@@ -1050,6 +1050,89 @@ class IndexReader(object):
             frame_ids=frame_ids
         )
 
+    def search(
+        self, search_type='frames', include_fields=None, exclude_fields=None,
+        all=[], any=[], at_least_n=(0, []), exclude=[], metadata=[],
+        scoring='tfidf', limit=30, pagination_key=None
+    ):
+        """
+        Search for frames or documents matching the given criteria.
+
+        Args
+
+            search_type: 'frames' (default) or 'documents'
+                Whether to search for frames or whole documents matching the criteria. Searching for
+                frames and then converting to document_ids may not be the same as searching whole documents
+                or vice versa.
+
+            include_fields: list of unstructured fields to include in the analysis.
+                By default this is None, and all fields are included if exclude_fields is also None.
+
+            exclude_fields: list of unstructured fields to exclude from the analysis.
+                If include_fields is not None, this argument is ignored.
+
+
+            all: list of terms
+                All of these terms must be present in the frame/document to be counted as a match.
+
+            any: list of terms
+                Any of these terms may be present in the frame/document to be counted as a match.
+
+            at_least_n: tuple of (integer n, list of terms)
+                At least n of the terms in the list must be present to be counted as a match.
+
+            exclude: list of terms
+                If any of these terms are present in a frame/document, it will never be counted as a match.
+
+
+            metadata: dictionary of tuples {metadata_field: (operator, value/s)}
+                Only frames/documents matching the set of all metadata operators will be included.
+                Supported operators and the format for values depends on the definition of the metadata field
+                in the schema.
+
+
+            scoring: 'tfidf'
+                Scoring method to use. Currently only tfidf is supported.
+
+            limit: integer, default 30.
+                The maximum number of frames/documents to return.
+
+            pagination_key: None, or tuple (score, frame_id | document_id)
+                Restart a search at the given score cutoff and frame/document ID. Providing a pagination
+                key avoids sorting and iterating through frames that have already been returned by a search.
+
+        Returns
+
+            scored: list of tuples in descending score order: [(frame_id | document_id, score), ...]
+
+        Notes
+
+            Documents are scored by aggregating the individual scores for matching frames in the document.
+
+            If all the term selection arguments are empty (default), then a metadata only search will be performed.
+            A term may be present only once across all term selection fields.
+
+        """
+
+        # Validate and analyze the metadata fields, and pass them on to the storage engine.
+
+        return None
+
+    def filter(
+        self, search_type='frames', include_fields=None, exclude_fields=None,
+        all=[], any=[], at_least_n=[], exclude=[], metadata={}
+    ):
+        """
+        Filter index down to frames or documents matching the given criteria.
+
+        See the search method for a detailed description of the arguments.
+
+        The output is an unsorted list of all frame or document ID's matching the query.
+
+        """
+
+        return None
+
 
 def find_bi_gram_words(frames, min_count=5, threshold=40.0):
     """
