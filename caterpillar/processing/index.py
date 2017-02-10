@@ -933,6 +933,9 @@ class IndexReader(object):
 
         """
         # Merge frequencies across all fields specified
+        # Note that this requires loading all of the vocabulary into main memory and should be used
+        # with care on extremely large vocabularies. Across 1.4 million terms in Simple Wikipedia
+        # this takes about 4 seconds and consumes ~150MB of memory.
         frequencies_index = {
             term: freq for term, freq in self.__storage.iterate_term_frequencies(
                 include_fields=include_fields, exclude_fields=exclude_fields
@@ -961,7 +964,7 @@ class IndexReader(object):
         """
         return self.__storage.list_known_plugins()
 
-    def detect_significant_ngrams(self, min_count=5, threshold=40, n=2, include_fields=None, exclude_fields=None):
+    def detect_significant_ngrams(self, min_count=5, threshold=40, include_fields=None, exclude_fields=None):
         """
         Find significant n-grams within the index.
 
@@ -971,8 +974,6 @@ class IndexReader(object):
 
             threshold: the minimum score to be considered a significant n-gram
 
-            n: the size of the n-grams to find. Currently only n=2 is supported
-
             include_fields, exclude_fields
 
         Returns
@@ -981,6 +982,8 @@ class IndexReader(object):
                 [('hot', 'apple', 'pie'), ('cream', 'cheese'), ('sweet', 'potato')]
 
         Notes
+
+            Currently only n=2 (bigram detection) is supported.
 
             Uses the same algorithm as the find_bi_gram_words function, but counts frequency by the
             number of frames a match occurs in, rather than the raw frequency.
