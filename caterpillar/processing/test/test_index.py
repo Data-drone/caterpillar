@@ -9,13 +9,18 @@ import shutil
 import tempfile
 import multiprocessing as mp
 import multiprocessing.dummy as mt  # threading dummy with same interface as multiprocessing
+import os
+from collections import Counter
 
 import pytest
 
 from caterpillar.storage import Storage
 from caterpillar.storage.sqlite import SqliteStorage
 from caterpillar.processing.analysis.analyse import EverythingAnalyser
-from caterpillar.processing.index import *
+from caterpillar.processing.index import (
+    IndexWriter, IndexReader, find_bi_gram_words, IndexConfig, IndexNotFoundError, DocumentNotFoundError,
+    SettingNotFoundError, IndexWriteLockedError, VERSION
+)
 from caterpillar.processing.schema import ID, NUMERIC, TEXT, FieldType, Schema
 from caterpillar.searching.query.querystring import QueryStringQuery
 from caterpillar.test_util import TestAnalyser, TestBiGramAnalyser
@@ -140,6 +145,9 @@ def test_index_alice(index_dir):
             assert sum(1 for _ in reader.get_term_positions('nice', 'text')) == 3
             assert sum(1 for _ in reader.get_term_positions('key', 'text')) == 5
 
+            assoc_index = {term: values for term, values in reader.get_associations_index('text')}
+            assert 'Alice' in assoc_index
+
             assert reader.get_term_association('Alice', 'poor', 'text') == \
                 reader.get_term_association('poor', 'Alice', 'text') == 3
             assert reader.get_term_association('key', 'golden', 'text') == \
@@ -150,6 +158,9 @@ def test_index_alice(index_dir):
 
             with pytest.raises(KeyError):
                 reader.get_term_association('Alice', 'nonsenseterminthisindex', 'text')
+
+            with pytest.raises(KeyError):
+                reader.get_term_positions('nonseneterminthisindex', 'text')
 
             assert reader.get_vocab_size('text') == sum(1 for _ in reader.get_frequencies('text')) == 500
             assert reader.get_term_frequency('Alice', 'text') == 23
@@ -279,6 +290,16 @@ def test_index_alice_bigram_discovery(index_dir):
             bi_grams = find_bi_gram_words(reader.get_frames('text'))
             assert len(bi_grams) == 4
             assert 'golden key' in bi_grams
+            index_bigrams = reader.detect_significant_ngrams(min_count=5, threshold=40)
+            assert ('golden', 'key') in index_bigrams
+
+            # Increasing the threshold should result in fewer bigrams
+            old_n = 1e6  # Nonsense high value for first comparison.
+            for threshold in range(0, 100, 10):
+                index_bigrams = reader.detect_significant_ngrams(min_count=5, threshold=threshold)
+                n_bigrams = len(index_bigrams)
+                assert n_bigrams <= old_n
+                old_n = n_bigrams
 
 
 def test_moby_bigram_discovery(index_dir):
@@ -290,7 +311,13 @@ def test_moby_bigram_discovery(index_dir):
         with IndexReader(index_dir) as reader:
             bi_grams = find_bi_gram_words(reader.get_frames('text'))
             assert len(bi_grams) == 10
-            assert 'steering oar' in bi_grams
+            assert 'ivory leg' in bi_grams
+            index_bigrams = reader.detect_significant_ngrams(min_count=5, threshold=40)
+            assert ('ivory', 'leg') in index_bigrams
+
+            for bigram in index_bigrams:
+                found_positions = list(reader.search_ngrams([bigram]))
+                assert len(found_positions) >= 5
 
 
 def test_wikileaks_bigram_discovery(index_dir):
@@ -302,6 +329,13 @@ def test_wikileaks_bigram_discovery(index_dir):
         with IndexReader(index_dir) as reader:
             bi_grams = find_bi_gram_words(reader.get_frames('text'))
             assert len(bi_grams) == 29
+            index_bigrams = reader.detect_significant_ngrams(min_count=5, threshold=40, include_fields=['text'])
+            assert len(index_bigrams) == 30
+            assert ('internet', 'service') in index_bigrams
+
+            for bigram in index_bigrams:
+                found_positions = list(reader.search_ngrams([bigram], include_fields=['text']))
+                assert len(found_positions) >= 5
 
 
 def test_employee_survet_bigram_discovery(index_dir):
@@ -313,247 +347,114 @@ def test_employee_survet_bigram_discovery(index_dir):
         with IndexReader(index_dir) as reader:
             bi_grams = find_bi_gram_words(reader.get_frames('text'))
             assert len(bi_grams) == 7
+            index_bigrams = reader.detect_significant_ngrams(min_count=5, threshold=40)
+            assert len(index_bigrams) == 16
+            assert ('pay', 'rise') in index_bigrams
+
+
+def test_detect_case_variations(index_dir):
+    """Test statistics of detected case normalisations. """
+    return None
+
+
+def test_term_frequency_vectors(index_dir):
+    """Test iterating through the term_frequency vectors. """
+    with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'r') as f:
+        data = f.read()
+        with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT))) as writer:
+            writer.add_document(text=data, frame_size=2)
+
+    with IndexReader(index_dir) as reader:
+        # the term-frequency vectors should accumulate to the same state as the vocabulary statistics
+        tf_vectors = reader.get_term_frequency_vectors()
+        # Ensure no duplicate frames come through
+        total_frames = set()
+        frame_count = 0
+        term_counts = Counter()
+
+        for frame, vector in tf_vectors:
+            total_frames.add(frame)
+            for term in vector:
+                term_counts[term] += 1
+            frame_count += 1
+
+        assert frame_count == len(total_frames)
+        # Some frames are degenerate and contain only punctuation
+        assert frame_count != reader.get_frame_count('text')
+
+        for term, frequency in reader.get_frequencies('text'):
+            assert term_counts[term] == frequency
+
+        # Now with a subset of frames, like for example from a search.
+        tf_vectors = reader.get_term_frequency_vectors(frame_ids=range(1, 100))
+        total_frames = set()
+        frame_count = 0
+        term_counts = Counter()
+
+        for frame, vector in tf_vectors:
+            total_frames.add(frame)
+            for term in vector:
+                term_counts[term] += 1
+            frame_count += 1
+
+        for frequency in term_counts.values():
+            assert frequency <= 99
+
+        assert frame_count == len(total_frames)
 
 
 def test_index_alice_merge_bigram(index_dir):
+    """Test constructing indexes with the bigram analyser. """
     with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'r') as f:
         f.seek(0)
         data = f.read()
+
         with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT))) as writer:
             writer.add_document(text=data)
+
         with IndexReader(index_dir) as reader:
-            bi_grams = find_bi_gram_words(reader.get_frames('text'), min_count=3)
+            min_bigram_count = 3
+            bi_grams = find_bi_gram_words(reader.get_frames('text'), min_count=min_bigram_count)
+            # Remove the detected bigram 'kid gloves', that only ever occurs after 'white kid'
+            # In the bigram analyzer, detected bigrams are consumed in lexical order.
+            bi_grams = [b for b in bi_grams if b != 'kid gloves']
 
         bigram_index = os.path.join(tempfile.mkdtemp(), "bigram")
-        merge_index = os.path.join(tempfile.mkdtemp(), "merge")
         try:
-            analyser = TestBiGramAnalyser(bi_grams, )
+            analyser = TestBiGramAnalyser(bi_grams)
             with IndexWriter(bigram_index, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser)))) as writer:
                 writer.add_document(text=data)
 
-            terms_to_merge = [[b.split(' '), b] for b in bi_grams]
+            # Verify found bigrams exist in both
+            with IndexReader(index_dir) as original_reader, IndexReader(bigram_index) as bigrams:
 
-            # Potential bi-grams 'white kid' & 'kid gloves' form the tri-gram 'white kid gloves'.
-            # The bi-gram analyser will match 'white kid' first due to lexical order, consuming the 'kid' token.
-            # Subsequently, 'kid gloves' will not be matched. This manual test using `terms_to_merge` however, attempts
-            # to convert the bi-grams in alphabetic order, hence 'kid gloves' will be matched first.
-            for i, m in enumerate(terms_to_merge):
-                if m[1] == 'kid gloves':
-                    break
-            # ...so, here we just re-order 'kid gloves' to the end of `merges`
-            # to emulate the behavior of the bi-gram analyser
-            terms_to_merge.append(terms_to_merge.pop(i))
+                for bigram in bi_grams:
+                    assert bigrams.get_term_frequency(bigram, 'text')
 
-            analyser = TestAnalyser()
-            with IndexWriter(merge_index, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser)))) as writer:
-                writer.add_document(text=data)
-                writer.merge_terms(terms_to_merge, 'text')
+                for term, frequency in original_reader.get_frequencies('text'):
+                    try:
+                        assert bigrams.get_term_frequency(term, 'text') <= frequency
+                    except KeyError:  # The bigram analyzer and default analyzer behave differently
+                        continue
 
-            # Verify indexes match
-            with IndexReader(merge_index) as merges, IndexReader(bigram_index) as bigrams:
-                # Frequencies
-                assert bigrams.get_term_frequency('golden key', 'text') == 6
-                assert bigrams.get_term_frequency('golden', 'text') == 1
-                assert bigrams.get_term_frequency('key', 'text') == 3
-                merge_frequencies = {k: v for k, v in merges.get_frequencies('text')}
-                merge_associations = {k: v for k, v in merges.get_associations_index('text')}
-                for term, frequency in bigrams.get_frequencies('text'):
-                    assert merge_frequencies[term] == frequency
-                # Associations
-                merge_associations = {k: v for k, v in merges.get_associations_index('text')}
-                for term, associations in bigrams.get_associations_index('text'):
-                    assert merge_associations[term] == associations
-                # Term positions index
-                frame_mappings = {}
-                merge_frames = sorted({k: v for k, v in merges.get_frames('text')}.values(),
-                                      key=lambda t: t['_sequence_number'])
-                bigram_frames = sorted({k: v for k, v in bigrams.get_frames('text')}.values(),
-                                       key=lambda t: t['_sequence_number'])
-                for i, merge_frame in enumerate(merge_frames):
-                    frame_mappings[bigram_frames[i]['_id']] = merge_frame['_id']
-                # Global positions
-                merge_positions = {k: v for k, v in merges.get_positions_index('text')}
-                for term, positions in bigrams.get_positions_index('text'):
-                    for f_id, f_positions in positions.iteritems():
-                        assert f_positions == merge_positions[term][frame_mappings[f_id]]
-
-                with pytest.raises(Exception):
-                    merges.merge_terms([[('hot', 'dog',), '']], 'text')
-
-            with IndexWriter(merge_index) as writer:
-                writer.merge_terms([[('garbage', 'term',), 'test']], 'text')
-                writer.merge_terms([[('Alice', 'garbage',), 'test']], 'text')
-            with IndexReader(merge_index) as reader:
-                with pytest.raises(KeyError):
-                    reader.get_term_frequency('garbage term', 'text')
-                with pytest.raises(KeyError):
-                    reader.get_term_frequency('Alice garbage', 'text')
         finally:
             shutil.rmtree(bigram_index)
-            shutil.rmtree(merge_index)
 
 
-def test_bigram_merge_char_thresh(index_dir):
+def test_alice_case_folding(index_dir):
+    """Test constructing indexes with the bigram analyser. """
     with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'r') as f:
         f.seek(0)
         data = f.read()
+
         with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT))) as writer:
             writer.add_document(text=data)
 
-    # Don't merge any bigrams
-    with IndexWriter(index_dir) as writer:
-        writer.merge_terms(
-            [[('golden', 'key'), 'golden key'], [('twinkle', 'twinkle'), 'twinkle twinkle']],
-            'text', bigram_max_char_gap=0
-        )
-
-    with IndexReader(index_dir) as reader:
-        with pytest.raises(KeyError):
-            reader.get_term_frequency('golden key', 'text') == 0
-
-    with IndexWriter(index_dir) as writer:
-        writer.merge_terms([[('golden', 'key',), 'golden key']], 'text', bigram_max_char_gap=2)
-
-    with IndexReader(index_dir) as reader:
-        assert reader.get_term_frequency('golden key', 'text') == 6
-
-
-def test_index_moby_case_folding(index_dir):
-    with open(os.path.abspath('caterpillar/test_resources/moby.txt'), 'r') as f:
-        data = f.read()
-        analyser = TestAnalyser()
-        writer = IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser))))
-        with writer:
-            writer.add_document(text=data, frame_size=2)
-
-        with writer:
-            writer.fold_term_case('text')
-
         with IndexReader(index_dir) as reader:
-            with pytest.raises(KeyError):
-                reader.get_term_positions('flask', 'text')
-            with pytest.raises(KeyError):
-                assert not reader.get_term_frequency('flask', 'text')
-            assert reader.get_term_frequency('Flask', 'text') == 88
-            assert reader.get_term_association('Flask', 'person', 'text') == \
-                reader.get_term_association('person', 'Flask', 'text') == 2
-
-            with pytest.raises(KeyError):
-                reader.get_term_positions('Well', 'text')
-            with pytest.raises(KeyError):
-                assert not reader.get_term_frequency('Well', 'text')
-            assert reader.get_term_frequency('well', 'text') == 194
-            assert reader.get_term_association('well', 'whale', 'text') == \
-                reader.get_term_association('whale', 'well', 'text') == 20
-
-            with pytest.raises(KeyError):
-                reader.get_term_positions('Whale', 'text')
-            with pytest.raises(KeyError):
-                assert not reader.get_term_frequency('Whale', 'text')
-            assert reader.get_term_frequency('whale', 'text') == 695
-            assert reader.get_term_association('whale', 'American', 'text') == \
-                reader.get_term_association('American', 'whale', 'text') == 9
-
-            assert reader.get_term_frequency('T. HERBERT', 'text') == 1
-            assert sum(1 for _ in reader.get_frequencies('text')) == 20542
-
-
-def test_index_merge_terms(index_dir):
-    """Test merging terms together."""
-    with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'r') as f:
-        data = f.read()
-        analyser = TestAnalyser()
-        writer = IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser))))
-        with writer:
-            writer.add_document(text=data, frame_size=2)
-
-        with IndexReader(index_dir) as reader:
-            assert reader.get_term_frequency('alice', 'text') == 86
-            assert reader.get_term_association('alice', 'creatures', 'text') == 1
-            assert sum(1 for _ in reader.get_term_positions('alice', 'text')) == 86
-
-            assert reader.get_term_frequency('party', 'text') == 8
-            assert reader.get_term_association('party', 'creatures', 'text') == 1
-            assert reader.get_term_association('party', 'assembled', 'text') == 1
-            assert sum(1 for _ in reader.get_term_positions('party', 'text')) == 8
-
-        writer = IndexWriter(index_dir)
-        with writer:
-            writer.merge_terms(merges=[
-                ('Alice', '',),  # delete
-                ('alice', 'tplink',),  # rename
-                ('Eaglet', 'party',),  # merge
-                ('idonotexist', '',),  # non-existent term
-            ], text_field='text')
-
-        with IndexReader(index_dir) as reader:
-            with pytest.raises(KeyError):
-                reader.get_term_frequency('Alice', 'text')
-            with pytest.raises(KeyError):
-                reader.get_term_positions('Alice', 'text')
-
-            assert reader.get_term_frequency('tplink', 'text') == 86
-            assert reader.get_term_association('tplink', 'creatures', 'text') == 1
-            assert sum(1 for _ in reader.get_term_positions('tplink', 'text')) == 86
-
-            assert reader.get_term_frequency('party', 'text') == 10
-            assert reader.get_term_association('party', 'creatures', 'text') == 1
-            assert reader.get_term_association('party', 'assembled', 'text') == 1
-            assert sum(1 for _ in reader.get_term_positions('party', 'text')) == 10
-
-
-def test_index_alice_case_folding(index_dir):
-    with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'r') as f:
-        data = f.read()
-        analyser = TestAnalyser()
-        writer = IndexWriter(index_dir, IndexConfig(SqliteStorage,
-                                                    Schema(text=TEXT(analyser=analyser),
-                                                           document=TEXT(analyser=analyser, indexed=False))))
-        with writer:
-            writer.add_document(text=data, document='alice.txt', frame_size=2)
-
-        with writer:
-            writer.fold_term_case('text')
-
-        with IndexReader(index_dir) as reader:
-
-            # Check that associations never exceed frequency of either term
-            associations = {k: v for k, v in reader.get_associations_index('text')}
-            frequencies = {k: v for k, v in reader.get_frequencies('text')}
-            for term, term_associations in associations.iteritems():
-                for other_term, assoc in term_associations.items():
-                    assert assoc <= frequencies[term] and assoc <= frequencies[other_term]
-
-            # Check frequencies against positions
-            positions_index = {k: v for k, v in reader.get_positions_index('text')}
-            for term, freq in frequencies.items():
-                assert freq == len(positions_index[term])
-
-
-def test_index_case_fold_no_new_term(index_dir):
-    """
-    Test a dataset that has only uppercase occurrences of a term where it mostly appears at the start of the 1 word
-    sentence. This results in those occurrences being converted to lower case (because they are at the start of a
-    sentence) then we attempt to merge with the 1 upper case occurrence. Previously we wrongly assumed in the merge code
-    that all terms would have an existing entry in the associations matrix but this isn't this case with this tricky
-    dataset.
-
-    """
-    with open(os.path.abspath('caterpillar/test_resources/case_fold_no_assoc.csv'), 'rbU') as f:
-        analyser = TestAnalyser()
-        writer = IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser))))
-        with writer:
-            csv_reader = csv.reader(f)
-            for row in csv_reader:
-                writer.add_document(text=row[0])
-
-        with writer:
-            writer.fold_term_case('text')
-
-        with IndexReader(index_dir) as reader:
-            assert reader.get_term_frequency('stirling', 'text') == 6
-            with pytest.raises(KeyError):
-                reader.get_term_frequency('Stirling', 'text')
+            normalise_case = reader.get_case_fold_terms(['text'])
+            for term, normalise_term in normalise_case:
+                assert term.title() == normalise_term or term.lower() == normalise_term
+                assert reader.get_term_frequency(term, 'text') < reader.get_term_frequency(normalise_term, 'text')
 
 
 def test_index_utf8(index_dir):
@@ -722,7 +623,7 @@ def test_metadata_only_retrieval_deletion(index_dir):
 
 
 def test_field_names(index_dir):
-    """Test we can retrieve metadata only documents"""
+    """Test fields with names containing spaces."""
     schema = {"Don't Like": TEXT, "Would Like": TEXT}
     document1 = {"Don't Like": 'The scenery was unpleasant.', "Would Like": 'More cats.'}
     config = IndexConfig(SqliteStorage, schema=Schema(**schema))

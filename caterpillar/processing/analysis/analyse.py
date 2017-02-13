@@ -4,7 +4,7 @@
 from caterpillar.processing.analysis import stopwords
 from caterpillar.processing.analysis.filter import StopFilter, PositionalLowercaseWordFilter, BiGramFilter, \
     PotentialBiGramFilter, OuterPunctuationFilter, PossessiveContractionFilter
-from caterpillar.processing.analysis.tokenize import WordTokenizer, EverythingTokenizer, \
+from caterpillar.processing.analysis.tokenize import EverythingTokenizer, \
     SimpleWordTokenizer, DateTimeTokenizer
 
 
@@ -49,7 +49,7 @@ class DefaultAnalyser(Analyser):
     """
     _tokenizer = SimpleWordTokenizer(detect_compound_names=True)
 
-    def __init__(self, stopword_list=None):
+    def __init__(self, stopword_list=[], min_word_size=1):
         super(DefaultAnalyser, self).__init__()
         if stopword_list is None:
             stopword_list = stopwords.ENGLISH
@@ -57,7 +57,7 @@ class DefaultAnalyser(Analyser):
         self._filters = [
             OuterPunctuationFilter(leading_allow=['@', '#']),
             PossessiveContractionFilter(),
-            StopFilter(stopword_list, minsize=stopwords.MIN_WORD_SIZE),
+            StopFilter(stopword_list, minsize=min_word_size),
             PositionalLowercaseWordFilter(0),
         ]
 

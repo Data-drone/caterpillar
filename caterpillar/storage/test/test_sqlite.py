@@ -6,11 +6,10 @@ import shutil
 import tempfile
 
 import pytest
-import json
 import apsw
 
 from caterpillar.storage import StorageNotFoundError, DuplicateStorageError
-from caterpillar.storage.sqlite import SqliteReader, SqliteWriter
+from caterpillar.storage.sqlite import SqliteReader, SqliteWriter, _count_bitwise_matches
 
 
 @pytest.fixture
@@ -67,9 +66,9 @@ def test_bad_document_format(tmp_dir):
         {'text': ['An example', 'document without', 'anything fancy'],
          'invalid_field': []},
         {'text': [
-            {'An': [[0, 10]], 'example': [[0, 10]]},
-            {'document': [[0, 10]], 'without': [[0, 10]]},
-            {'anything': [[0, 10]], 'fancy': [[0, 10]]}
+            {'An': [0, 5, 7], 'example': [0, 5, 7]},
+            {'document': [0, 5, 7], 'without': [0, 5, 7]},
+            {'anything': [0, 5, 7], 'fancy': [0, 5, 7]}
         ]}
     ]
 
@@ -98,9 +97,9 @@ def test_add_get_document(tmp_dir):
         {'test_field': 1, 'other_field': 'other'},
         {'text': ['An example', 'document without', 'anything fancy']},
         {'text': [
-            {'An': [[0, 10]], 'example': [[0, 10]]},
-            {'document': [[0, 10]], 'without': [[0, 10]]},
-            {'anything': [[0, 10]], 'fancy': [[0, 10]]}
+            {'An': [0, 5, 7], 'example': [0, 5, 7]},
+            {'document': [0, 5, 7], 'without': [0, 5, 7]},
+            {'anything': [0, 5, 7], 'fancy': [0, 5, 7]}
         ]}
     )
 
@@ -173,9 +172,9 @@ def test_iterators(tmp_dir):
         {'test_field': 1, 'other_field': 'other'},
         {'text': ['An example', 'document without', 'anything fancy']},
         {'text': [
-            {'An': [[0, 10]], 'example': [[0, 10]]},
-            {'document': [[0, 10]], 'without': [[0, 10]]},
-            {'anything': [[0, 10]], 'fancy': [[0, 10]]}
+            {'An': [0, 5, 7], 'example': [0, 5, 7]},
+            {'document': [0, 5, 7], 'without': [0, 5, 7]},
+            {'anything': [0, 5, 7], 'fancy': [0, 5, 7]}
         ]}
     )
 
@@ -233,6 +232,13 @@ def test_iterators(tmp_dir):
     assert sum(1 for _ in metadata_field) == 1
     assert sum(len(i[2]) for i in metadata_field) == 300
 
+    associations = [
+        row for row in reader.iterate_associations(include_fields=['text'])
+    ]
+
+    assert len(associations) == 6
+    assert all([len(other) == 1 for _, other in associations])
+
     reader.close()
 
 
@@ -240,3 +246,7 @@ def test_duplicate_database(tmp_dir):
     SqliteWriter(tmp_dir, create=True)
     with pytest.raises(DuplicateStorageError):
         SqliteWriter(tmp_dir, create=True)
+
+
+def test_negative_positions():
+    assert _count_bitwise_matches(-1) == 0

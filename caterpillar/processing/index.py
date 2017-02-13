@@ -428,6 +428,7 @@ class IndexWriter(object):
                 else:
                     sentences_by_frames = [[paragraph.value]]
                 for sentence_list in sentences_by_frames:
+                    token_position = 0
                     # Build our frames
                     frame = {
                         '_field': field_name,
@@ -447,9 +448,11 @@ class IndexWriter(object):
                             if not token.stopped:
                                 # Record word positions
                                 try:
-                                    frame['_positions'][token.value].append(token.index)
+                                    frame['_positions'][token.value].append(token_position)
                                 except KeyError:
-                                    frame['_positions'][token.value] = [token.index]
+                                    frame['_positions'][token.value] = [token_position]
+
+                            token_position += 1
 
                     # Build the final frame and add to the index
                     frame.update(shell_frame)
@@ -500,74 +503,9 @@ class IndexWriter(object):
         ``last_deleted_documents`` contains the ID's of documents that were present in the
         index and deleted during the last transaction.
 
+
         """
         self.__storage.delete_documents([document_id])
-
-    def fold_term_case(self, text_field, merge_threshold=0.7):
-        """
-        Perform case folding on this index, merging words into names (camel cased word or phrase) and vice-versa
-        depending ``merge_threshold``.
-
-        ``merge_threshold`` (float) is used to test when to merge two variants. When the ratio between word and name
-        version of a term falls below this threshold the merge is carried out.
-
-        The statistics used to determine which terms to fold are calculated from ``text_field`` and only instances
-        of terms in that field will be modified.
-
-        This method only works on content committed to disk. It will need to be run in a separate writer if you
-        wish to fold newly added documents.
-
-        """
-
-        merges = []
-
-        reader = IndexReader(self._path)
-        frequencies_index = dict(reader.get_frequencies(text_field))
-        for w, freq in frequencies_index.iteritems():
-            if w.islower() and w.title() in frequencies_index:
-                freq_name = frequencies_index[w.title()]
-                if freq / freq_name < merge_threshold:
-                    # Merge into name
-                    logger.debug(u'Merging {} into {}'.format(w, w.title()))
-                    merges.append((w, w.title()))
-
-                elif freq_name / freq < merge_threshold:
-                    # Merge into word
-                    logger.debug(u'Merging {} into {}'.format(w.title(), w))
-                    merges.append((w.title(), w))
-
-        count = len(merges)
-        self.merge_terms(merges, text_field)
-
-        logger.debug("Merged {} terms during case folding.".format(count))
-
-    def merge_terms(self, merges, text_field, bigram_max_char_gap=2):
-        """
-        Merge the terms in ``merges`` across the whole index.
-
-        ``merges`` (list) should be a list of str tuples of the format ``(old_term, new_term,)``. If new_term is ``''``
-        then old_term is removed. N-grams can be specified by supplying a str tuple instead of str for the old term.
-        For example::
-
-            >>> (('hot', 'dog'), 'hot dog')
-
-        """
-        count = len(merges)
-
-        # Run through merges, and dispatch to unigram/bigram merging as appropriate
-        for terms, new_term in merges:
-            if isinstance(terms, basestring):
-                if new_term:
-                    self.__storage._merge_term_variation(terms, new_term, text_field)
-                else:  # Map falsey values to the empty string, removing them from consideration
-                    self.__storage._merge_term_variation(terms, '', text_field)
-            else:
-                left_term, right_term = terms
-                self.__storage._merge_bigrams(
-                    terms[0], terms[1], new_term, text_field, max_char_gap=bigram_max_char_gap
-                )
-
-        logger.debug("Merged {} terms during manual merge.".format(count))
 
     def set_plugin_state(self, plugin):
         """ Write the state of the given plugin to the index.
@@ -774,16 +712,14 @@ class IndexReader(object):
 
     def get_term_association(self, term, association, field):
         """Returns a count of term associations between ``term`` (str) and ``association`` (str)."""
-
-        term, associations = next(
-            self.__storage.iterate_associations(term=term, association=association, include_fields=[field])
-        )
-        if term is None:
+        try:
+            term, associations = next(
+                self.__storage.iterate_associations(term=term, association=association, include_fields=[field])
+            )
+        except StopIteration:
             raise KeyError('"{}" not associated with term "{}" or has no associations.'.format(association, term))
 
-        count = associations[association]
-
-        return count
+        return associations[association]
 
     def get_frequencies(self, field):
         """
@@ -990,11 +926,129 @@ class IndexReader(object):
         plugin_type, settings, state = self.__storage.get_plugin_by_id(plugin_id)
         return plugin_type, settings, dict(state)
 
+    def get_case_fold_terms(self, include_fields=None, exclude_fields=None, merge_threshold=0.7):
+        """Suggest case normalised variations on terms.
+
+        Operates across all fields in the corpus.
+
+        """
+        # Merge frequencies across all fields specified
+        # Note that this requires loading all of the vocabulary into main memory and should be used
+        # with care on extremely large vocabularies. Across 1.4 million terms in Simple Wikipedia
+        # this takes about 4 seconds and consumes ~150MB of memory.
+        frequencies_index = {
+            term: freq for term, freq in self.__storage.iterate_term_frequencies(
+                include_fields=include_fields, exclude_fields=exclude_fields
+            )
+        }
+
+        normalise_variants = []
+
+        for w, freq in frequencies_index.items():
+            if w.islower() and w.title() in frequencies_index:
+                freq_name = frequencies_index[w.title()]
+
+                if freq / freq_name < merge_threshold:
+                    # Merge into name
+                    normalise_variants.append((w, w.title()))
+
+                elif freq_name / freq < merge_threshold:
+                    # Merge into word
+                    normalise_variants.append((w.title(), w))
+
+        return normalise_variants
+
     def list_plugins(self):
         """
         List all plugin instances that have been stored in this index.
         """
         return self.__storage.list_known_plugins()
+
+    def detect_significant_ngrams(self, min_count=5, threshold=40, include_fields=None, exclude_fields=None):
+        """
+        Find significant n-grams within the index.
+
+        Args
+
+            min_count: the minimum number of frames a bigram must occur in to be considered
+
+            threshold: the minimum score to be considered a significant n-gram
+
+            include_fields, exclude_fields
+
+        Returns
+
+            bigrams: a list of tuples of tokens on the index in their positional order. For example:
+                [('hot', 'apple', 'pie'), ('cream', 'cheese'), ('sweet', 'potato')]
+
+        Notes
+
+            Currently only n=2 (bigram detection) is supported.
+
+            Uses the same algorithm as the find_bi_gram_words function, but counts frequency by the
+            number of frames a match occurs in, rather than the raw frequency.
+
+            Unlike the find_bi_gram_words function, this method operates on the positions index
+            directly. This  is significantly faster, but sensitive to how documents are analysed.
+            For example the DefaultAnalyser ignores most punctuation so 'hello, friend' and 'hello
+            friend' would both be considered bigrams by this detection method. If punctuation is
+            important than the analyser needs to tokenize punctuation as individual tokens.
+
+        """
+        return list(self.__storage.find_significant_bigrams(
+            include_fields=include_fields, exclude_fields=exclude_fields, min_count=5, threshold=40
+        ))
+
+    def search_ngrams(self, ngrams, include_fields=None, exclude_fields=None):
+        """
+        Search for frames containing the specified list of n-grams on the given index.
+
+        Currently only searching for bigrams (n = 2) is supported.
+
+        Args
+
+            ngrams: iterator of n-gram tuples, in positional order
+                Currently only 2-tuples (bigrams) are supported.
+
+            include_fields, exclude_fields
+
+        Returns
+
+            generator of (ngram_tuple, frame_id, frequency) tuples
+
+        """
+        return self.__storage.iterate_bigram_positions(
+            ngrams, include_fields=include_fields, exclude_fields=exclude_fields
+        )
+
+    def get_term_frequency_vectors(self, frame_ids=None, include_fields=None, exclude_fields=None, weighting='tf'):
+        """
+        Iterate through term-frequency vectors for frames in this index.
+
+        Args
+
+            include_fields: list of unstructured fields to include in the analysis.
+                By default this is None, and all fields are included if exclude_fields is also None.
+
+            exclude_fields: list of unstructured fields to exclude from the analysis.
+                If include_fields is not None, this argument is ignored.
+
+            frame_ids: an iterator of frame_ids to consider.
+                If this is provided then both include_fields and exclude_fields are ignored.
+
+            weighting: the weighting for each term.
+                Currently only term-frequency ('tf') is supported.
+
+        Returns
+
+            Generator of (frame_id, {term1: frequency, term2: frequency}) tuples.
+
+        """
+        return self.__storage.iterate_term_frequency_vectors(
+            weighting=weighting,
+            include_fields=include_fields, exclude_fields=exclude_fields,
+            frame_ids=frame_ids
+        )
 
 
 def find_bi_gram_words(frames, min_count=5, threshold=40.0):

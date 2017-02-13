@@ -18,11 +18,11 @@ performed.
 import logging
 import os
 
-import ujson as json
 import apsw
 
 from caterpillar.storage import StorageWriter, StorageReader, Storage, StorageNotFoundError, \
     DuplicateStorageError, PluginNotFoundError
+
 from ._sqlite_schema import disk_schema, cache_schema, prepare_flush, flush_cache
 
 
@@ -165,247 +165,6 @@ class SqliteWriter(StorageWriter):
         for f in field_names:
             self._execute('insert into structured_field(name) values(?)', [f])
 
-    def _merge_term_variation(self, old_term, new_term, field):
-        """Mangle the terms in the stored vocabulary.
-
-        term_mapping is a list of pairs ('old term', 'new term'). The old_term mapping can
-        itself be a tuple, in which case all individual terms in old_term are mapped to
-        'new_term'.
-
-        If new term is falsey, that term representation will be removed from the vocabulary.
-
-        If old_term is not present in the vocabulary, it will be ignored.
-
-        Note that this operation operates only on content that has been commited to disk already:
-        this function must be called in a write transaction *after* the documents to operate on
-        have been added.
-
-        This is a destructive operation that does not respect the writer interface and should be
-        used with care. In memory contents are first flushed to disk, and commit is executed after
-        this operation.
-
-        """
-        # Flush only if necessary, as this method needs to work on the on disk representation.
-        if not self._flushed:
-            self._flush()
-
-        # Make sure new term is in the vocabulary, then stage all the old and new terms for merging
-        self._execute("""
-            insert or ignore into disk_index.vocabulary(term) values(:new_term);
-
-            insert into term_merging
-                select (select id from disk_index.vocabulary where term = :new_term) as term_id,
-                    frame_id,
-                    sum(frequency),
-                    group_concat(positions, ',') -- Concatenate the JSON strings together.
-                from disk_index.term_posting post
-                inner join disk_index.frame
-                    on post.frame_id = frame.id
-                inner join disk_index.unstructured_field field
-                    on frame.field_id = field.id
-                where term_id in (select id from disk_index.vocabulary where term in (:old_term, :new_term))
-                    and field.name = :field
-                group by frame_id;
-
-            delete from disk_index.term_posting
-                where term_id in (select id from disk_index.vocabulary where term in (:old_term, :new_term))
-                    and frame_id in (select distinct frame_id from term_merging);
-
-            delete from disk_index.frame_posting
-                where term_id in (select id from disk_index.vocabulary where term in (:old_term, :new_term))
-                    and frame_id in (select distinct frame_id from term_merging);
-
-            delete from disk_index.term_statistics
-                where term_id in (select id from disk_index.vocabulary where term = :old_term)
-                    and field_id = (select id from disk_index.unstructured_field where name = :field);
-
-            insert or replace into disk_index.term_statistics
-                select term_id,
-                       (select id from disk_index.unstructured_field where name = :field),
-                       sum(frequency),
-                       count(frame_id),
-                       0 -- document count not currently fully implemented
-                from term_merging;
-
-            insert into disk_index.term_posting
-                select * from term_merging;
-
-            insert into disk_index.frame_posting(term_id, frame_id, frequency, positions)
-                select * from term_merging;
-
-            delete from term_merging;
-
-            """, {'new_term': new_term, 'old_term': old_term, 'field': field}
-        )
-
-    def _merge_bigrams(self, left_term, right_term, bigram, field, max_char_gap=2):
-        """
-        Merge adjacent occurences of left_term and right_term into the bigram phrase.
-
-        """
-        # Flush only if necessary, as this method needs to work on the on disk representation.
-        if not self._flushed:
-            self._flush()
-
-        bigram_rows = self._execute("""
-            insert or ignore into disk_index.vocabulary(term) values(:bigram);
-
-            -- Select rows for frames where both left term and right term occur.
-            with left as (
-                select
-                    term_id as left_term,
-                    frame_id,
-                    positions as left_positions,
-                    frequency as left_frequency
-                from disk_index.term_posting post
-                inner join disk_index.frame
-                    on post.frame_id = frame.id
-                where term_id = (select id from disk_index.vocabulary where term = :left_term)
-                    and frame.field_id = (select id from disk_index.unstructured_field where name = :field)
-            ),
-            right as (
-                select
-                    term_id as right_term,
-                    frame_id,
-                    positions as right_positions,
-                    frequency as right_frequency
-                from disk_index.term_posting post
-                inner join disk_index.frame
-                    on post.frame_id = frame.id
-                where term_id = (select id from disk_index.vocabulary where term = :right_term)
-                    and frame.field_id = (select id from disk_index.unstructured_field where name = :field)
-            )
-            insert into bigram_staging
-                select
-                    left.frame_id,
-                    (select id from vocabulary where term = :bigram) as new_term_id,
-                    left_term,
-                    left_positions,
-                    left_frequency,
-                    right_term,
-                    right_positions,
-                    right_frequency
-                from left
-                inner join right
-                    on left.frame_id = right.frame_id;
-
-            delete from disk_index.term_posting
-                where term_id in (select id from disk_index.vocabulary where term in (:left_term, :right_term))
-                    and frame_id in (select distinct frame_id from bigram_staging);
-
-            delete from disk_index.frame_posting
-                where term_id in (select id from disk_index.vocabulary where term in (:left_term, :right_term))
-                    and frame_id in (select distinct frame_id from bigram_staging);
-
-            -- Select out the rows to merge the positions of
-            select * from bigram_staging;
-
-            """, {'left_term': left_term, 'right_term': right_term, 'bigram': bigram, 'field': field}
-        )
-
-        def insert_row(values):
-            self._execute('insert into bigram_merging values(?, ?, ?, ?)', values)
-
-        for frame_id, bigram_id, left_id, left_positions, _, right_id, right_positions, _ in bigram_rows:
-
-            if left_id != right_id:  # Different left and right terms
-                left = [(start, end, 0) for start, end in json.loads('[{}]'.format(left_positions))]
-                right = [(start, end, 1) for start, end in json.loads('[{}]'.format(right_positions))]
-                sorted_positions = sorted(left + right)
-
-                # Sort positions, then merge those that match the sequence
-                merged_positions = []
-                final_left = []
-                final_right = []
-
-                merged = False
-                for first, second in zip(sorted_positions, sorted_positions[1:]):
-                    if merged:  # second term has been consumed, so move along
-                        merged = False
-                        continue
-                    # It's a bigram if the left term is follwed by the right term, and they are close enough.
-                    if (
-                        first[2] == 0 and second[2] == 1 and
-                        # Don't attempt to handle overlapping terms
-                        0 < second[0] - first[1] <= max_char_gap
-                    ):
-                        merged_positions.append([first[0], second[1]])
-                        merged = True
-                    # Not a bigram - keep the positions associated with that term.
-                    else:
-                        if first[2] == 0:
-                            final_left.append(first[:2])
-                        else:  # Avoid adding a repeated term twice.
-                            final_right.append(first[:2])
-                else:  # The last position if it wasn't merged.
-                    if not merged:
-                        if second[2] == 0:
-                            final_left.append(second[:2])
-                        else:  # Avoid adding a repeated term twice.
-                            final_right.append(second[:2])
-
-                if final_left:
-                    insert_row([left_id, frame_id, len(final_left), json.dumps(final_left)[1:-1]])
-                if final_right:
-                    insert_row([right_id, frame_id, len(final_right), json.dumps(final_right)[1:-1]])
-                if merged_positions:
-                    insert_row([bigram_id, frame_id, len(merged_positions), json.dumps(merged_positions)[1:-1]])
-
-            else:  # Special case for the same term occuring in a row.
-                positions = sorted([(start, end, 0) for start, end in json.loads('[{}]'.format(left_positions))])
-
-                merged_positions = []
-                final = []
-                merged = False
-
-                for first, second in zip(positions, positions[1:]):
-                    if merged:  # second term has been consumed, so move along
-                        merged = False
-                        continue
-                    if 0 < second[0] - first[1] <= max_char_gap:
-                        merged_positions.append([first[0], second[1]])
-                        merged = True
-                    else:
-                        final.append(first[:2])
-                else:  # Don't forget the last position if it wasn't merged.
-                    if not merged:
-                        final.append(second[:2])
-
-                if final:
-                    insert_row([left_id, frame_id, len(final), json.dumps(final)[1:-1]])
-                if merged_positions:
-                    insert_row([bigram_id, frame_id, len(merged_positions), json.dumps(merged_positions)[1:-1]])
-
-        # Finally, insert all the new values and update the term_statistics
-        self._execute("""
-            insert into disk_index.frame_posting(term_id, frame_id, frequency, positions)
-                select *
-                from bigram_merging;
-
-            insert into disk_index.term_posting(term_id, frame_id, frequency, positions)
-                select *
-                from bigram_merging;
-
-            insert or replace into disk_index.term_statistics(term_id, field_id, frequency, frames_occuring)
-                select
-                    term_id,
-                    field_id,
-                    sum(frequency) as frequency,
-                    count(frame_id) as frames_occuring
-                from disk_index.term_posting post
-                inner join disk_index.frame
-                    on frame.id = post.frame_id
-                where frame.field_id in (select id from disk_index.unstructured_field where name = :field)
-                    and term_id in (
-                        select id from disk_index.vocabulary where term in (:left_term, :right_term, :bigram)
-                    )
-                group by term_id, field_id;
-
-            delete from bigram_staging;
-            delete from bigram_merging;
-        """, {'left_term': left_term, 'right_term': right_term, 'bigram': bigram, 'field': field}
-        )
-
     def add_unstructured_fields(self, field_names):
         """Register an unstructured field on the index. """
         for f in field_names:
@@ -452,7 +211,7 @@ class SqliteWriter(StorageWriter):
                     field_name: list of string representations of each frames
                 }
                 - a dictionary {
-                    field_name: list of {term: [[word1 boundary], [word2 boundary]]} vectors for each frame
+                    field_name: list of {term: [[word1 token_position], [word2 token_position]]} vectors for each frame
                 }
             For the frame data (3rd and 4th elements), the frames should be in document sequence order
             and there should be a one-one correspondence between frame representations and term:frequency vectors.
@@ -512,7 +271,7 @@ class SqliteWriter(StorageWriter):
                 )
                 insert_term_data = (
                     # The leading and trailing [] are stripped so positions can be concatenated as strings.
-                    (frame_count + self.frame_no, term, len(positions), json.dumps(positions)[1:-1])
+                    (frame_count + self.frame_no, term, len(positions), _bitwise_encode(positions))
                     for frame_count, frame_data in enumerate(frame_term_data)
                     for term, positions in frame_data.iteritems()
                 )
@@ -525,6 +284,7 @@ class SqliteWriter(StorageWriter):
                 self._execute('release document')  # rollup this savepoint into the transaction.
                 self.frame_no += total_frames
                 self.doc_no += 1
+
             except Exception as e:
                 self._execute('rollback to savepoint document')
                 raise e
@@ -586,7 +346,8 @@ class SqliteReader(StorageReader):
     """
 
     def __init__(self, path):
-        """Open a reader for the given storage location."""
+        """Open or create a reader for the given storage location."""
+
         self._db_path = path
         self._db = os.path.join(path, 'storage.db')
 
@@ -698,7 +459,7 @@ class SqliteReader(StorageReader):
         return frequencies
 
     def _iterate_positions(self, terms=None, include_fields=None, exclude_fields=None):
-        """Iterate through the positions index.
+        """Iterate through the positions index, giving frame ids and frequencies for matching terms.
 
         By default, all terms are iterated. Optionally a list of terms can be provided.
 
@@ -727,7 +488,7 @@ class SqliteReader(StorageReader):
         data = (fields + [term] for term in terms)
         frames = self._executemany(
             """
-            select vocab.term, frame.id, field.name, post.positions
+            select vocab.term, frame.id, field.name, post.frequency
             from term_posting post
             inner join vocabulary vocab
                 on vocab.id = post.term_id
@@ -743,15 +504,15 @@ class SqliteReader(StorageReader):
 
         current_term = None
 
-        for term, frame_id, field_name, term_positions in frames:
+        for term, frame_id, field_name, frequency in frames:
             if current_term is None:
-                positions = {frame_id: sorted(json.loads('[{}]'.format(term_positions)))}
+                positions = {frame_id: frequency}
                 current_term = term
             elif term == current_term:
-                positions[frame_id] = sorted(json.loads('[{}]'.format(term_positions)))
+                positions[frame_id] = frequency
             else:
                 yield current_term, positions
-                positions = {frame_id: sorted(json.loads('[{}]'.format(term_positions)))}
+                positions = {frame_id: frequency}
                 current_term = term
         else:
             if current_term is not None:
@@ -759,7 +520,7 @@ class SqliteReader(StorageReader):
 
     def iterate_associations(self, term=None, association=None, include_fields=None, exclude_fields=None):
         """
-        Term associations for this index.
+        Term associations for this Index.
 
         This is used to record when two terms co-occur in a frame. Be aware that only 1 co-occurrence for two terms
         is recorded per frame no matter the frequency of each term. The format is as follows::
@@ -841,8 +602,6 @@ class SqliteReader(StorageReader):
         else:  # Make sure to yield the final row.
             if current_term is not None:
                 yield current_term, current_dict
-            else:
-                yield None, {}
 
     def count_documents(self):
         """Returns the number of documents in the index."""
@@ -900,6 +659,62 @@ class SqliteReader(StorageReader):
                 '   on field.id = frame.field_id ' + where_clause,
                 fields
             )
+
+    def iterate_term_frequency_vectors(self, weighting='tf', include_fields=None, exclude_fields=None, frame_ids=None):
+        """
+        Iterates through sparse term_vectors for frames in the index.
+
+        Currently only term frequency 'tf' weighting is supported.
+
+        If frame_ids is provided, then the include_fields and exclude_fields arguments will be ignored.
+
+        """
+
+        if frame_ids is None:
+            where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields)
+
+            field_join = """
+                inner join frame
+                    on frame.id = frame_posting.frame_id
+                inner join unstructured_field field
+                    on field.id = frame.field_id
+            """ if fields else ''
+            rows = self._execute("""
+                select frame_id, term, frequency
+                from frame_posting
+                inner join vocabulary
+                    on frame_posting.term_id = vocabulary.id
+                {}
+                {}
+                order by frame_id
+            """.format(field_join, where_clause), fields)
+        else:
+            rows = self._executemany("""
+                select frame_id, term, frequency
+                from frame_posting
+                inner join vocabulary
+                    on frame_posting.term_id = vocabulary.id
+                where frame_id = ?
+            """, ((i,) for i in frame_ids))
+
+        current_frame = None
+
+        for frame_id, term, frequency in rows:
+            if current_frame is None:
+                term_freqs = {term: frequency}
+                current_frame = frame_id
+
+            elif current_frame == frame_id:
+                term_freqs[term] = frequency
+
+            else:
+                yield current_frame, term_freqs
+                current_frame = frame_id
+                term_freqs = {term: frequency}
+
+        else:  # Make sure to yield the final row.
+            if current_frame is not None:
+                yield current_frame, term_freqs
 
     def iterate_metadata(self, include_fields=None, exclude_fields=None, frames=True, text_field=None):
         """
@@ -959,6 +774,143 @@ class SqliteReader(StorageReader):
         else:  # Make sure to yield the final row.
             yield current_field, current_value, document_ids
 
+    def iterate_bigram_positions(self, bigrams, include_fields=None, exclude_fields=None):
+        """Return an iterator of (left_term, right_term, frame_id, frequency) tuples for the specified list of bigrams.
+
+        Bigrams are supplied as a list of tuples: [('apple', 'pie'), ('whipped', 'cream')].
+
+        Currently, only exact matches for each term are considered - if one of the terms in the bigram occurs
+        after the 63rd position in a frame it is not considered a match.
+
+        """
+        where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields)
+
+        if fields:
+            extra_join = """
+                inner join frame
+                    on frame.id = right_post.frame_id
+                inner join unstructured_field field
+                    on field.id = frame.field_id
+            """
+            # Mangle the normal where clause for fielded search: this query is difficult to structure to match this.
+            extra_where = 'and ' + where_clause[5:]
+        else:
+            extra_where = extra_join = ''
+
+        query_data = (list(bigram) + fields for bigram in bigrams)
+        bigrams = self._executemany("""
+            select
+                left_vocab.term,
+                right_vocab.term,
+                left_post.frame_id,
+                left_post.positions & (right_post.positions >> 1) as matched_positions
+            from term_posting left_post
+            inner join term_posting right_post
+                on left_post.frame_id = right_post.frame_id
+            inner join vocabulary left_vocab
+                on left_vocab.id = left_post.term_id
+                and left_vocab.term = ?
+            inner join vocabulary right_vocab
+                on right_vocab.id = right_post.term_id
+                and right_vocab.term = ?
+            {}
+            where
+                -- Exclude approximate positions indexes
+                left_post.positions > 0
+                and right_post.positions > 0
+                -- And they actually have matching positions
+                and matched_positions > 0
+                {}
+        """.format(extra_join, extra_where), query_data
+        )
+
+        for left_term, right_term, frame_id, positions in bigrams:
+            yield ((left_term, right_term), frame_id, _count_bitwise_matches(positions))
+
+    def find_significant_bigrams(self, include_fields=None, exclude_fields=None, min_count=5, threshold=40):
+        """Find significant collocations of words.
+
+        Currently operates over all fields in the index.
+
+        Currently, only exact matches for each term are considered - if one of the terms in the bigram occurs
+        after the 63rd position in a frame it is not considered a match.
+
+        Algorithm Notes
+
+        The formula for calculating bi-gram score is inspired by the Gensim implementation of phrase detection from the
+        Mikolov et al paper, "Distributed Representations of Words and Phrases and their Compositionality".
+
+        score(a, b) = freq(a, b) * vocab_size / (freq(a) * freq(b))
+
+        Currently the frequencies are the number of frames a bigram/unigram occurs in.
+
+        Args
+
+            min_count: specifies the minimum number of times a bigram must occur to be considered. It is also
+                used to prefilter the vocabulary for terms that don't occur enough to form a bigram.
+            threshold: the value of the statistical threshold used to determine if a phrase is a match or not.
+
+        """
+        where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields)
+
+        # If fields are specified, we have some extra work to do.
+        if fields:
+            post_join = """
+                inner join frame
+                    on frame.id = right_post.frame_id
+                inner join unstructured_field field
+                    on field.id = frame.field_id
+            """
+            # Mangle the normal where clause for fielded search: this query is difficult to structure to match this.
+            post_where = 'and ' + where_clause[5:]
+            term_join = 'inner join unstructured_field field on field.id = ts.field_id and ' + where_clause[5:]
+        else:
+            post_where = post_join = term_join = ''
+
+        bigrams = self._execute("""
+            with bigrams as (
+                select
+                    left_post.term_id as left_id,
+                    right_post.term_id as right_id,
+                    count(*) * 1.0 as bigram_count
+                from term_posting left_post
+                inner join frame_posting right_post
+                    on left_post.frame_id = right_post.frame_id
+                {}
+                where
+                    -- Exclude approximate positions indexes
+                    left_post.positions > 0
+                    and right_post.positions > 0
+                    -- And they actually have matching positions
+                    and (left_post.positions & (right_post.positions >> 1)) > 0
+                    {}
+                group by left_post.term_id, right_post.term_id
+                having bigram_count > ?
+            ),
+            field_statistics as (
+                select ts.term_id, term, sum(frames_occuring) as frames_occuring
+                from term_statistics ts
+                inner join vocabulary
+                    on vocabulary.id = ts.term_id
+                {}
+                group by ts.term_id, term
+            )
+            select left_stats.term, right_stats.term
+            from bigrams
+            inner join field_statistics left_stats
+                on left_stats.term_id = bigrams.left_id
+            inner join field_statistics right_stats
+                on right_stats.term_id = bigrams.right_id
+            where (
+                bigram_count * (select count(*) from field_statistics) /
+                (1.0 * left_stats.frames_occuring * right_stats.frames_occuring)
+            ) > ?
+            """.format(post_join, post_where, term_join),
+            fields + [min_count] + fields + [threshold]
+        )
+
+        return bigrams
+
     def get_settings(self, names):
         """Get the settings identified by the given names. """
         variable_binding = ', '.join(['?'] * len(names))
@@ -1007,7 +959,8 @@ class SqliteReader(StorageReader):
         """
         fields = include_fields or exclude_fields or []
         valid_fields = self.structured_fields if structured else self.unstructured_fields
-        invalid_fields = [field for field in fields if field not in valid_fields]
+        # Catch None as a valid field to allow current reader level interface to specify None as a field.
+        invalid_fields = [field for field in fields if field not in valid_fields and field is not None]
 
         if invalid_fields:
             raise ValueError('Invalid fields: {} do not exist or are not indexed'.format(invalid_fields))
@@ -1021,3 +974,48 @@ class SqliteReader(StorageReader):
 
 
 SqliteStorage = Storage(SqliteReader, SqliteWriter)
+
+
+def _bitwise_encode(ordinal_positions):
+    """
+    Converts the sorted list of integers to a bitstring.
+
+    The integer i is indicated in the positions by setting the i'th bit of the string to 1.
+
+    Superpositions of integers up to 62 (positions 0, 1, ... 62) can be represented exactly.
+
+    For integers larger than 62, an approximate matching scheme is used: the position i % 63
+    is recorded instead. If the match is approximate, the high bit will set: the output integer is
+    negative if the match is approximate.
+
+    """
+
+    p = 0
+
+    for i in ordinal_positions:
+        p |= 1 << i % 63
+
+    if i > 62:
+        p = -p
+
+    return p
+
+
+def _count_bitwise_matches(position_bitstring):
+    """ Count the number of matches (number of bits set to 1) indicated by the given bitstring.
+
+    If the high bit is set in the bitstring, this will return 0.
+
+    This uses Kernighan's algorithm, and is faster in the case of a small number of bits set.
+
+    """
+    if position_bitstring <= 0:
+        return 0
+
+    n = 0
+
+    while position_bitstring > 0:
+        position_bitstring &= position_bitstring - 1
+        n += 1
+
+    return n
