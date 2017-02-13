@@ -15,7 +15,9 @@ the document_data and term_posting tables a hard delete requires a full table sc
 performed.
 
 """
+from __future__ import division
 import logging
+import math
 import os
 
 import apsw
@@ -860,9 +862,12 @@ class SqliteReader(StorageReader):
         Currently only conjunctive metadata searches are supported.
 
         The cost of a search is driven by the cost of the largest intermediate item set:
-        a search in an English language index for the term 'and' will be expensive.
+        a search in a large English language index for the term 'and' will be expensive,
+        regardless of which criteria (all_of, any_of etc.) is used.
 
-        Only tfidf is currently supported.
+        Scoring is currently based on TF-IDF. Frames are scored individually. Document scores are
+        computed by summing frame scores. The inverse 'document' frequency is actually the
+        inverse frame frequency of that term across all frames in the document.
 
         """
 
@@ -874,7 +879,6 @@ class SqliteReader(StorageReader):
         # TODO: validate n_of terms here: 0 < n_of[0] < len(n_of)
         # Warn on n=0 and n=len(n_of), error for n < 0, n > len(n_of)
 
-        # TODO: build in the term_weighting using tfidf here - insert into the table and go from there.
         # counters for each inclusion criteria
         counters = [[1, None, None], [None, 1, None], [None, None, 1], [None, None, None]]
         row_counters = [
@@ -883,17 +887,34 @@ class SqliteReader(StorageReader):
             if len(term_set)
         ]
 
+        # Compute IDF component of the term weighting from the term_statistics on this index
+        n_frames = list(self._execute('select sum(frame_count) from field_statistics'))[0][0]
+        term_stats = self._executemany(
+            """
+            select sum(frames_occuring) as frame_frequency
+            from term_statistics
+            inner join vocabulary
+                on term_statistics.term_id = vocabulary.id
+            where vocabulary.term = ?
+            """, [[term] for term in search_terms])
+
+        term_idf = [1 + math.log(n_frames / (n[0] + 1)) for n in term_stats]
+
         # Truncate the temporary driving table
+        # Note that because of how searches work, this means that only a single search query
+        # can be active for a given reader, as SQLite temporary tables are not isolated across
+        # queries. For this reason, although this method can potentially be used as a generator,
+        # the IndexReader API always returns the complete resultset.
         self._execute('delete from term_search_driver')
 
-        # Stage the terms to the driving table.
+        # Stage the terms to the driving table, including the necessary weighting
         self._executemany("""
-            insert into term_search_driver(term_id, term, all_count, n_count, exclude_count)
-                select id as term_id, ?1, ?2, ?3, ?4
+            insert into term_search_driver(term_id, term, all_count, n_count, exclude_count, weight)
+                select id as term_id, ?1, ?2, ?3, ?4, ?5
                 from vocabulary
                 where term = ?1
                 order by term_id
-            """, [[term] + counter for term, counter in zip(search_terms, row_counters)]
+            """, [[term] + counter + [weight] for term, counter, weight in zip(search_terms, row_counters, term_idf)]
         )
 
         parameters = []
@@ -962,6 +983,7 @@ class SqliteReader(StorageReader):
             having_clause += 'and (score < ? or (score = ? and frame_id < ?))'
             parameters.extend([pagination_key[0], pagination_key[0], pagination_key[1]])
 
+        search_clause = ''
         if search:
             search_clause = 'order by score desc, frame_id desc '
             if limit:
@@ -994,7 +1016,7 @@ class SqliteReader(StorageReader):
             having 1 -- no-op clause to simplify query construction.
                 {having}
 
-            -- Return the most relevant results first, ordering ties by frame_id for efficient pagination.
+            -- If we're searching, order by score and frame_id, so we have a deterministic order for pagination.
             {search_clause}
             """.format(
                 frame_or_document='document_id' if return_documents else 'frame_id',

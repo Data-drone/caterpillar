@@ -59,6 +59,13 @@ create table term_statistics (
 );
 
 
+/* Summary statistics for each field. */
+create table field_statistics (
+    field_id integer primary key,
+    frame_count integer
+);
+
+
 /* The source table for the document representation. */
 create table document (
     id integer primary key,
@@ -157,7 +164,7 @@ The revision number is incremented by one whenever a write transaction adds or d
 from an index.
 
 For example, a reader might run an operation when the state of the index was (5, 100, 5, 2000), while
-the current state is (15, 130, 45, 2200). This index that 30 new documents and 200 new frames were added
+the current state is (15, 130, 45, 2200). This means that 30 new documents and 200 new frames were added
 in 10 commits, and 40 documents were deleted since that operation was run.
 
 */
@@ -526,6 +533,12 @@ insert into disk_index.setting
 -- Update the revision number of the database
 insert into index_revision(added_document_count, deleted_document_count, added_frame_count)
     values(:added, :deleted, :added_frames);
+
+-- Update the field statistics
+insert or replace into field_statistics(field_id, frame_count)
+    select field_id, count(*)
+    from disk_index.frame
+    group by field_id;
 
 -- Update the plugins
 create table delete_plugin_id as
