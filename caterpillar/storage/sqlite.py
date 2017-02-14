@@ -850,7 +850,7 @@ class SqliteReader(StorageReader):
     def search_or_filter(
         self, return_documents=False, include_fields=None, exclude_fields=None,
         all_of=[], any_of=[], n_of=(0, []), none_of=[], metadata={},
-        limit=0, pagination_key=None, search=True
+        limit=0, pagination_key=None, search=False
     ):
         """
         Omnibus function for searching and filtering by terms and metadata.
@@ -861,13 +861,16 @@ class SqliteReader(StorageReader):
 
         Currently only conjunctive metadata searches are supported.
 
-        The cost of a search is driven by the cost of the largest intermediate item set:
+        The cost of a search is driven by the cost of the largest intermediate term set:
         a search in a large English language index for the term 'and' will be expensive,
         regardless of which criteria (all_of, any_of etc.) is used.
 
         Scoring is currently based on TF-IDF. Frames are scored individually. Document scores are
         computed by summing frame scores. The inverse 'document' frequency is actually the
         inverse frame frequency of that term across all frames in the document.
+
+        For filtering, the pagination key is the last frame_id or document_id seen, for search,
+        the pagination key is a tuple of (frame_id, score).
 
         """
 
@@ -935,23 +938,23 @@ class SqliteReader(StorageReader):
             if metadata:
 
                 metadata_clauses = []
-                valid_metadata_operators = set(('<', '>', '<=', '>=', '='))
+                valid_metadata_operators = set(('<', '>', '<=', '>=', '=', 'in'))
 
                 for metadata_field, operators in metadata.items():
                     # White list valid operators for the SQL here. Arbitrary operators are an SQL injection
                     # vulnerability.
 
-                    this_field = """
-                        select document_id from document_data
-                        where field_id = (select id from structured_field where name = ?)
-                    """
+                    this_field = (
+                        'select document_id from document_data'
+                        'where field_id = (select id from structured_field where name = ?)'
+                    )
                     parameters.append(metadata_field)
 
                     for operator, value in operators.items():
                         if operator not in valid_metadata_operators:
                             raise ValueError('{} is not a supported operator'.format(operator))
 
-                        this_field += 'and value {} ?'.format(operator, value)
+                        this_field += 'and value {} ? \n'.format(operator, value)
 
                         parameters.append(value)
 
@@ -959,6 +962,18 @@ class SqliteReader(StorageReader):
 
                 # Note that all metadata queries are intersections: all metadata clauses must be matched.
                 subset_clause += 'and document_id in ({})'.format(' intersect '.join(metadata_clauses))
+
+        else:
+            subset_clause = ''
+
+        if not search and return_documents and pagination_key is not None:
+            filter_pagination = 'where document_id > ?'
+            parameters.append(pagination_key)
+        elif not search and pagination_key is not None:
+            filter_pagination = 'where frame_id > ?'
+            parameters.append(pagination_key)
+        else:
+            filter_pagination = ''
 
         if return_documents:
             groupby_clause = 'group by document_id'
@@ -979,20 +994,25 @@ class SqliteReader(StorageReader):
         if none_of:
             having_clause += 'and max(exclude_count) = 0 '
 
-        if pagination_key:
-            having_clause += 'and (score < ? or (score = ? and frame_id < ?))'
-            parameters.extend([pagination_key[0], pagination_key[0], pagination_key[1]])
-
         search_clause = ''
-        if search:
-            search_clause = 'order by score desc, frame_id desc '
-            if limit:
-                search_clause += 'limit ?'
-                parameters.append(limit)
 
-        results = self._execute(
-            """
+        if search:
+            if pagination_key is not None:
+                having_clause += 'and (score < ? or (score = ? and {} > ?))'.format(
+                    'document_id' if return_documents else 'frame_id'
+                )
+                parameters.extend([pagination_key[1], pagination_key[1], pagination_key[0]])
+
+            # If we're searching, order by score descending and frame/document_id ascending for deterministic pagination
+            search_clause = 'order by score desc, {} '.format('document_id' if return_documents else 'frame_id')
+
+        if limit:
+            search_clause += 'limit ?'
+            parameters.append(limit)
+
+        query = """
             select
+                {frame_or_document},
                 /*
                 Quantize the scoring results for two reasons:
                     1. Pagination depends on exact score comparison - floats are not reliable for
@@ -1002,8 +1022,7 @@ class SqliteReader(StorageReader):
 
                 The resulting score is accurate to within .1 of the original score.
                 */
-                cast(sum(frequency * ts.weight)*10 as integer) as score,
-                {frame_or_document}
+                cast(sum(frequency * ts.weight)*10 as integer) as score
             from term_search_driver ts
 
             cross join term_posting post -- TODO: note the use of cross join here is an optimisation.
@@ -1011,21 +1030,23 @@ class SqliteReader(StorageReader):
 
             {subset_clause}
 
+            {filter_pagination}
+
             {groupby}
 
             having 1 -- no-op clause to simplify query construction.
                 {having}
 
-            -- If we're searching, order by score and frame_id, so we have a deterministic order for pagination.
             {search_clause}
-            """.format(
+        """.format(
                 frame_or_document='document_id' if return_documents else 'frame_id',
+                filter_pagination=filter_pagination,
                 subset_clause=subset_clause,
                 groupby=groupby_clause,
                 having=having_clause,
                 search_clause=search_clause
-            ), parameters
         )
+        results = self._execute(query, parameters)
 
         return results
 

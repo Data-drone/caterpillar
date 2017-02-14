@@ -1050,10 +1050,45 @@ class IndexReader(object):
             frame_ids=frame_ids
         )
 
+    def search_documents(
+        self, include_fields=None, exclude_fields=None, all_of=[], any_of=[], n_of=(0, []), none_of=[],
+        metadata={}, limit=100, pagination_key=None
+    ):
+        """
+        Search for documents matching the given criteria.
+
+
+        See Also:
+
+            search_frames, filter_documents, filter_frames
+
+        """
+        pass
+
+    def search_frames(
+        self, include_fields=None, exclude_fields=None, all_of=[], any_of=[], n_of=(0, []), none_of=[],
+        metadata={}, limit=100, pagination_key=None
+    ):
+        """Search for frames matching the given criteria. """
+        pass
+
+    def filter_documents(
+        self, include_fields=None, exclude_fields=None, all_of=[], any_of=[], n_of=(0, []), none_of=[],
+        metadata={}, limit=None, pagination_key=None
+    ):
+        """Filter documents down to a set matching the given criteria. """
+        pass
+
+    def filter_frames(
+        self, include_fields=None, exclude_fields=None, all_of=[], any_of=[], n_of=(0, []), none_of=[],
+        metadata={}, limit=None, pagination_key=None
+    ):
+        """Filter frames down to a set matching the given criteria. """
+        pass
+
     def search(
-        self, search_type='frames', include_fields=None, exclude_fields=None,
-        all=[], any=[], at_least_n=(0, []), exclude=[], metadata=[],
-        scoring='tfidf', limit=30, pagination_key=None
+        self, include_fields=None, exclude_fields=None,
+        all_of=[], any_of=[], n_of=(0, []), none_of=[], metadata=[], limit=None, pagination_key=None
     ):
         """
         Search for frames or documents matching the given criteria.
@@ -1115,21 +1150,6 @@ class IndexReader(object):
         """
 
         # Validate and analyze the metadata fields, and pass them on to the storage engine.
-
-        return None
-
-    def filter(
-        self, search_type='frames', include_fields=None, exclude_fields=None,
-        all=[], any=[], at_least_n=[], exclude=[], metadata={}
-    ):
-        """
-        Filter index down to frames or documents matching the given criteria.
-
-        See the search method for a detailed description of the arguments.
-
-        The output is an unsorted list of all frame or document ID's matching the query.
-
-        """
 
         return None
 
