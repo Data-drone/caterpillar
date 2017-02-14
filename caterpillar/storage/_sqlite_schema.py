@@ -6,8 +6,8 @@ The schema scripts for the bulk operations of the :class:`.SqliteStorage`.
 """
 
 disk_schema = """
-pragma journal_mode = WAL;
 pragma page_size = 4096; -- current recommended value for SQLite.
+pragma journal_mode = WAL;
 
 begin;
 
@@ -107,6 +107,7 @@ structured data searches --> frames
 unstructured searches --> documents
 */
 create index document_frame_bridge on frame(document_id, field_id);
+create index field_frame_idx on frame(field_id, document_id);
 
 
 /* Postings organised by term, allowing search operations. */
@@ -114,7 +115,7 @@ create table term_posting (
     term_id integer,
     frame_id integer,
     frequency integer,
-    positions text, -- Ugly hack to allow compatible bigram merging.
+    positions integer,
     primary key(term_id, frame_id),
     foreign key(term_id) references term(id),
     foreign key(frame_id) references frame(id)
@@ -186,16 +187,6 @@ create table setting (
     value
 );
 
-/* A convenience view for writing queries. */
-create view term_search as
-    select vocabulary.term, frame.id
-    from term_posting
-    inner join vocabulary
-        on term_posting.term_id = vocabulary.id
-    inner join frame
-        on term_posting.frame_id = frame.id
-    inner join document
-        on frame.document_id = document.id;
 
 commit;
 
@@ -294,34 +285,6 @@ create table plugin_data (
 create table delete_plugin (
     plugin_type text,
     settings text
-);
-
-create table term_merging (
-    term_id,
-    frame_id,
-    frequency,
-    positions,
-    primary key(term_id, frame_id)
-);
-
-create table bigram_staging (
-    frame_id,
-    term_id,
-    left_term,
-    left_positions,
-    left_frequency,
-    right_term,
-    right_positions,
-    right_frequency,
-    primary key(term_id, frame_id)
-);
-
-create table bigram_merging (
-    term_id,
-    frame_id,
-    frequency,
-    positions,
-    primary key(term_id, frame_id)
 );
 
 
