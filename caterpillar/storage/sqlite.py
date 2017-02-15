@@ -839,21 +839,94 @@ class SqliteReader(StorageReader):
         for left_term, right_term, frame_id, positions in bigrams:
             yield ((left_term, right_term), frame_id, _count_bitwise_matches(positions))
 
-    def filter_metadata(self):
+    def filter_metadata(self, metadata, return_documents=False, limit=0, pagination_key=None):
         """
-        Support metadata only searches - this is not possible with search_or_filter
-        because that is driven by matching terms.
+        Support metadata only searches - for efficiency reasons search_or_filter_unstructured
+        is driven by term_posting table. This function provides efficient set filtering for
+        metadata only cases.
+
+        Currently only conjunctive metadata queries are supported, with the exception of the 'in'
+        operator for matching multiple alternatives.
 
         """
-        return None
 
-    def search_or_filter(
+        metadata_clauses = []
+        parameters = []
+        # Whitelist of valid operators - we can't bind an operator in sql, so reject everything else.
+        valid_metadata_operators = set(('<', '>', '<=', '>=', '=', 'in'))
+
+        for metadata_field, operators in metadata.items():
+
+            # Template for each field - fill in the field name and append the parameters.
+            this_field = """
+                select document_id from document_data
+                where field_id = (select id from structured_field where name = ?)
+            """
+
+            if return_documents and pagination_key:
+                this_field += 'and document_id > ?'
+                parameters.append(pagination_key)
+
+            parameters.append(metadata_field)
+
+            for operator, value in operators.items():
+                if operator not in valid_metadata_operators:
+                    raise ValueError('{} is not a supported operator'.format(operator))
+
+                if operator == 'in':  # The values for an 'in' operator should be an iterable.
+                    this_field += 'and value {} ({}) \n'.format(operator, ', '.join(['?'] * len(value)))
+                    parameters.extend(value)
+
+                else:
+                    this_field += 'and value {} ? \n'.format(operator)
+                    parameters.append(value)
+
+            metadata_clauses.append(this_field)
+
+        # Note that all metadata queries are conjunctions only: all metadata clauses must be matched.
+        document_intersection = '\n intersect \n'.join(metadata_clauses)
+
+        if return_documents:
+            if limit:
+                document_intersection += 'order by document_id \n limit ?'
+                parameters.append(limit)
+            results = self._execute(document_intersection, parameters)
+
+        else:
+            frame_intersection = """
+                select id
+                from frame
+                where document_id in (
+                    {}
+                )
+                {}
+                {}
+                """
+            if pagination_key:
+                pagination_clause = 'and frame_id > ?'
+                parameters.append(pagination_key)
+            else:
+                pagination_clause = ''
+            if limit:
+                limit_clause = 'order by frame_id \n limit ?'
+                parameters.append(limit)
+            else:
+                limit_clause = ''
+
+            results = self._execute(
+                frame_intersection.format(document_intersection, pagination_clause, limit_clause),
+                parameters
+            )
+
+        return results
+
+    def search_or_filter_unstructured(
         self, return_documents=False, include_fields=None, exclude_fields=None,
         must=[], should=[], at_least_n=(0, []), must_not=[], metadata={},
         limit=0, pagination_key=None, search=False
     ):
         """
-        Omnibus function for searching and filtering by terms and metadata.
+        Omnibus function for searching and filtering unstructured data.
 
         Because most of the logic is similar across filtering and searching, this function
         supports everything. The IndexReader provides the coherent interface to present
@@ -863,7 +936,8 @@ class SqliteReader(StorageReader):
 
         The cost of a search is driven by the cost of the largest intermediate term set:
         a search in a large English language index for the term 'and' will be expensive,
-        regardless of which criteria (must, should etc.) is used.
+        regardless of which criteria (must, should etc.) is used as all rows containing that
+        term will need to aggregated over.
 
         Scoring is currently based on TF-IDF. Frames are scored individually. Document scores are
         computed by summing frame scores. The inverse 'document' frequency is actually the
@@ -882,6 +956,46 @@ class SqliteReader(StorageReader):
 
         term | frame | document | field | metadata_field | meta_data_field | metadata_field
 
+        """
+
+        # This is the query we will be passing through to SQLite. The remainder of this function
+        # just fills in the gaps, conditioned on all the options specified by the user.
+        query = """
+            select
+                {frame_or_document},
+                /* Scoring Note
+
+                The scores are quantized to tf-idf * 10 as an integer for two reasons:
+                    1. Pagination depends on exact score comparison - floats are not reliable for
+                       this, especially when considering network transfers, encoding in JSON etc.
+                    2. Robustness to small changes in IDF values - for example if a pagination
+                       request occurs after some new documents are added to the result set.
+
+                */
+                cast(sum(frequency * ts.weight)*10 as integer) as score
+            from term_search_driver ts
+
+            /* Optimisation Note
+
+            Note that in SQLite cross join behaves identically to inner join, *except* the query
+            optimiser does not reorder the joins. The join order is critical for this case - if
+            term_posting is reordered we may end up with a full table scan of a very large table.
+
+            */
+
+            cross join term_posting post
+                on ts.term_id = post.term_id
+
+            {subset_clause}
+
+            {filter_pagination}
+
+            {groupby}
+
+            having 1 -- no-op clause to simplify query construction.
+                {having}
+
+            {search_clause}
         """
 
         # Validate that each term occurs only once across all specifiers.
@@ -1043,51 +1157,17 @@ class SqliteReader(StorageReader):
             search_clause += 'limit ?'
             parameters.append(limit)
 
-        query = """
-            select
-                {frame_or_document},
-                /* Scoring Note
-
-                The scores are quantized to tf-idf * 10 as an integer for two reasons:
-                    1. Pagination depends on exact score comparison - floats are not reliable for
-                       this, especially when considering network transfers, encoding in JSON etc.
-                    2. Robustness to small changes in IDF values - for example if a pagination
-                       request occurs after some new documents are added to the result set.
-
-                */
-                cast(sum(frequency * ts.weight)*10 as integer) as score
-            from term_search_driver ts
-
-            /* Optimisation Note
-
-            Note that in SQLite cross join behaves identically to inner join, *except* the query
-            optimiser does not reorder the joins. The join order is critical for this case - if
-            term_posting is reordered we may end up with a full table scan of a very large table.
-
-            */
-
-            cross join term_posting post
-                on ts.term_id = post.term_id
-
-            {subset_clause}
-
-            {filter_pagination}
-
-            {groupby}
-
-            having 1 -- no-op clause to simplify query construction.
-                {having}
-
-            {search_clause}
-        """.format(
+        # Now fill in the template, and actually execute the query.
+        results = self._execute(
+            query.format(
                 frame_or_document='document_id' if return_documents else 'frame_id',
                 filter_pagination=filter_pagination,
                 subset_clause=subset_clause,
                 groupby=groupby_clause,
                 having=having_clause,
                 search_clause=search_clause
+            ), parameters
         )
-        results = self._execute(query, parameters)
 
         return results
 

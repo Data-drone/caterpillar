@@ -1106,12 +1106,16 @@ class IndexReader(object):
             Documents are scored by aggregating the individual scores for matching frames in the document.
 
             Metadata only queries are not supported by search: at least one term must be present in the
-            must, should or at_least_n arguments.
+            must, should or at_least_n arguments. The filter function can be used for metadata only queries.
 
         """
         analysed_metadata = self._validate_analyse_metadata(metadata)
 
-        results = self.__storage.search_or_filter(
+        # if metadata, but not unstructured data, raise an error for search.
+        if metadata and not (must or should or at_least_n[1]):
+            raise ValueError('Metadata only searches are not supported. Try IndexReader.filter() instead.')
+
+        results = self.__storage.search_or_filter_unstructured(
             include_fields=include_fields, exclude_fields=exclude_fields,
             must=must, should=should, at_least_n=at_least_n, must_not=must_not,
             metadata=analysed_metadata, limit=limit, pagination_key=pagination_key, return_documents=return_documents,
@@ -1168,13 +1172,14 @@ class IndexReader(object):
 
         Returns
 
-            filtered_set: an OrderedDict of {frame_id | document_id: score}
-                The score is None if only metadata is provided for the query.
+            filtered_set: a dictionary of {frame_id | document_id: score}
+                The score is 0 if only metadata is provided for the query.
 
         Notes
 
             For term matches a tf-idf score is calculated during filtering, but results are not sorted: this allows
-            ordering by score to be done after set intersection operations with other queries.
+            ordering by score to be done after set intersection operations with other queries. Results can be paged
+            through by frame or document_id with limit.
 
 
         """
@@ -1182,14 +1187,24 @@ class IndexReader(object):
         # Validate and analyze metadata fields.
         analysed_metadata = self._validate_analyse_metadata(metadata)
 
-        results = self.__storage.search_or_filter(
-            include_fields=include_fields, exclude_fields=exclude_fields,
-            must=must, should=should, at_least_n=at_least_n, must_not=must_not,
-            metadata=analysed_metadata, limit=limit, pagination_key=pagination_key, return_documents=return_documents,
-            search=False
-        )
+        # if metadata, but not unstructured data, dispatch to the optimised function
+        if metadata and not (must or should or at_least_n[1]):
+            results = self.__storage.filter_metadata(
+                analysed_metadata, limit=limit, pagination_key=pagination_key,
+                return_documents=return_documents
+            )
+            # Note that metadata only queries do not currently have a defined score.
+            return {i[0]: 0 for i in results}
 
-        return dict(results)
+        else:
+            results = self.__storage.search_or_filter_unstructured(
+                include_fields=include_fields, exclude_fields=exclude_fields,
+                must=must, should=should, at_least_n=at_least_n, must_not=must_not,
+                metadata=analysed_metadata, limit=limit, pagination_key=pagination_key,
+                return_documents=return_documents, search=False
+            )
+
+            return dict(results)
 
     def _validate_analyse_metadata(self, metadata_search_spec):
         """Validate that the fields and operators for this metadata search, and analyse the values."""
@@ -1198,7 +1213,8 @@ class IndexReader(object):
 
         analysed_metadata = {}
 
-        # map from valid operator specs to field specs - most of these are the same.
+        # map from valid operator specs to field specs - most of these are the same as the field specification,
+        # however more may be added in the future.
         # Note that in is just a multi comparison equal, where one of the set must match.
         valid_metadata_operators = {'<': '<', '>': '>', '<=': '<=', '>=': '>=', 'in': '=', '=': '='}
 
