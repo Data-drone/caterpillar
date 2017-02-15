@@ -842,57 +842,78 @@ class SqliteReader(StorageReader):
     def filter_metadata(self):
         """
         Support metadata only searches - this is not possible with search_or_filter
-        because that is driven by the term_search.
+        because that is driven by matching terms.
 
         """
         return None
 
     def search_or_filter(
         self, return_documents=False, include_fields=None, exclude_fields=None,
-        all_of=[], any_of=[], n_of=(0, []), none_of=[], metadata={},
+        must=[], should=[], at_least_n=(0, []), must_not=[], metadata={},
         limit=0, pagination_key=None, search=False
     ):
         """
         Omnibus function for searching and filtering by terms and metadata.
 
         Because most of the logic is similar across filtering and searching, this function
-        supports everything. The IndexReader provides a more coherent interface to present
+        supports everything. The IndexReader provides the coherent interface to present
         to the user.
 
         Currently only conjunctive metadata searches are supported.
 
         The cost of a search is driven by the cost of the largest intermediate term set:
         a search in a large English language index for the term 'and' will be expensive,
-        regardless of which criteria (all_of, any_of etc.) is used.
+        regardless of which criteria (must, should etc.) is used.
 
         Scoring is currently based on TF-IDF. Frames are scored individually. Document scores are
         computed by summing frame scores. The inverse 'document' frequency is actually the
-        inverse frame frequency of that term across all frames in the document.
+        inverse frame frequency of that term across the included unstructured fields in this
+        query.
 
         For filtering, the pagination key is the last frame_id or document_id seen, for search,
-        the pagination key is a tuple of (frame_id, score).
+        the pagination key is a tuple of (frame_id, score). Pagination based on a deterministic
+        key gives better performance on deep paging queries (later queries are slightly cheaper
+        rather than more and more expensive), and also gives a more stable sort with respect to
+        relevance when new results occur.
+
+        Data model / search conceptualisation
+
+        Consider the index as a giant table:
+
+        term | frame | document | field | metadata_field | meta_data_field | metadata_field
 
         """
 
         # Validate that each term occurs only once across all specifiers.
-        search_terms = all_of + n_of[1] + none_of + any_of
+        search_terms = must + at_least_n[1] + must_not + should
         if len(set(search_terms)) != len(search_terms):
             raise ValueError('A term can only appear once across all search parameters')
 
-        # TODO: validate n_of terms here: 0 < n_of[0] < len(n_of)
-        # Warn on n=0 and n=len(n_of), error for n < 0, n > len(n_of)
+        # If there are no terms or metadata specified, there are no results as this search
+        # is driven by the matching terms in must, any_o
+        if len(search_terms) == 0 and not metadata:
+            return []
 
         # counters for each inclusion criteria
         counters = [[1, None, None], [None, 1, None], [None, None, 1], [None, None, None]]
         row_counters = [
-            j for i, term_set in enumerate([all_of, n_of[1], none_of, any_of])
+            j for i, term_set in enumerate([must, at_least_n[1], must_not, should])
             for j in [counters[i]] * len(term_set)
             if len(term_set)
         ]
 
+        # Generate the where clause, including the metadata specific details.
+        unstructured_where_clause, unstructured_fields = self._fielded_where_clause(include_fields, exclude_fields)
+
         # Compute IDF component of the term weighting from the term_statistics on this index
-        n_frames = list(self._execute('select sum(frame_count) from field_statistics'))[0][0]
-        term_stats = self._executemany(
+        n_frames = list(self._execute(
+            'select sum(frame_count) '
+            'from field_statistics '
+            'inner join unstructured_field field on field_statistics.field_id = field.id ' +
+            unstructured_where_clause, unstructured_fields)
+        )[0][0]
+
+        term_stats = list(self._executemany(
             """
             select sum(frames_occuring) as frame_frequency
             from term_statistics
@@ -900,6 +921,14 @@ class SqliteReader(StorageReader):
                 on term_statistics.term_id = vocabulary.id
             where vocabulary.term = ?
             """, [[term] for term in search_terms])
+        )
+
+        # Early exit if none of the terms match.
+        if len(term_stats) == 1 and term_stats[0][0] is None:
+            if search:
+                return []
+            else:
+                return {}
 
         term_idf = [1 + math.log(n_frames / (n[0] + 1)) for n in term_stats]
 
@@ -922,15 +951,13 @@ class SqliteReader(StorageReader):
 
         parameters = []
 
-        # Generate the where clause, including the metadata specific details.
-        where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields)
-
-        if metadata or fields or return_documents:
+        if metadata or unstructured_fields or return_documents:
             subset_clause = 'inner join frame on post.frame_id = frame.id '
 
-            if fields:
-                subset_clause += ' and frame.field_id in (select id from unstructured_field field ' + where_clause + ')'
-                parameters += fields
+            if unstructured_fields:
+                subset_clause += ' and frame.field_id in (select id from unstructured_field field ' \
+                    + unstructured_where_clause + ')'
+                parameters += unstructured_fields
 
             # Note that by this point, all of the metadata values must be analysed and the operators validated by the
             # IndexReader. In this storage layer we are dealing only with the representation of the value in the
@@ -938,14 +965,13 @@ class SqliteReader(StorageReader):
             if metadata:
 
                 metadata_clauses = []
+                # Whitelist of valid operators - we can't bind an operator in sql, so reject everything else.
                 valid_metadata_operators = set(('<', '>', '<=', '>=', '=', 'in'))
 
                 for metadata_field, operators in metadata.items():
-                    # White list valid operators for the SQL here. Arbitrary operators are an SQL injection
-                    # vulnerability.
 
                     this_field = (
-                        'select document_id from document_data'
+                        'select document_id from document_data '
                         'where field_id = (select id from structured_field where name = ?)'
                     )
                     parameters.append(metadata_field)
@@ -954,9 +980,13 @@ class SqliteReader(StorageReader):
                         if operator not in valid_metadata_operators:
                             raise ValueError('{} is not a supported operator'.format(operator))
 
-                        this_field += 'and value {} ? \n'.format(operator, value)
+                        if operator == 'in':  # The values for an 'in' operator should be an iterable.
+                            this_field += 'and value {} ({}) \n'.format(operator, ', '.join(['?'] * len(value)))
+                            parameters.extend(value)
 
-                        parameters.append(value)
+                        else:
+                            this_field += 'and value {} ? \n'.format(operator)
+                            parameters.append(value)
 
                     metadata_clauses.append(this_field)
 
@@ -982,16 +1012,16 @@ class SqliteReader(StorageReader):
 
         having_clause = ''
         # Construct term_inclusion clauses: avoid checking things that aren't needed.
-        if all_of:
+        if must:
             # if all_count is NULL, term || all_count evaluates to null, and is not counted in the distinct
             having_clause += 'and count(distinct term || all_count) = ? '
-            parameters.append(len(all_of))
+            parameters.append(len(must))
 
-        if n_of[0]:
+        if at_least_n[0]:
             having_clause += 'and count(distinct term || n_count) >= ? '
-            parameters.append(n_of[0])
+            parameters.append(at_least_n[0])
 
-        if none_of:
+        if must_not:
             having_clause += 'and max(exclude_count) = 0 '
 
         search_clause = ''
@@ -1004,7 +1034,10 @@ class SqliteReader(StorageReader):
                 parameters.extend([pagination_key[1], pagination_key[1], pagination_key[0]])
 
             # If we're searching, order by score descending and frame/document_id ascending for deterministic pagination
-            search_clause = 'order by score desc, {} '.format('document_id' if return_documents else 'frame_id')
+            search_clause += 'order by score desc, {} '.format('document_id' if return_documents else 'frame_id')
+
+        elif limit:  # If we are paging through filter result sets, make sure we order by document_id or frame_id
+            search_clause += 'order by {} '.format('document_id' if return_documents else 'frame_id ')
 
         if limit:
             search_clause += 'limit ?'
@@ -1013,19 +1046,27 @@ class SqliteReader(StorageReader):
         query = """
             select
                 {frame_or_document},
-                /*
-                Quantize the scoring results for two reasons:
+                /* Scoring Note
+
+                The scores are quantized to tf-idf * 10 as an integer for two reasons:
                     1. Pagination depends on exact score comparison - floats are not reliable for
                        this, especially when considering network transfers, encoding in JSON etc.
                     2. Robustness to small changes in IDF values - for example if a pagination
                        request occurs after some new documents are added to the result set.
 
-                The resulting score is accurate to within .1 of the original score.
                 */
                 cast(sum(frequency * ts.weight)*10 as integer) as score
             from term_search_driver ts
 
-            cross join term_posting post -- TODO: note the use of cross join here is an optimisation.
+            /* Optimisation Note
+
+            Note that in SQLite cross join behaves identically to inner join, *except* the query
+            optimiser does not reorder the joins. The join order is critical for this case - if
+            term_posting is reordered we may end up with a full table scan of a very large table.
+
+            */
+
+            cross join term_posting post
                 on ts.term_id = post.term_id
 
             {subset_clause}

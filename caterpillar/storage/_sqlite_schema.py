@@ -6,7 +6,14 @@ The schema scripts for the bulk operations of the :class:`.SqliteStorage`.
 """
 
 disk_schema = """
+/* pragma note: the page_size is set for the whole database, and can only change with
+and expensive vaccuum operation - it also must be run before anything else is done
+with the database. So this line must come first! */
 pragma page_size = 4096; -- current recommended value for SQLite.
+
+/* Set write ahead log mode for all connections that will use this database. The WAL
+allow concurrent readers and writers, unlike the default journal mode that locks readers
+out while writing. */
 pragma journal_mode = WAL;
 
 begin;

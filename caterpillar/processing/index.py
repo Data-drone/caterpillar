@@ -1050,55 +1050,14 @@ class IndexReader(object):
             frame_ids=frame_ids
         )
 
-    def search_documents(
-        self, include_fields=None, exclude_fields=None, all_of=[], any_of=[], n_of=(0, []), none_of=[],
-        metadata={}, limit=100, pagination_key=None
-    ):
-        """
-        Search for documents matching the given criteria.
-
-
-        See Also:
-
-            search_frames, filter_documents, filter_frames
-
-        """
-        pass
-
-    def search_frames(
-        self, include_fields=None, exclude_fields=None, all_of=[], any_of=[], n_of=(0, []), none_of=[],
-        metadata={}, limit=100, pagination_key=None
-    ):
-        """Search for frames matching the given criteria. """
-        pass
-
-    def filter_documents(
-        self, include_fields=None, exclude_fields=None, all_of=[], any_of=[], n_of=(0, []), none_of=[],
-        metadata={}, limit=None, pagination_key=None
-    ):
-        """Filter documents down to a set matching the given criteria. """
-        pass
-
-    def filter_frames(
-        self, include_fields=None, exclude_fields=None, all_of=[], any_of=[], n_of=(0, []), none_of=[],
-        metadata={}, limit=None, pagination_key=None
-    ):
-        """Filter frames down to a set matching the given criteria. """
-        pass
-
     def search(
-        self, include_fields=None, exclude_fields=None,
-        all_of=[], any_of=[], n_of=(0, []), none_of=[], metadata=[], limit=None, pagination_key=None
+        self, include_fields=None, exclude_fields=None, must=[], should=[], at_least_n=(0, []), must_not=[],
+        metadata={}, limit=100, pagination_key=None, return_documents=False
     ):
         """
         Search for frames or documents matching the given criteria.
 
         Args
-
-            search_type: 'frames' (default) or 'documents'
-                Whether to search for frames or whole documents matching the criteria. Searching for
-                frames and then converting to document_ids may not be the same as searching whole documents
-                or vice versa.
 
             include_fields: list of unstructured fields to include in the analysis.
                 By default this is None, and all fields are included if exclude_fields is also None.
@@ -1107,51 +1066,172 @@ class IndexReader(object):
                 If include_fields is not None, this argument is ignored.
 
 
-            all: list of terms
+            must: list of terms
                 All of these terms must be present in the frame/document to be counted as a match.
 
-            any: list of terms
+            should: list of terms
                 Any of these terms may be present in the frame/document to be counted as a match.
 
             at_least_n: tuple of (integer n, list of terms)
-                At least n of the terms in the list must be present to be counted as a match.
+                At least n of the terms in the list must be present in the frame/document to be counted as a match.
 
-            exclude: list of terms
+            must_not: list of terms
                 If any of these terms are present in a frame/document, it will never be counted as a match.
 
 
             metadata: dictionary of tuples {metadata_field: (operator, value/s)}
-                Only frames/documents matching the set of all metadata operators will be included.
+                Only frames/documents matching all metadata operators will be included.
                 Supported operators and the format for values depends on the definition of the metadata field
-                in the schema.
+                in the schema. Metadata only queries are not supported for search.
 
 
-            scoring: 'tfidf'
-                Scoring method to use. Currently only tfidf is supported.
-
-            limit: integer, default 30.
+            limit: integer, default 100.
                 The maximum number of frames/documents to return.
 
             pagination_key: None, or tuple (score, frame_id | document_id)
                 Restart a search at the given score cutoff and frame/document ID. Providing a pagination
                 key avoids sorting and iterating through frames that have already been returned by a search.
 
+            return_documents: True or False.
+                If False (default), match the criteria and score on the level of individual frames. Otherwise
+                search, score and return whole documents, aggregating frame scores by summing.
+
         Returns
 
             scored: list of tuples in descending score order: [(frame_id | document_id, score), ...]
+                The final element of the scored list is the pagination key to restart the search.
 
         Notes
 
             Documents are scored by aggregating the individual scores for matching frames in the document.
 
-            If all the term selection arguments are empty (default), then a metadata only search will be performed.
-            A term may be present only once across all term selection fields.
+            Metadata only queries are not supported by search: at least one term must be present in the
+            must, should or at_least_n arguments.
+
+        """
+        analysed_metadata = self._validate_analyse_metadata(metadata)
+
+        results = self.__storage.search_or_filter(
+            include_fields=include_fields, exclude_fields=exclude_fields,
+            must=must, should=should, at_least_n=at_least_n, must_not=must_not,
+            metadata=analysed_metadata, limit=limit, pagination_key=pagination_key, return_documents=return_documents,
+            search=True
+        )
+
+        return list(results)
+
+    def filter(
+        self, include_fields=None, exclude_fields=None, must=[], should=[], at_least_n=(0, []), must_not=[],
+        metadata={}, limit=None, pagination_key=None, return_documents=False
+    ):
+        """
+        Filter for frames or documents matching the given criteria.
+
+        Args
+
+            include_fields: list of unstructured fields to include in the analysis.
+                By default this is None, and all fields are included if exclude_fields is also None.
+
+            exclude_fields: list of unstructured fields to exclude from the analysis.
+                If include_fields is not None, this argument is ignored.
+
+
+            must: list of terms
+                All of these terms must be present in the frame/document to be counted as a match.
+
+            should: list of terms
+                Any of these terms may be present in the frame/document to be counted as a match.
+
+            at_least_n: tuple of (integer n, list of terms)
+                At least n of the terms in the list must be present in the frame/document to be counted as a match.
+
+            must_not: list of terms
+                If any of these terms are present in a frame/document, it will never be counted as a match.
+
+
+            metadata: dictionary of tuples {metadata_field: (operator, value/s)}
+                Only frames/documents matching all metadata operators will be included.
+                Supported operators and the format for values depends on the definition of the metadata field
+                in the schema.
+
+
+            limit: integer, default 100.
+                The maximum number of frames/documents to return. For filtering results are returned
+                in batches corresponding to frame_id or document_id order.
+
+            pagination_key: None, or tuple (score, frame_id | document_id)
+                Restart a filtering set at the given frame/document ID.
+
+            return_documents: True or False.
+                If False (default), match the criteria and score on the level of individual frames. Otherwise
+                match and return documents.
+
+        Returns
+
+            filtered_set: an OrderedDict of {frame_id | document_id: score}
+                The score is None if only metadata is provided for the query.
+
+        Notes
+
+            For term matches a tf-idf score is calculated during filtering, but results are not sorted: this allows
+            ordering by score to be done after set intersection operations with other queries.
+
 
         """
 
-        # Validate and analyze the metadata fields, and pass them on to the storage engine.
+        # Validate and analyze metadata fields.
+        analysed_metadata = self._validate_analyse_metadata(metadata)
 
-        return None
+        results = self.__storage.search_or_filter(
+            include_fields=include_fields, exclude_fields=exclude_fields,
+            must=must, should=should, at_least_n=at_least_n, must_not=must_not,
+            metadata=analysed_metadata, limit=limit, pagination_key=pagination_key, return_documents=return_documents,
+            search=False
+        )
+
+        return dict(results)
+
+    def _validate_analyse_metadata(self, metadata_search_spec):
+        """Validate that the fields and operators for this metadata search, and analyse the values."""
+        schema = self.get_schema()
+        metadata_fields = schema.get_indexed_structured_fields()
+
+        analysed_metadata = {}
+
+        # map from valid operator specs to field specs - most of these are the same.
+        # Note that in is just a multi comparison equal, where one of the set must match.
+        valid_metadata_operators = {'<': '<', '>': '>', '<=': '<=', '>=': '>=', 'in': '=', '=': '='}
+
+        # Validate the search fields
+        for field, operators in metadata_search_spec.items():
+
+            if field not in metadata_fields:
+                raise ValueError('"{}" is not an indexed structured data field'.format(field))
+
+            analysed_metadata[field] = {}
+
+            for operator, values in operators.items():
+
+                if operator not in valid_metadata_operators:
+                    raise ValueError('Operator "{}" not supported for search.'.format(operator))
+
+                # Check the operator is supported by the field.
+                try:
+                    metadata_fields[field].evaluate_op(valid_metadata_operators[operator], values, None)
+                except NotImplementedError:  # The only exception we actually care about.
+                    raise ValueError('Operator "{}" not supported by field "{}"'.format(operator, field))
+                except Exception:
+                    pass
+
+                # Analyse the values to be associated with the operator.
+                if operator != 'in':  # For everything other than 'in', assume a single value
+                    field_comp_value = schema[field].value_of(values)
+                else:
+                    field_comp_value = [schema[field].value_of(value) for value in values]
+
+                analysed_metadata[field][operator] = field_comp_value
+
+        return analysed_metadata
 
 
 def find_bi_gram_words(frames, min_count=5, threshold=40.0):
