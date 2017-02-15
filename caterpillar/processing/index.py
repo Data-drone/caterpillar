@@ -1190,8 +1190,9 @@ class IndexReader(object):
         # if metadata, but not unstructured data, dispatch to the optimised function
         if metadata and not (must or should or at_least_n[1]):
             results = self.__storage.filter_metadata(
-                analysed_metadata, limit=limit, pagination_key=pagination_key,
-                return_documents=return_documents
+                analysed_metadata, return_documents=return_documents,
+                include_fields=include_fields, exclude_fields=exclude_fields,
+                limit=limit, pagination_key=pagination_key,
             )
             # Note that metadata only queries do not currently have a defined score.
             return {i[0]: 0 for i in results}

@@ -839,7 +839,10 @@ class SqliteReader(StorageReader):
         for left_term, right_term, frame_id, positions in bigrams:
             yield ((left_term, right_term), frame_id, _count_bitwise_matches(positions))
 
-    def filter_metadata(self, metadata, return_documents=False, limit=0, pagination_key=None):
+    def filter_metadata(
+        self, metadata, return_documents=False, include_fields=None, exclude_fields=None,
+        limit=0, pagination_key=None
+    ):
         """
         Support metadata only searches - for efficiency reasons search_or_filter_unstructured
         is driven by term_posting table. This function provides efficient set filtering for
@@ -847,6 +850,9 @@ class SqliteReader(StorageReader):
 
         Currently only conjunctive metadata queries are supported, with the exception of the 'in'
         operator for matching multiple alternatives.
+
+        The include_field and exclude_field arguments refer to unstructured fields only - these
+        options are ignored if return_documents is True.
 
         """
 
@@ -901,7 +907,15 @@ class SqliteReader(StorageReader):
                 )
                 {}
                 {}
+                {}
                 """
+            where_field, fields = self._fielded_where_clause(include_fields, exclude_fields)
+            if fields:
+                field_selector = 'and field_id in (select field.id from unstructured_field field {})'
+                field_selector = field_selector.format(where_field)
+                parameters.extend(fields)
+            else:
+                field_selector = ''
             if pagination_key:
                 pagination_clause = 'and frame_id > ?'
                 parameters.append(pagination_key)
@@ -913,8 +927,10 @@ class SqliteReader(StorageReader):
             else:
                 limit_clause = ''
 
+            print frame_intersection.format(document_intersection, field_selector, pagination_clause, limit_clause)
+            print parameters
             results = self._execute(
-                frame_intersection.format(document_intersection, pagination_clause, limit_clause),
+                frame_intersection.format(document_intersection, field_selector, pagination_clause, limit_clause),
                 parameters
             )
 
