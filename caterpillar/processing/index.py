@@ -996,7 +996,7 @@ class IndexReader(object):
 
         """
         return list(self.__storage.find_significant_bigrams(
-            include_fields=include_fields, exclude_fields=exclude_fields, min_count=5, threshold=40
+            include_fields=include_fields, exclude_fields=exclude_fields, min_count=min_count, threshold=threshold
         ))
 
     def search_ngrams(self, ngrams, include_fields=None, exclude_fields=None):
