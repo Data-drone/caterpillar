@@ -1050,9 +1050,9 @@ class IndexReader(object):
             frame_ids=frame_ids
         )
 
-    def search(
-        self, include_fields=None, exclude_fields=None, must=[], should=[], at_least_n=(0, []), must_not=[],
-        metadata={}, limit=100, pagination_key=None, return_documents=False
+    def filter_and_rank(
+        self, include_fields=None, exclude_fields=None, must=None, should=None, at_least_n=None, must_not=None,
+        metadata=None, limit=100, pagination_key=None, return_documents=False
     ):
         """
         Search for frames or documents matching the given criteria.
@@ -1109,13 +1109,14 @@ class IndexReader(object):
             must, should or at_least_n arguments. The filter function can be used for metadata only queries.
 
         """
-        analysed_metadata = self._validate_analyse_metadata(metadata)
-
         # if metadata, but not unstructured data, raise an error for search.
-        if metadata and not (must or should or at_least_n[1]):
-            raise ValueError('Metadata only searches are not supported. Try IndexReader.filter() instead.')
 
-        results = self.__storage.search_or_filter_unstructured(
+        if metadata and not (must or should or at_least_n):
+            raise ValueError('Metadata only ranking is not supported. Try IndexReader.filter() instead.')
+
+        analysed_metadata = self._validate_analyse_metadata(metadata) if metadata else None
+
+        results = self.__storage.rank_or_filter_unstructured(
             include_fields=include_fields, exclude_fields=exclude_fields,
             must=must, should=should, at_least_n=at_least_n, must_not=must_not,
             metadata=analysed_metadata, limit=limit, pagination_key=pagination_key, return_documents=return_documents,
@@ -1125,8 +1126,8 @@ class IndexReader(object):
         return list(results)
 
     def filter(
-        self, include_fields=None, exclude_fields=None, must=[], should=[], at_least_n=(0, []), must_not=[],
-        metadata={}, limit=None, pagination_key=None, return_documents=False
+        self, include_fields=None, exclude_fields=None, must=None, should=None, at_least_n=None, must_not=None,
+        metadata=None, limit=None, pagination_key=None, return_documents=False
     ):
         """
         Filter for frames or documents matching the given criteria.
@@ -1150,7 +1151,9 @@ class IndexReader(object):
                 At least n of the terms in the list must be present in the frame/document to be counted as a match.
 
             must_not: list of terms
-                If any of these terms are present in a frame/document, it will never be counted as a match.
+                Of the frames/documents that match any of the must/should/at_least_n parameters remove those that
+                also have these terms.
+                must_not is ignored if none of must, should or at_least_n are populated.
 
 
             metadata: dictionary of tuples {metadata_field: (operator, value/s)}
@@ -1185,10 +1188,10 @@ class IndexReader(object):
         """
 
         # Validate and analyze metadata fields.
-        analysed_metadata = self._validate_analyse_metadata(metadata)
+        analysed_metadata = self._validate_analyse_metadata(metadata) if metadata else None
 
         # if metadata, but not unstructured data, dispatch to the optimised function
-        if metadata and not (must or should or at_least_n[1]):
+        if metadata and not (must or should or at_least_n):
             results = self.__storage.filter_metadata(
                 analysed_metadata, return_documents=return_documents,
                 include_fields=include_fields, exclude_fields=exclude_fields,
@@ -1198,7 +1201,7 @@ class IndexReader(object):
             return {i[0]: 0 for i in results}
 
         else:
-            results = self.__storage.search_or_filter_unstructured(
+            results = self.__storage.rank_or_filter_unstructured(
                 include_fields=include_fields, exclude_fields=exclude_fields,
                 must=must, should=should, at_least_n=at_least_n, must_not=must_not,
                 metadata=analysed_metadata, limit=limit, pagination_key=pagination_key,

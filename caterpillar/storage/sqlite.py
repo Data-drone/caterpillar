@@ -361,9 +361,13 @@ class SqliteReader(StorageReader):
 
     def begin(self):
         """Begin a read transaction."""
-        self._db_connection.cursor().execute('begin')
+        # Begin a transaction for reading, but only after making sure that
+        # the temp store is always in memory. This will be used only for
+        # small driving tables and we want to make sure that these are never
+        # written to a temporary on disk database.
+        self._execute('pragma temp_store=memory; begin')
         # Temporary table for searches - only visible to this reader.
-        self._db_connection.cursor().execute("""
+        self._execute("""
             create temporary table term_search_driver(
                 term_id integer primary key,
                 term text,
@@ -927,8 +931,6 @@ class SqliteReader(StorageReader):
             else:
                 limit_clause = ''
 
-            print frame_intersection.format(document_intersection, field_selector, pagination_clause, limit_clause)
-            print parameters
             results = self._execute(
                 frame_intersection.format(document_intersection, field_selector, pagination_clause, limit_clause),
                 parameters
@@ -936,9 +938,9 @@ class SqliteReader(StorageReader):
 
         return results
 
-    def search_or_filter_unstructured(
+    def rank_or_filter_unstructured(
         self, return_documents=False, include_fields=None, exclude_fields=None,
-        must=[], should=[], at_least_n=(0, []), must_not=[], metadata={},
+        must=None, should=None, at_least_n=None, must_not=None, metadata=None,
         limit=0, pagination_key=None, search=False
     ):
         """
@@ -973,6 +975,12 @@ class SqliteReader(StorageReader):
         term | frame | document | field | metadata_field | meta_data_field | metadata_field
 
         """
+        # Parameter handling, expand optional parameters for the rest of the function
+        must = must or []
+        should = should or []
+        at_least_n = at_least_n or (0, [])
+        must_not = must_not or []
+        metadata = metadata or {}
 
         # This is the query we will be passing through to SQLite. The remainder of this function
         # just fills in the gaps, conditioned on all the options specified by the user.
@@ -1013,6 +1021,11 @@ class SqliteReader(StorageReader):
 
             {search_clause}
         """
+        # Raise an error if must_not is specified without should, must or at_least_n
+        if must_not and not(at_least_n[1] or should or must):
+            raise ValueError(
+                '"must_not" is not supported without at least one term in "must", "should" or "at_least_n"'
+            )
 
         # Validate that each term occurs only once across all specifiers.
         search_terms = must + at_least_n[1] + must_not + should
@@ -1020,12 +1033,12 @@ class SqliteReader(StorageReader):
             raise ValueError('A term can only appear once across all search parameters')
 
         # If there are no terms or metadata specified, there are no results as this search
-        # is driven by the matching terms in must, any_o
+        # is driven by the matching terms in must, should and at_least_n.
         if len(search_terms) == 0 and not metadata:
             return []
 
         # counters for each inclusion criteria
-        counters = [[1, None, None], [None, 1, None], [None, None, 1], [None, None, None]]
+        counters = [[1, None, 0], [None, 1, 0], [None, None, 1], [None, None, 0]]
         row_counters = [
             j for i, term_set in enumerate([must, at_least_n[1], must_not, should])
             for j in [counters[i]] * len(term_set)
@@ -1152,7 +1165,7 @@ class SqliteReader(StorageReader):
             parameters.append(at_least_n[0])
 
         if must_not:
-            having_clause += 'and max(exclude_count) = 0 '
+            having_clause += 'and sum(exclude_count) = 0 '
 
         search_clause = ''
 
@@ -1186,9 +1199,6 @@ class SqliteReader(StorageReader):
         )
 
         return results
-
-    def filter(self):
-        return None
 
     def find_significant_bigrams(self, include_fields=None, exclude_fields=None, min_count=5, threshold=40):
         """Find significant collocations of words.
