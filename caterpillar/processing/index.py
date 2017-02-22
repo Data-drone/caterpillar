@@ -1175,7 +1175,7 @@ class IndexReader(object):
 
         Returns
 
-            filtered_set: a dictionary of {frame_id | document_id: score}
+            filtered_set: a dictionary of {frame_id | document_id: [score]}
                 The score is 0 if only metadata is provided for the query.
 
         Notes
@@ -1198,7 +1198,7 @@ class IndexReader(object):
                 limit=limit, pagination_key=pagination_key,
             )
             # Note that metadata only queries do not currently have a defined score.
-            return {i[0]: 0 for i in results}
+            return {i[0]: [0] for i in results}
 
         else:
             results = self.__storage.rank_or_filter_unstructured(
@@ -1208,7 +1208,7 @@ class IndexReader(object):
                 return_documents=return_documents, search=False
             )
 
-            return dict(results)
+            return {key: [score] for key, score in results}
 
     def _validate_analyse_metadata(self, metadata_search_spec):
         """Validate that the fields and operators for this metadata search, and analyse the values."""

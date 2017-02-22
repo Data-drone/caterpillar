@@ -361,20 +361,17 @@ class SqliteReader(StorageReader):
 
     def begin(self):
         """Begin a read transaction."""
-        # Begin a transaction for reading, but only after making sure that
-        # the temp store is always in memory. This will be used only for
-        # small driving tables and we want to make sure that these are never
-        # written to a temporary on disk database.
-        self._execute('pragma temp_store=memory; begin')
+        self._execute('begin')
         # Temporary table for searches - only visible to this reader.
         self._execute("""
             create temporary table term_search_driver(
-                term_id integer primary key,
-                term text,
-                weight float default 1.0,
-                all_count integer,
-                n_count integer,
-                exclude_count integer
+                term_id integer,  -- Drives the lookup in the index
+                --These three columns drive the counts for deciding on matches
+                all_id integer,
+                n_id integer,
+                exclude_count integer,
+                -- Weighting for that particular term
+                weight float default 1.0
             )
             """)
 
@@ -974,13 +971,13 @@ class SqliteReader(StorageReader):
 
         term | frame | document | field | metadata_field | meta_data_field | metadata_field
 
+        Specification of term variants:
+            Specifying a single search term is done by providing the string representation of the
+            term. Alternatively, you can specify a sequence of alternative terms. For example:
+            must=[('dog', 'canine'), 'food'] will return documents or frames containing the word
+            'food' and at least one of 'dog' or 'canine'.
+
         """
-        # Parameter handling, expand optional parameters for the rest of the function
-        must = must or []
-        should = should or []
-        at_least_n = at_least_n or (0, [])
-        must_not = must_not or []
-        metadata = metadata or {}
 
         # This is the query we will be passing through to SQLite. The remainder of this function
         # just fills in the gaps, conditioned on all the options specified by the user.
@@ -1021,29 +1018,47 @@ class SqliteReader(StorageReader):
 
             {search_clause}
         """
+
+        # Parameter handling, expand optional parameters for the rest of the function
+        must = must or []
+        should = should or []
+        at_least_n = at_least_n or (0, [])
+        must_not = must_not or []
+        metadata = metadata or {}
+
         # Raise an error if must_not is specified without should, must or at_least_n
         if must_not and not(at_least_n[1] or should or must):
             raise ValueError(
-                '"must_not" is not supported without at least one term in "must", "should" or "at_least_n"'
+                '"must_not" is not supported for SQLiteStorage without at least one term in '
+                '"must", "should" or "at_least_n"'
             )
 
-        # Validate that each term occurs only once across all specifiers.
-        search_terms = must + at_least_n[1] + must_not + should
-        if len(set(search_terms)) != len(search_terms):
-            raise ValueError('A term can only appear once across all search parameters')
+        # Expand singular terms into lists for each variant to support variant search.
+        # ['term1', 'term2', ('term3', 'term4')] --> [('term1'), ('term2'), ('term3', 'term4')]
+        # Each tuple of terms is assigned a single search_id for determining matches.
+        # Note that for must_not and should the variation syntax is supported, even if there
+        # is no difference.
+        search_term_groups = [_unpack_mixed_term_list(group) for group in [must, at_least_n[1], must_not, should]]
+        search_terms = [[term] for group in search_term_groups for terms in group for term in terms]
 
         # If there are no terms or metadata specified, there are no results as this search
         # is driven by the matching terms in must, should and at_least_n.
         if len(search_terms) == 0 and not metadata:
-            return []
+            return [None]
 
-        # counters for each inclusion criteria
-        counters = [[1, None, 0], [None, 1, 0], [None, None, 1], [None, None, 0]]
-        row_counters = [
-            j for i, term_set in enumerate([must, at_least_n[1], must_not, should])
-            for j in [counters[i]] * len(term_set)
-            if len(term_set)
-        ]
+        # Construct one row per term in the search to insert in the driving table.
+        # Note that grouped terms get assigned the same search_id - this is magic to make it work.
+        search_id_rows = []
+        search_id = 1
+
+        for i, group in enumerate(search_term_groups):
+            for terms in group:
+                for term in terms:
+                    # Columns: all_id, n_id, exclude_count, (not included in table)
+                    search_row = [None, None, 0, None]
+                    search_row[i] = search_id
+                    search_id_rows.append(search_row)
+                search_id += 1
 
         # Generate the where clause, including the metadata specific details.
         unstructured_where_clause, unstructured_fields = self._fielded_where_clause(include_fields, exclude_fields)
@@ -1063,7 +1078,7 @@ class SqliteReader(StorageReader):
             inner join vocabulary
                 on term_statistics.term_id = vocabulary.id
             where vocabulary.term = ?
-            """, [[term] for term in search_terms])
+            """, search_terms)
         )
 
         # Early exit if none of the terms match.
@@ -1084,12 +1099,12 @@ class SqliteReader(StorageReader):
 
         # Stage the terms to the driving table, including the necessary weighting
         self._executemany("""
-            insert into term_search_driver(term_id, term, all_count, n_count, exclude_count, weight)
-                select id as term_id, ?1, ?2, ?3, ?4, ?5
+            insert into term_search_driver(term_id, all_id, n_id, exclude_count, weight)
+                select id as term_id, ?2, ?3, ?4, ?5
                 from vocabulary
                 where term = ?1
                 order by term_id
-            """, [[term] + counter + [weight] for term, counter, weight in zip(search_terms, row_counters, term_idf)]
+            """, [term + row[:3] + [weight] for term, row, weight in zip(search_terms, search_id_rows, term_idf)]
         )
 
         parameters = []
@@ -1157,15 +1172,15 @@ class SqliteReader(StorageReader):
         # Construct term_inclusion clauses: avoid checking things that aren't needed.
         if must:
             # if all_count is NULL, term || all_count evaluates to null, and is not counted in the distinct
-            having_clause += 'and count(distinct term || all_count) = ? '
+            having_clause += 'and count(distinct all_id) = ? '
             parameters.append(len(must))
 
         if at_least_n[0]:
-            having_clause += 'and count(distinct term || n_count) >= ? '
+            having_clause += 'and count(distinct n_id) >= ? '
             parameters.append(at_least_n[0])
 
         if must_not:
-            having_clause += 'and sum(exclude_count) = 0 '
+            having_clause += 'and max(exclude_count) = 0 '
 
         search_clause = ''
 
@@ -1246,7 +1261,7 @@ class SqliteReader(StorageReader):
                     left_post.term_id as left_id,
                     right_post.term_id as right_id,
                     count(*) * 1.0 as bigram_count
-                from term_posting left_post
+                from frame_posting left_post
                 inner join frame_posting right_post
                     on left_post.frame_id = right_post.frame_id
                 {}
@@ -1392,3 +1407,14 @@ def _count_bitwise_matches(position_bitstring):
         n += 1
 
     return n
+
+
+def _unpack_mixed_term_list(term_sequence):
+    """ Unpack the list of terms into term groups.
+
+    Assume that anything this isn't a string is an iterable that can be left along.
+
+    """
+    return [
+        [group] if isinstance(group, basestring) else group for group in term_sequence
+    ]
