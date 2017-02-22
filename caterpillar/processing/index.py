@@ -67,7 +67,6 @@ from .analysis.analyse import PotentialBiGramAnalyser
 from .analysis.tokenize import ParagraphTokenizer, Token
 from caterpillar import VERSION
 from caterpillar.locking import PIDLockFile, LockTimeout, AlreadyLocked
-from caterpillar.searching import TfidfScorer, IndexSearcher
 from caterpillar.storage import StorageNotFoundError
 
 
@@ -880,13 +879,6 @@ class IndexReader(object):
 
         """
         return self.__storage.count_vocabulary(include_fields=[field])
-
-    def searcher(self, scorer_cls=TfidfScorer):
-        """
-        Return an :class:`IndexSearcher <caterpillar.search.IndexSearcher>` for this Index.
-
-        """
-        return IndexSearcher(self, scorer_cls)
 
     def get_setting(self, name):
         """Get the setting identified by ``name`` (str)."""
