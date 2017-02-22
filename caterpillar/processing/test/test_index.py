@@ -22,7 +22,6 @@ from caterpillar.processing.index import (
     SettingNotFoundError, IndexWriteLockedError, VERSION
 )
 from caterpillar.processing.schema import ID, NUMERIC, TEXT, FieldType, Schema
-from caterpillar.searching.query.querystring import QueryStringQuery
 from caterpillar.test_util import TestAnalyser, TestBiGramAnalyser
 
 
@@ -611,8 +610,7 @@ def test_metadata_only_retrieval_deletion(index_dir):
         doc_id = writer.add_document(num=1)
 
     with IndexReader(index_dir) as reader:
-        searcher = reader.searcher()
-        assert searcher.count(QueryStringQuery('num=1')) == 1
+        len(reader.filter(metadata={'num': {'=': 1}})) == 1
 
     with IndexWriter(index_dir, config) as writer:
         writer.delete_document(doc_id)

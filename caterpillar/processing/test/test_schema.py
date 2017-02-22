@@ -14,7 +14,6 @@ from caterpillar.processing import schema
 from caterpillar.processing.index import IndexWriter, IndexReader, IndexConfig
 from caterpillar.processing.schema import BOOLEAN, FieldType, ID, NUMERIC, Schema, TEXT, FieldConfigurationError, \
     DATETIME
-from caterpillar.searching.query.querystring import QueryStringQuery
 
 
 # Plumbing tests
@@ -159,11 +158,10 @@ def test_index_stored_fields():
         doc_id = writer.last_committed_documents[0]
 
         with IndexReader(tmp_dir) as reader:
-            searcher = reader.searcher()
-            hit = searcher.search(QueryStringQuery("*", 'text'), limit=1)[0]
-            assert 'text' not in hit.data
-            assert 'test2' not in hit.data
-            assert hit.data['test'] == 777
+            _, frame = list(reader.get_frames(None, frame_ids=[1]))[0]
+            assert frame['_field'] not in frame
+            assert 'test2' not in frame
+            assert frame['test'] == 777
 
             doc = reader.get_document(doc_id)
             assert 'text' not in doc

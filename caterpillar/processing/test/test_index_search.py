@@ -12,7 +12,6 @@ from caterpillar.processing.analysis.analyse import EverythingAnalyser
 from caterpillar.processing.index import IndexWriter, IndexReader, IndexConfig
 
 from caterpillar.processing import schema
-from caterpillar.searching.query.querystring import QueryStringQuery
 from caterpillar.test_util import TestAnalyser
 
 
