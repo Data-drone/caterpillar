@@ -1,6 +1,11 @@
 # Copyright (c) 2012-2014 Kapiche Limited
 # Author: Sam Hames <sam.hames@kapiche.com>
-"""Tests for the search function on a reader. """
+"""Test search functionality:
+
+1. Low level filter and filter_and_rank search primitives.
+2. Integration of the resultset functionality with search output.
+
+"""
 from __future__ import division
 
 import csv
@@ -26,36 +31,9 @@ keyset pagination | no pagination
 limits | no limits
 scoring | no scoring
 include fields | exclude fields
+empty resultsets | empty termsets | no search functions
 
 """
-
-
-def test_index_open(index_dir):
-    with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
-        data = f.read()
-        analyser = TestAnalyser()
-
-        writer = IndexWriter(
-            index_dir, IndexConfig(
-                SqliteStorage,
-                schema.Schema(
-                    text1=schema.TEXT(analyser=analyser),
-                    text2=schema.TEXT(analyser=analyser),
-                    document=schema.TEXT(analyser=analyser, indexed=False),
-                    flag=schema.FieldType(analyser=EverythingAnalyser(), indexed=True, categorical=True)
-                )
-            )
-        )
-
-        # Add the document in one field
-        with writer:
-            writer.add_document(text1=data, document='alice.txt', flag=True, frame_size=2)
-
-        # Test all/single field retrieval
-
-        # Add the document in the other field and compare
-
-        # Add the document again to both fields - count documents and frames.
 
 
 def test_searching_filtering_nps(index_dir):
@@ -166,3 +144,31 @@ def test_searching_filtering_nps(index_dir):
             )
 
             # Check incorrect usage of various search things.
+
+
+def test_search_composition(index_dir):
+    with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
+        data = f.read()
+        analyser = TestAnalyser()
+
+        writer = IndexWriter(
+            index_dir, IndexConfig(
+                SqliteStorage,
+                schema.Schema(
+                    text1=schema.TEXT(analyser=analyser),
+                    text2=schema.TEXT(analyser=analyser),
+                    document=schema.TEXT(analyser=analyser, indexed=False),
+                    flag=schema.FieldType(analyser=EverythingAnalyser(), indexed=True, categorical=True)
+                )
+            )
+        )
+
+        # Add the document in one field
+        with writer:
+            writer.add_document(text1=data, document='alice.txt', flag=True, frame_size=2)
+
+        # Test all/single field retrieval
+
+        # Add the document in the other field and compare
+
+        # Add the document again to both fields - count documents and frames.

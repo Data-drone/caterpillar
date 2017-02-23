@@ -1037,7 +1037,7 @@ class SqliteReader(StorageReader):
         # ['term1', 'term2', ('term3', 'term4')] --> [('term1'), ('term2'), ('term3', 'term4')]
         # Each tuple of terms is assigned a single search_id for determining matches.
         # Note that for must_not and should the variation syntax is supported, even if there
-        # is no difference.
+        # is no difference in behaviour.
         search_term_groups = [_unpack_mixed_term_list(group) for group in [must, at_least_n[1], must_not, should]]
         search_terms = [[term] for group in search_term_groups for terms in group for term in terms]
 

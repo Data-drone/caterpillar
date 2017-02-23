@@ -89,9 +89,12 @@ def match_any(*result_sets):
     return output
 
 
-def exclude(result_set, exclude_set):
-    """Match keys in result_set, but only if they are not in exclude_set."""
-    keep_keys = result_set.viewkeys() - exclude_set.viewkeys()
+def exclude(result_set, *exclusions):
+    """Match keys in result_set, but only if they do not occur in any of the exclusions."""
+    keep_keys = result_set.viewkeys()
+
+    for exclusion in exclusions:
+        keep_keys -= exclusion.viewkeys()
 
     return {key: result_set[key] for key in keep_keys}
 
