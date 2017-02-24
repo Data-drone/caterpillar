@@ -232,6 +232,13 @@ def test_iterators(tmp_dir):
     assert sum(1 for _ in metadata_field) == 1
     assert sum(len(i[2]) for i in metadata_field) == 300
 
+    metadata_no_field = [
+        (field, values, documents) for field, values, documents
+        in reader.iterate_metadata(text_field='text')
+    ]
+    assert sum(1 for _ in metadata_no_field) == 2
+    assert sum(len(i[2]) for i in metadata_no_field) == 600
+
     associations = [
         row for row in reader.iterate_associations(include_fields=['text'])
     ]

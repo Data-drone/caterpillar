@@ -1212,7 +1212,7 @@ class IndexReader(object):
         # map from valid operator specs to field specs - most of these are the same as the field specification,
         # however more may be added in the future.
         # Note that in is just a multi comparison equal, where one of the set must match.
-        valid_metadata_operators = {'<': '<', '>': '>', '<=': '<=', '>=': '>=', 'in': '=', '=': '='}
+        valid_metadata_operators = {'<': '<', '>': '>', '<=': '<=', '>=': '>=', 'in': '=', '=': '=', '*=': '*='}
 
         # Validate the search fields
         for field, operators in metadata_search_spec.items():
@@ -1229,7 +1229,7 @@ class IndexReader(object):
 
                 # Check the operator is supported by the field.
                 try:
-                    metadata_fields[field].evaluate_op(valid_metadata_operators[operator], values, None)
+                    schema[field].evaluate_op(valid_metadata_operators[operator], values, None)
                 except NotImplementedError:  # The only exception we actually care about.
                     raise ValueError('Operator "{}" not supported by field "{}"'.format(operator, field))
                 except Exception:

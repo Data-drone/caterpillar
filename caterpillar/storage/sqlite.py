@@ -870,15 +870,15 @@ class SqliteReader(StorageReader):
                 where field_id = (select id from structured_field where name = ?)
             """
 
-            if return_documents and pagination_key:
-                this_field += 'and document_id > ?'
-                parameters.append(pagination_key)
-
             parameters.append(metadata_field)
+
+            if return_documents and pagination_key:
+                this_field += 'and document_id > ? '
+                parameters.append(pagination_key)
 
             for operator, value in operators.items():
                 if operator not in valid_metadata_operators:
-                    raise ValueError('{} is not a supported operator'.format(operator))
+                    raise ValueError('{} is not a supported operator for SQLiteStorage'.format(operator))
 
                 if operator == 'in':  # The values for an 'in' operator should be an iterable.
                     this_field += 'and value {} ({}) \n'.format(operator, ', '.join(['?'] * len(value)))
@@ -897,6 +897,7 @@ class SqliteReader(StorageReader):
             if limit:
                 document_intersection += 'order by document_id \n limit ?'
                 parameters.append(limit)
+
             results = self._execute(document_intersection, parameters)
 
         else:
@@ -918,12 +919,12 @@ class SqliteReader(StorageReader):
             else:
                 field_selector = ''
             if pagination_key:
-                pagination_clause = 'and frame_id > ?'
+                pagination_clause = 'and frame.id > ?'
                 parameters.append(pagination_key)
             else:
                 pagination_clause = ''
             if limit:
-                limit_clause = 'order by frame_id \n limit ?'
+                limit_clause = 'order by frame.id \n limit ?'
                 parameters.append(limit)
             else:
                 limit_clause = ''
@@ -984,16 +985,7 @@ class SqliteReader(StorageReader):
         query = """
             select
                 {frame_or_document},
-                /* Scoring Note
-
-                The scores are quantized to tf-idf * 10 as an integer for two reasons:
-                    1. Pagination depends on exact score comparison - floats are not reliable for
-                       this, especially when considering network transfers, encoding in JSON etc.
-                    2. Robustness to small changes in IDF values - for example if a pagination
-                       request occurs after some new documents are added to the result set.
-
-                */
-                cast(sum(frequency * ts.weight)*10 as integer) as score
+                sum(frequency * ts.weight) as score
             from term_search_driver ts
 
             /* Optimisation Note
@@ -1071,6 +1063,7 @@ class SqliteReader(StorageReader):
             unstructured_where_clause, unstructured_fields)
         )[0][0]
 
+        # Note here - this returns Null if a term doesn't exist
         term_stats = list(self._executemany(
             """
             select sum(frames_occuring) as frame_frequency
@@ -1082,13 +1075,14 @@ class SqliteReader(StorageReader):
         )
 
         # Early exit if none of the terms match.
-        if len(term_stats) == 1 and term_stats[0][0] is None:
+        if sum(1 for i in term_stats if i[0] is not None) == 0:
             if search:
                 return []
             else:
                 return {}
 
-        term_idf = [1 + math.log(n_frames / (n[0] + 1)) for n in term_stats]
+        # The none branch handles if the term lookup failed
+        term_idf = [(1 + math.log(n_frames / (n[0] + 1))) if n[0] is not None else 0 for n in term_stats]
 
         # Truncate the temporary driving table
         # Note that because of how searches work, this means that only a single search query
@@ -1194,7 +1188,7 @@ class SqliteReader(StorageReader):
             # If we're searching, order by score descending and frame/document_id ascending for deterministic pagination
             search_clause += 'order by score desc, {} '.format('document_id' if return_documents else 'frame_id')
 
-        elif limit:  # If we are paging through filter result sets, make sure we order by document_id or frame_id
+        elif limit:
             search_clause += 'order by {} '.format('document_id' if return_documents else 'frame_id ')
 
         if limit:

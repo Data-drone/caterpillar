@@ -104,18 +104,6 @@ def boost(result_set, boost):
     return {key: [i * boost for i in value] for key, value in result_set.items()}
 
 
-def aggregate_scores(result_set, aggregator=sum):
-    """
-    Aggregate the scores for each match in the result set into a single number using aggregator.
-
-    The aggregator function should take a list of numbers and return a single number.
-
-    Returns {object_id: aggregator(scores)} over the result set.
-
-    """
-    return {object_id: aggregator(scores) for object_id, scores in result_set.items()}
-
-
 def score_and_rank(result_set, aggregator=sum, start=0, limit=0):
     """
     Aggregate the scores for each match, then return tuples of (id, score) in descending order.
@@ -125,7 +113,7 @@ def score_and_rank(result_set, aggregator=sum, start=0, limit=0):
     """
     aggregated = sorted(
         ((object_id, aggregator(value)) for object_id, value in result_set.items()),
-        key=lambda x: x[1],
+        key=lambda x: (x[1], -x[0]), # Deterministic sort on keys if scores are identical
         reverse=True
     )
 
