@@ -47,8 +47,6 @@ setup(
         'caterpillar.processing',
         'caterpillar.processing.analysis',
         'caterpillar.resources',
-        'caterpillar.searching',
-        'caterpillar.searching.query',
         'caterpillar.storage',
     ],
     package_data={
