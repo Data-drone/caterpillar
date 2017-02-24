@@ -1100,6 +1100,13 @@ class IndexReader(object):
             Metadata only queries are not supported by search: at least one term must be present in the
             must, should or at_least_n arguments. The filter function can be used for metadata only queries.
 
+            A sequence of terms can be provided as a list of variations wherever a single term is valid. For
+            example: must=[('cat', 'dog'), 'pet'] will return documents that contain 'pet' and at least one of
+            'cat' or 'dog'. This can be used for synonyms, term variants or other query expansion.
+
+            Another example, a case invariant search for apple pie:
+                must=[('Apple', 'apple', 'APPLE'), ('Pie', 'pie', 'PIE')]
+
         """
         # if metadata, but not unstructured data, raise an error for search.
 
@@ -1154,11 +1161,11 @@ class IndexReader(object):
                 in the schema.
 
 
-            limit: integer, default 100.
+            limit: integer, default 0.
                 The maximum number of frames/documents to return. For filtering results are returned
                 in batches corresponding to frame_id or document_id order.
 
-            pagination_key: None, or tuple (score, frame_id | document_id)
+            pagination_key: None, or a frame_id | document_id.
                 Restart a filtering set at the given frame/document ID.
 
             return_documents: True or False.
@@ -1172,9 +1179,18 @@ class IndexReader(object):
 
         Notes
 
+            Documents are scored by aggregating the individual scores for matching frames in the document.
+
             For term matches a tf-idf score is calculated during filtering, but results are not sorted: this allows
             ordering by score to be done after set intersection operations with other queries. Results can be paged
             through by frame or document_id with limit.
+
+            A sequence of terms can be provided as a list of variations wherever a single term is valid. For
+            example: must=[('cat', 'dog'), 'pet'] will return documents that contain 'pet' and at least one of
+            'cat' or 'dog'. This can be used for synonyms, term variants or other query expansion.
+
+            Another example, a case invariant search for apple pie:
+                must=[('Apple', 'apple', 'APPLE'), ('Pie', 'pie', 'PIE')]
 
 
         """

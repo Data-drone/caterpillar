@@ -855,6 +855,8 @@ class SqliteReader(StorageReader):
         The include_field and exclude_field arguments refer to unstructured fields only - these
         options are ignored if return_documents is True.
 
+        See rank_or_filter_unstructured for more detail.
+
         """
 
         metadata_clauses = []
@@ -942,11 +944,10 @@ class SqliteReader(StorageReader):
         limit=0, pagination_key=None, search=False
     ):
         """
-        Omnibus function for searching and filtering unstructured data.
+        Omnibus function for searches and filters on unstructured data.
 
-        Because most of the logic is similar across filtering and searching, this function
-        supports everything. The IndexReader provides the coherent interface to present
-        to the user.
+        This function provides a fast low level search query interface, suitable for producing
+        fast resultsets for combining with caterpillar.combination functions.
 
         Currently only conjunctive metadata searches are supported.
 
@@ -966,17 +967,14 @@ class SqliteReader(StorageReader):
         rather than more and more expensive), and also gives a more stable sort with respect to
         relevance when new results occur.
 
-        Data model / search conceptualisation
+        Current limitations:
+            - must_not is not supported without must/should or at_least_n
+            - wildcards (*/?) are not supported
+            - Arbitrary query trees are not supported - this provides a 'flat' fast interface
+              only.
 
-        Consider the index as a giant table:
-
-        term | frame | document | field | metadata_field | meta_data_field | metadata_field
-
-        Specification of term variants:
-            Specifying a single search term is done by providing the string representation of the
-            term. Alternatively, you can specify a sequence of alternative terms. For example:
-            must=[('dog', 'canine'), 'food'] will return documents or frames containing the word
-            'food' and at least one of 'dog' or 'canine'.
+        See also:
+            filter_metadata: path for metadata only queries.
 
         """
 

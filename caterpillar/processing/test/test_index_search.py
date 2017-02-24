@@ -279,9 +279,9 @@ def test_reader_query_basic(index_dir):
         # assert len(reader.filter(should=['*ice'], include_fields=['text1'])) > alice_count
         # assert len(reader.filter(should=['K??g'], include_fields=['text1'])) == king_count
 
-        # TODO: work out what errors to raise here.
-        # with pytest.raises(QueryError):
-        #     QueryStringQuery('Alice', 'not_a_field').evaluate(reader)
+        # Raises an error if the field doesn't exist
+        with pytest.raises(ValueError):
+            alice_and_king_count = len(reader.filter(must=['King', 'Alice'], include_fields=['doesnotexist']))
 
         # Boolean Operators across fields
         field1 = reader.filter(must=['King', 'Alice'], include_fields=['text1'])

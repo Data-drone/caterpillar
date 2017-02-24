@@ -113,7 +113,7 @@ def score_and_rank(result_set, aggregator=sum, start=0, limit=0):
     """
     aggregated = sorted(
         ((object_id, aggregator(value)) for object_id, value in result_set.items()),
-        key=lambda x: (x[1], -x[0]), # Deterministic sort on keys if scores are identical
+        key=lambda x: (x[1], -x[0]),  # Deterministic sort on keys if scores are identical
         reverse=True
     )
 
