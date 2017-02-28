@@ -22,6 +22,7 @@ import os
 
 import apsw
 
+from caterpillar.processing.index import NonIndexedFieldError
 from caterpillar.storage import StorageWriter, StorageReader, Storage, StorageNotFoundError, \
     DuplicateStorageError, PluginNotFoundError
 
@@ -1343,7 +1344,7 @@ class SqliteReader(StorageReader):
         invalid_fields = [field for field in fields if field not in valid_fields and field is not None]
 
         if invalid_fields:
-            raise ValueError('Invalid fields: {} do not exist or are not indexed'.format(invalid_fields))
+            raise NonIndexedFieldError('Invalid fields: {} do not exist or are not indexed'.format(invalid_fields))
         if include_fields:
             where_clause = 'where field.name in ({})'.format(', '.join(['?'] * len(include_fields)))
         elif exclude_fields:

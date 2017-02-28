@@ -97,6 +97,22 @@ class IndexWriteLockedError(CaterpillarIndexError):
     """There is already an existing writer for this index."""
 
 
+class NonIndexedFieldError(ValueError):
+    """The field is not a searchable indexed field. """
+
+
+class UnknownFieldError(ValueError):
+    """The field is not defined on the index. """
+
+
+class UnsupportedOperatorError(ValueError):
+    """The operator is not supported for the given field."""
+
+
+class NonSearchableOperatorError(ValueError):
+    """The operator is valid for the field, but not supported for search."""
+
+
 class IndexConfig(object):
     """
     Stores configuration information about an index.
@@ -1228,26 +1244,31 @@ class IndexReader(object):
         # map from valid operator specs to field specs - most of these are the same as the field specification,
         # however more may be added in the future.
         # Note that in is just a multi comparison equal, where one of the set must match.
-        valid_metadata_operators = {'<': '<', '>': '>', '<=': '<=', '>=': '>=', 'in': '=', '=': '=', '*=': '*='}
+        valid_metadata_operators = {'<': '<', '>': '>', '<=': '<=', '>=': '>=', 'in': '=', '=': '='}
 
         # Validate the search fields
         for field, operators in metadata_search_spec.items():
 
             if field not in metadata_fields:
-                raise ValueError('"{}" is not an indexed structured data field'.format(field))
+                if field in schema:
+                    raise NonIndexedFieldError('"{}" is not an indexed structured data field'.format(field))
+                else:
+                    raise UnknownFieldError('"{}" is not defined on this index'.format(field))
 
             analysed_metadata[field] = {}
 
             for operator, values in operators.items():
 
                 if operator not in valid_metadata_operators:
-                    raise ValueError('Operator "{}" not supported for search.'.format(operator))
+                    raise NonSearchableOperatorError('Operator "{}" not available for search.'.format(operator))
 
                 # Check the operator is supported by the field.
                 try:
                     schema[field].evaluate_op(valid_metadata_operators[operator], values, None)
                 except NotImplementedError:  # The only exception we actually care about.
-                    raise ValueError('Operator "{}" not supported by field "{}"'.format(operator, field))
+                    raise UnsupportedOperatorError(
+                        'Operator "{}" not supported by field "{}"'.format(operator, field)
+                    )
                 except Exception:
                     pass
 

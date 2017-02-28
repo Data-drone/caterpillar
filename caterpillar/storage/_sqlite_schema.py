@@ -134,7 +134,7 @@ create table frame_posting (
     frame_id integer,
     term_id integer,
     frequency integer,
-    positions text,
+    positions integer,
     primary key(frame_id, term_id),
     foreign key(term_id) references term(id) on delete cascade
     foreign key(frame_id) references frame(id) on delete cascade
