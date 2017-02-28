@@ -1024,6 +1024,11 @@ class SqliteReader(StorageReader):
                 '"must", "should" or "at_least_n"'
             )
 
+        if search and not(at_least_n[1] or should or must):
+            raise ValueError(
+                'Ranking is not supported for metadata only searches in SQLiteStorage'
+            )
+
         # Expand singular terms into lists for each variant to support variant search.
         # ['term1', 'term2', ('term3', 'term4')] --> [('term1'), ('term2'), ('term3', 'term4')]
         # Each tuple of terms is assigned a single search_id for determining matches.

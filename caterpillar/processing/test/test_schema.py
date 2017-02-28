@@ -12,8 +12,9 @@ import pytest
 from caterpillar.processing.analysis.analyse import DateTimeAnalyser
 from caterpillar.processing import schema
 from caterpillar.processing.index import IndexWriter, IndexReader, IndexConfig
-from caterpillar.processing.schema import BOOLEAN, FieldType, ID, NUMERIC, Schema, TEXT, FieldConfigurationError, \
-    DATETIME
+from caterpillar.processing.schema import (
+    BOOLEAN, FieldType, ID, NUMERIC, Schema, TEXT, FieldConfigurationError, DATETIME, CATEGORICAL_TEXT
+)
 
 
 # Plumbing tests
@@ -74,6 +75,10 @@ def test_schema():
     assert dt.lte('10:05 01/12/2015', '10:05 01/12/2016')
 
     assert list(BOOLEAN().analyse('1'))[0].value is True
+
+    c = CATEGORICAL_TEXT()
+    assert c.equals('cat', 'cat')
+    assert c.equals_wildcard('cat', 'ca*')
 
 
 def test_csv_schema():

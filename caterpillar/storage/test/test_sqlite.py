@@ -249,6 +249,42 @@ def test_iterators(tmp_dir):
     reader.close()
 
 
+def test_filter_error(tmp_dir):
+
+    sample_format_document = (
+        'An example document without anything fancy',
+        {'test_field': 1, 'other_field': 'other'},
+        {'text': ['An example', 'document without', 'anything fancy']},
+        {'text': [
+            {'An': [0, 5, 7], 'example': [0, 5, 7]},
+            {'document': [0, 5, 7], 'without': [0, 5, 7]},
+            {'anything': [0, 5, 7], 'fancy': [0, 5, 7]}
+        ]}
+    )
+
+    writer = SqliteWriter(tmp_dir, create=True)
+
+    # Add many documents.
+    writer.begin()
+    writer.add_structured_fields(['test_field', 'other_field'])
+    writer.add_unstructured_fields(['text'])
+    for i in range(100):
+        writer.add_analyzed_document('v1', sample_format_document)
+    writer.commit()
+
+    reader = SqliteReader(tmp_dir)
+    reader.begin()
+
+    with pytest.raises(ValueError):
+        reader.rank_or_filter_unstructured(must=['example'], metadata={'test_field': {'*=': 1}})
+    with pytest.raises(ValueError):
+        reader.rank_or_filter_unstructured(metadata={'test_field': {'*=': 1}}, search=True)
+    with pytest.raises(ValueError):
+        reader.filter_metadata(metadata={'test_field': {'*=': 1}})
+
+    reader.close()
+
+
 def test_duplicate_database(tmp_dir):
     SqliteWriter(tmp_dir, create=True)
     with pytest.raises(DuplicateStorageError):

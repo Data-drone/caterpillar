@@ -14,7 +14,7 @@ import pytest
 
 from caterpillar import composition
 from caterpillar.storage.sqlite import SqliteStorage
-from caterpillar.processing.index import IndexWriter, IndexReader, IndexConfig
+from caterpillar.processing.index import IndexWriter, IndexReader, IndexConfig, NonIndexedFieldError
 from caterpillar.processing import schema
 from caterpillar.test_util import TestAnalyser
 
@@ -318,7 +318,8 @@ def test_reader_query_advanced(index_dir):
     """Test querysting query advanced searching."""
     config = IndexConfig(SqliteStorage, schema.Schema(liked=schema.TEXT, disliked=schema.TEXT,
                                                       age=schema.NUMERIC(indexed=True),
-                                                      gender=schema.CATEGORICAL_TEXT(indexed=True)))
+                                                      gender=schema.CATEGORICAL_TEXT(indexed=True),
+                                                      non_indexed=schema.CATEGORICAL_TEXT(indexed=False)))
     with IndexWriter(index_dir, config) as writer:
         writer.add_document(liked='product', disliked='service', age=20, gender='male')
         writer.add_document(liked='service', disliked='product', age=30, gender='male')
@@ -374,6 +375,9 @@ def test_reader_query_advanced(index_dir):
         # Comparing searching against the full metadata:
         all_metadata = {field: values for field, values in reader.get_metadata(None)}
         assert len(all_metadata['gender']['male']) == len(male_gender)
+
+        with pytest.raises(NonIndexedFieldError):
+            reader.filter(metadata={'non_indexed': {'=': 1}})
 
 
 def test_searching_alice(index_dir):
