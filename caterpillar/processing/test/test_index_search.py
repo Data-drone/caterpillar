@@ -438,19 +438,18 @@ def test_searching_alice(index_dir):
                 misses += (1 if "voice" not in hit['_text'] else 0)
             assert misses == 35
 
-            # TODO - check why this is not
-            # misses = 0
-            # results = composition.score_and_rank(
-            #     composition.match_any(
-            #         reader.filter(should=["Alice"]),
-            #         composition.boost(reader.filter(should=['voice']), 0.5)
-            #     ),
-            #     limit=voice_hits
-            # )
-            # assert len(results) == voice_hits
-            # for frame_id, hit in reader.get_frames(None, frame_ids=[i[0] for i in results]):
-            #     misses += (1 if "voice" not in hit['_text'] else 0)
-            # assert misses == 10
+            misses = 0
+            results = composition.score_and_rank(
+                composition.match_any(
+                    reader.filter(should=["Alice"]),
+                    composition.boost(reader.filter(should=['voice']), 0.6)
+                ),
+                limit=voice_hits
+            )
+            assert len(results) == voice_hits
+            for frame_id, hit in reader.get_frames(None, frame_ids=[i[0] for i in results]):
+                misses += (1 if "voice" not in hit['_text'] else 0)
+            assert misses == 10
 
             misses = 0
             results = composition.score_and_rank(

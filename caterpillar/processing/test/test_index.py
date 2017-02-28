@@ -640,9 +640,12 @@ def _acquire_write_single_doc(index_dir):
 
 
 def _read_document_count(index_dir):
-    """Read something from the reader"""
+    """Write something to the index, then attempt to read it."""
+    with IndexWriter(index_dir) as writer:
+        writer.add_document(field1='test some text')
     with IndexReader(index_dir) as reader:
-        reader.get_document_count()
+        x = reader.get_document_count()
+    return x
 
 
 def test_concurrent_write_contention(index_dir):
@@ -678,12 +681,9 @@ def test_concurrent_read_write_contention(index_dir):
     with IndexWriter(index_dir, config):
         pass
 
-    # Start writing a document, and at the same time, attempt to read
-    # multiple times in parallel. Eventually one of these will overlap
-    # the writer closing.
-    pool = mp.Pool(16)
-
-    for i in range(100):
-        pool.apply_async(_acquire_write_single_doc, (index_dir,))
-        pool.map(_read_document_count, [index_dir] * 100)
+    # Read and write documents concurrently.
+    pool = mp.Pool(16)  # Pool for readers
+    x = pool.map(_read_document_count, [index_dir] * 100)
     pool.close()
+
+    assert max(x) == 100
