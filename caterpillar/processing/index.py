@@ -1058,6 +1058,30 @@ class IndexReader(object):
             frame_ids=frame_ids
         )
 
+    def filter_range(
+        self, include_fields=None, exclude_fields=None, pagination_key=0, end_key=None,
+        limit=100, return_documents=False
+    ):
+        """
+        Return all document or frame id's greater than pagination_key, up to the limit.
+
+        By default returns the first 100 frames in an index, across all fields.
+
+        All returned results have a score of 0 - this is not useful for ranked results. Combining with
+        ranked queries gives nonsensical results.
+
+        This method allows you to efficiently page through document or frame ids by the
+        order they were added to the index.
+
+        """
+
+        results = self.__storage.filter_range(
+            pagination_key, end=end_key, limit=limit, return_documents=return_documents,
+            include_fields=include_fields, exclude_fields=exclude_fields
+        )
+
+        return {key[0]: [0] for key in results}
+
     def filter_and_rank(
         self, include_fields=None, exclude_fields=None, must=None, should=None, at_least_n=None, must_not=None,
         metadata=None, limit=100, pagination_key=None, return_documents=False

@@ -841,6 +841,60 @@ class SqliteReader(StorageReader):
         for left_term, right_term, frame_id, positions in bigrams:
             yield ((left_term, right_term), frame_id, _count_bitwise_matches(positions))
 
+    def filter_range(
+        self, start, end=None, limit=None, return_documents=False, include_fields=None, exclude_fields=None
+    ):
+        """
+        Return frame or document ID's greate than start up to and including an optional end key, up to the limit
+        supplied. If there are fewer than limit frames or documents, all remaining id's will be returned.
+
+        The include_fields and exclude_fields parameters are ignored when return_documents is True.
+
+        The range interval is open on the left - you can use the end of one range as the start parameter
+        to page through the results.
+
+        """
+        query_template = """
+            select id
+            from {0}
+            where {1}
+            {2}
+        """
+
+        parameters = []
+
+        if return_documents:
+            frame_or_document = 'document'
+
+        else:
+            where_clause, fields = self._fielded_where_clause(
+                include_fields=include_fields, exclude_fields=exclude_fields
+            )
+            if fields:
+                frame_or_document = """
+                (select id from frame
+                 where frame.field_id in (
+                    select id from unstructured_field field
+                    {}
+                ))
+                """.format(where_clause)
+                parameters.extend(fields)
+            else:
+                frame_or_document = 'frame'
+
+        id_clause = 'id > ? ' if end is None else 'id > ? and id <= ?'
+        parameters.extend([start] if end is None else [start, end])
+
+        if limit is not None:
+            limit_clause = 'limit ?'
+            parameters.append(limit)
+        else:
+            limit_clause = ''
+
+        query = query_template.format(frame_or_document, id_clause, limit_clause)
+
+        return self._execute(query, parameters)
+
     def filter_metadata(
         self, metadata, return_documents=False, include_fields=None, exclude_fields=None,
         limit=0, pagination_key=None

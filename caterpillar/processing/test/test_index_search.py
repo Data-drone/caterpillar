@@ -576,3 +576,71 @@ def test_searching_twitter(index_dir):
                 len(reader.filter(metadata={'sentiment': {'=': 'negative'}})) ==
                 reader.get_frame_count('text')
             )
+
+
+def test_range_paging_alice(index_dir):
+    """Test paging through a dataset by key with filter_range."""
+    with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'rbU') as f:
+        f.seek(0)
+        data = f.read()
+        analyser = TestAnalyser()
+        config = IndexConfig(
+            SqliteStorage,
+            schema=schema.Schema(
+                text1=schema.TEXT(analyser=analyser),
+                text2=schema.TEXT(analyser=analyser)
+            )
+        )
+
+        with IndexWriter(index_dir, config) as writer:
+            writer.add_document(text1=data, frame_size=2)
+            writer.add_document(text1=data, frame_size=2)
+            writer.add_document(text2=data, frame_size=2)
+
+        with IndexReader(index_dir) as reader:
+            total_frames = reader.get_frame_count('text1') + reader.get_frame_count('text2')
+            total_documents = reader.get_document_count()
+
+            # Paginate through all the frames:
+            frames = reader.filter_range(limit=10)
+            frame_set = frames.viewkeys()
+            frame_count = 10
+
+            while len(frames) > 0:
+                frames = reader.filter_range(limit=10, pagination_key=max(frames))
+                frame_set |= frames.viewkeys()
+                frame_count += len(frames)
+
+            assert len(frame_set) == frame_count == total_frames
+
+            # All the frames for one field:
+            frames = reader.filter_range(include_fields=['text2'], limit=10)
+            frame_set = frames.viewkeys()
+            frame_count = 10
+
+            while len(frames) > 0:
+                frames = reader.filter_range(limit=10, include_fields=['text2'], pagination_key=max(frames))
+                frame_set |= frames.viewkeys()
+                frame_count += len(frames)
+
+            assert len(frame_set) == frame_count == reader.get_frame_count('text2')
+
+            # Paginate through all the documents:
+            docs = reader.filter_range(limit=1, return_documents=True)
+            doc_set = docs.viewkeys()
+            doc_count = 1
+
+            while len(docs) > 0:
+                docs = reader.filter_range(limit=1, return_documents=True, pagination_key=max(docs))
+                doc_set |= docs.viewkeys()
+                doc_count += len(docs)
+
+            assert len(doc_set) == doc_count == total_documents
+
+            # range query with no limit:
+            docs = reader.filter_range(return_documents=True, pagination_key=2, limit=None)
+            assert 3 in docs
+            assert len(docs) == 1
+
+            frames = reader.filter_range(pagination_key=2000, limit=None)
+            assert len(frames) == total_frames - 2000
