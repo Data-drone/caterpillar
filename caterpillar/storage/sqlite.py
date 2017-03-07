@@ -900,8 +900,8 @@ class SqliteReader(StorageReader):
         limit=0, pagination_key=None
     ):
         """
-        Support metadata only searches - for efficiency reasons search_or_filter_unstructured
-        is driven by term_posting table. This function provides efficient set filtering for
+        Support metadata only searches - for efficiency reasons filter_or_rank_unstructured
+        is driven by the term_posting table. This function provides efficient set filtering for
         metadata only cases.
 
         Currently only conjunctive metadata queries are supported, with the exception of the 'in'
@@ -1144,8 +1144,8 @@ class SqliteReader(StorageReader):
 
         # Truncate the temporary driving table
         # Note that because of how searches work, this means that only a single search query
-        # can be active for a given reader, as SQLite temporary tables are not isolated across
-        # queries. For this reason, although this method can potentially be used as a generator,
+        # can be active for a given reader, as SQLite temporary tables are only isolated across connections.
+        # For this reason, although this method can potentially be used as a generator,
         # the IndexReader API always returns the complete resultset.
         self._execute('delete from term_search_driver')
 
@@ -1165,8 +1165,9 @@ class SqliteReader(StorageReader):
             subset_clause = 'inner join frame on post.frame_id = frame.id '
 
             if unstructured_fields:
-                subset_clause += ' and frame.field_id in (select id from unstructured_field field ' \
-                    + unstructured_where_clause + ')'
+                subset_clause += ' and frame.field_id in (select id from unstructured_field field {})'.format(
+                    unstructured_where_clause
+                )
                 parameters += unstructured_fields
 
             # Note that by this point, all of the metadata values must be analysed and the operators validated by the

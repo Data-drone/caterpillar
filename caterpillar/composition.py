@@ -4,10 +4,10 @@
 """
 Operators for creating complex searches by composition of simple searches.
 
-The :class:`IndexReader` exposes :meth:`.filter` and :meth:`.search` which provide fast low level
-access to frames and docments in an index by both structured and unstructured data. Not all search
-needs are met by this method, however, so the methods in this module allow composition and ranking
-of resultsets.
+The :class:`IndexReader` exposes :meth:`.filter` and :meth:`.filter_and_rank` which provide fast low
+level access to frames and documents in an index by both structured and unstructured data. Not all
+search needs are met by this method, however, so the methods in this module allow composition and
+ranking of resultsets.
 
 A resultset is a dictionary mapping a frame_id or document_id to a list of scores:
     {1: [10], 211: [4], 102: [8]}

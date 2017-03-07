@@ -1097,7 +1097,6 @@ class IndexReader(object):
             exclude_fields: list of unstructured fields to exclude from the analysis.
                 If include_fields is not None, this argument is ignored.
 
-
             must: list of terms
                 All of these terms must be present in the frame/document to be counted as a match.
 
@@ -1110,12 +1109,10 @@ class IndexReader(object):
             must_not: list of terms
                 If any of these terms are present in a frame/document, it will never be counted as a match.
 
-
             metadata: dictionary of tuples {metadata_field: (operator, value/s)}
                 Only frames/documents matching all metadata operators will be included.
                 Supported operators and the format for values depends on the definition of the metadata field
                 in the schema. Metadata only queries are not supported for search.
-
 
             limit: integer, default 100.
                 The maximum number of frames/documents to return.
