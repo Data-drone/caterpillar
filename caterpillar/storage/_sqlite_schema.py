@@ -6,8 +6,15 @@ The schema scripts for the bulk operations of the :class:`.SqliteStorage`.
 """
 
 disk_schema = """
-pragma journal_mode = WAL;
+/* pragma note: the page_size is set for the whole database, and can only change with
+and expensive vaccuum operation - it also must be run before anything else is done
+with the database. So this line must come first! */
 pragma page_size = 4096; -- current recommended value for SQLite.
+
+/* Set write ahead log mode for all connections that will use this database. The WAL
+allow concurrent readers and writers, unlike the default journal mode that locks readers
+out while writing. */
+pragma journal_mode = WAL;
 
 begin;
 
@@ -59,6 +66,13 @@ create table term_statistics (
 );
 
 
+/* Summary statistics for each field. */
+create table field_statistics (
+    field_id integer primary key,
+    frame_count integer
+);
+
+
 /* The source table for the document representation. */
 create table document (
     id integer primary key,
@@ -100,6 +114,7 @@ structured data searches --> frames
 unstructured searches --> documents
 */
 create index document_frame_bridge on frame(document_id, field_id);
+create index field_frame_idx on frame(field_id, document_id);
 
 
 /* Postings organised by term, allowing search operations. */
@@ -107,7 +122,7 @@ create table term_posting (
     term_id integer,
     frame_id integer,
     frequency integer,
-    positions text, -- Ugly hack to allow compatible bigram merging.
+    positions integer,
     primary key(term_id, frame_id),
     foreign key(term_id) references term(id),
     foreign key(frame_id) references frame(id)
@@ -119,7 +134,7 @@ create table frame_posting (
     frame_id integer,
     term_id integer,
     frequency integer,
-    positions text,
+    positions integer,
     primary key(frame_id, term_id),
     foreign key(term_id) references term(id) on delete cascade
     foreign key(frame_id) references frame(id) on delete cascade
@@ -157,7 +172,7 @@ The revision number is incremented by one whenever a write transaction adds or d
 from an index.
 
 For example, a reader might run an operation when the state of the index was (5, 100, 5, 2000), while
-the current state is (15, 130, 45, 2200). This index that 30 new documents and 200 new frames were added
+the current state is (15, 130, 45, 2200). This means that 30 new documents and 200 new frames were added
 in 10 commits, and 40 documents were deleted since that operation was run.
 
 */
@@ -179,16 +194,6 @@ create table setting (
     value
 );
 
-/* A convenience view for writing queries. */
-create view term_search as
-    select vocabulary.term, frame.id
-    from term_posting
-    inner join vocabulary
-        on term_posting.term_id = vocabulary.id
-    inner join frame
-        on term_posting.frame_id = frame.id
-    inner join document
-        on frame.document_id = document.id;
 
 commit;
 
@@ -287,34 +292,6 @@ create table plugin_data (
 create table delete_plugin (
     plugin_type text,
     settings text
-);
-
-create table term_merging (
-    term_id,
-    frame_id,
-    frequency,
-    positions,
-    primary key(term_id, frame_id)
-);
-
-create table bigram_staging (
-    frame_id,
-    term_id,
-    left_term,
-    left_positions,
-    left_frequency,
-    right_term,
-    right_positions,
-    right_frequency,
-    primary key(term_id, frame_id)
-);
-
-create table bigram_merging (
-    term_id,
-    frame_id,
-    frequency,
-    positions,
-    primary key(term_id, frame_id)
 );
 
 
@@ -526,6 +503,12 @@ insert into disk_index.setting
 -- Update the revision number of the database
 insert into index_revision(added_document_count, deleted_document_count, added_frame_count)
     values(:added, :deleted, :added_frames);
+
+-- Update the field statistics
+insert or replace into field_statistics(field_id, frame_count)
+    select field_id, count(*)
+    from disk_index.frame
+    group by field_id;
 
 -- Update the plugins
 create table delete_plugin_id as

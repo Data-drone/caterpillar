@@ -31,9 +31,7 @@ with open(version_file, encoding='utf-8') as fh:
 requires = [
     'apsw',
     'arrow',
-    'lrparsing',
     'nltk>=2.0,<2.1',
-    'numpy',
     'regex',
     'ujson',
 ]
@@ -47,8 +45,6 @@ setup(
         'caterpillar.processing',
         'caterpillar.processing.analysis',
         'caterpillar.resources',
-        'caterpillar.searching',
-        'caterpillar.searching.query',
         'caterpillar.storage',
     ],
     package_data={

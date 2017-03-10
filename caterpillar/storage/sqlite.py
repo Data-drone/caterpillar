@@ -15,11 +15,14 @@ the document_data and term_posting tables a hard delete requires a full table sc
 performed.
 
 """
+from __future__ import division
 import logging
+import math
 import os
 
 import apsw
 
+from caterpillar.processing.index import NonIndexedFieldError
 from caterpillar.storage import StorageWriter, StorageReader, Storage, StorageNotFoundError, \
     DuplicateStorageError, PluginNotFoundError
 
@@ -344,7 +347,6 @@ class SqliteReader(StorageReader):
     of this class begins a read transaction that does not end until commit is explicitly called.
 
     """
-
     def __init__(self, path):
         """Open or create a reader for the given storage location."""
 
@@ -360,7 +362,19 @@ class SqliteReader(StorageReader):
 
     def begin(self):
         """Begin a read transaction."""
-        self._db_connection.cursor().execute('begin')
+        self._execute('begin')
+        # Temporary table for searches - only visible to this reader.
+        self._execute("""
+            create temporary table term_search_driver(
+                term_id integer,  -- Drives the lookup in the index
+                --These three columns drive the counts for deciding on matches
+                all_id integer,
+                n_id integer,
+                exclude_count integer,
+                -- Weighting for that particular term
+                weight float default 1.0
+            )
+            """)
 
     def commit(self):
         """End the read transaction."""
@@ -827,6 +841,433 @@ class SqliteReader(StorageReader):
         for left_term, right_term, frame_id, positions in bigrams:
             yield ((left_term, right_term), frame_id, _count_bitwise_matches(positions))
 
+    def filter_range(
+        self, start, end=None, limit=None, return_documents=False, include_fields=None, exclude_fields=None
+    ):
+        """
+        Return frame or document ID's greate than start up to and including an optional end key, up to the limit
+        supplied. If there are fewer than limit frames or documents, all remaining id's will be returned.
+
+        The include_fields and exclude_fields parameters are ignored when return_documents is True.
+
+        The range interval is open on the left - you can use the end of one range as the start parameter
+        to page through the results.
+
+        """
+        query_template = """
+            select id
+            from {0}
+            where {1}
+            {2}
+        """
+
+        parameters = []
+
+        if return_documents:
+            frame_or_document = 'document'
+
+        else:
+            where_clause, fields = self._fielded_where_clause(
+                include_fields=include_fields, exclude_fields=exclude_fields
+            )
+            if fields:
+                frame_or_document = """
+                (select id from frame
+                 where frame.field_id in (
+                    select id from unstructured_field field
+                    {}
+                ))
+                """.format(where_clause)
+                parameters.extend(fields)
+            else:
+                frame_or_document = 'frame'
+
+        id_clause = 'id > ? ' if end is None else 'id > ? and id <= ?'
+        parameters.extend([start] if end is None else [start, end])
+
+        if limit is not None:
+            limit_clause = 'limit ?'
+            parameters.append(limit)
+        else:
+            limit_clause = ''
+
+        query = query_template.format(frame_or_document, id_clause, limit_clause)
+
+        return self._execute(query, parameters)
+
+    def filter_metadata(
+        self, metadata, return_documents=False, include_fields=None, exclude_fields=None,
+        limit=0, pagination_key=None
+    ):
+        """
+        Support metadata only searches - for efficiency reasons filter_or_rank_unstructured
+        is driven by the term_posting table. This function provides efficient set filtering for
+        metadata only cases.
+
+        Currently only conjunctive metadata queries are supported, with the exception of the 'in'
+        operator for matching multiple alternatives.
+
+        The include_field and exclude_field arguments refer to unstructured fields only - these
+        options are ignored if return_documents is True.
+
+        See rank_or_filter_unstructured for more detail.
+
+        """
+
+        metadata_clauses = []
+        parameters = []
+        # Whitelist of valid operators - we can't bind an operator in sql, so reject everything else.
+        valid_metadata_operators = set(('<', '>', '<=', '>=', '=', 'in'))
+
+        for metadata_field, operators in metadata.items():
+
+            # Template for each field - fill in the field name and append the parameters.
+            this_field = """
+                select document_id from document_data
+                where field_id = (select id from structured_field where name = ?)
+            """
+
+            parameters.append(metadata_field)
+
+            if return_documents and pagination_key:
+                this_field += 'and document_id > ? '
+                parameters.append(pagination_key)
+
+            for operator, value in operators.items():
+                if operator not in valid_metadata_operators:
+                    raise ValueError('{} is not a supported operator for SQLiteStorage'.format(operator))
+
+                if operator == 'in':  # The values for an 'in' operator should be an iterable.
+                    this_field += 'and value {} ({}) \n'.format(operator, ', '.join(['?'] * len(value)))
+                    parameters.extend(value)
+
+                else:
+                    this_field += 'and value {} ? \n'.format(operator)
+                    parameters.append(value)
+
+            metadata_clauses.append(this_field)
+
+        # Note that all metadata queries are conjunctions only: all metadata clauses must be matched.
+        document_intersection = '\n intersect \n'.join(metadata_clauses)
+
+        if return_documents:
+            if limit:
+                document_intersection += 'order by document_id \n limit ?'
+                parameters.append(limit)
+
+            results = self._execute(document_intersection, parameters)
+
+        else:
+            frame_intersection = """
+                select id
+                from frame
+                where document_id in (
+                    {}
+                )
+                {}
+                {}
+                {}
+                """
+            where_field, fields = self._fielded_where_clause(include_fields, exclude_fields)
+            if fields:
+                field_selector = 'and field_id in (select field.id from unstructured_field field {})'
+                field_selector = field_selector.format(where_field)
+                parameters.extend(fields)
+            else:
+                field_selector = ''
+            if pagination_key:
+                pagination_clause = 'and frame.id > ?'
+                parameters.append(pagination_key)
+            else:
+                pagination_clause = ''
+            if limit:
+                limit_clause = 'order by frame.id \n limit ?'
+                parameters.append(limit)
+            else:
+                limit_clause = ''
+
+            results = self._execute(
+                frame_intersection.format(document_intersection, field_selector, pagination_clause, limit_clause),
+                parameters
+            )
+
+        return results
+
+    def rank_or_filter_unstructured(
+        self, return_documents=False, include_fields=None, exclude_fields=None,
+        must=None, should=None, at_least_n=None, must_not=None, metadata=None,
+        limit=0, pagination_key=None, search=False
+    ):
+        """
+        Omnibus function for searches and filters on unstructured data.
+
+        This function provides a fast low level search query interface, suitable for producing
+        fast resultsets for combining with caterpillar.combination functions.
+
+        Currently only conjunctive metadata searches are supported.
+
+        The cost of a search is driven by the cost of the largest intermediate term set:
+        a search in a large English language index for the term 'and' will be expensive,
+        regardless of which criteria (must, should etc.) is used as all rows containing that
+        term will need to aggregated over.
+
+        Scoring is currently based on TF-IDF. Frames are scored individually. Document scores are
+        computed by summing frame scores. The inverse 'document' frequency is actually the
+        inverse frame frequency of that term across the included unstructured fields in this
+        query.
+
+        For filtering, the pagination key is the last frame_id or document_id seen, for search,
+        the pagination key is a tuple of (frame_id, score). Pagination based on a deterministic
+        key gives better performance on deep paging queries (later queries are slightly cheaper
+        rather than more and more expensive), and also gives a more stable sort with respect to
+        relevance when new results occur.
+
+        Current limitations:
+            - must_not is not supported without must/should or at_least_n
+            - wildcards (*/?) are not supported
+            - Arbitrary query trees are not supported - this provides a 'flat' fast interface
+              only.
+
+        See also:
+            filter_metadata: path for metadata only queries.
+
+        """
+
+        # This is the query we will be passing through to SQLite. The remainder of this function
+        # just fills in the gaps, conditioned on all the options specified by the user.
+        query = """
+            select
+                {frame_or_document},
+                sum(frequency * ts.weight) as score
+            from term_search_driver ts
+
+            /* Optimisation Note
+
+            Note that in SQLite cross join behaves identically to inner join, *except* the query
+            optimiser does not reorder the joins. The join order is critical for this case - if
+            term_posting is reordered we may end up with a full table scan of a very large table.
+
+            */
+
+            cross join term_posting post
+                on ts.term_id = post.term_id
+
+            {subset_clause}
+
+            {filter_pagination}
+
+            {groupby}
+
+            having 1 -- no-op clause to simplify query construction.
+                {having}
+
+            {search_clause}
+        """
+
+        # Parameter handling, expand optional parameters for the rest of the function
+        must = must or []
+        should = should or []
+        at_least_n = at_least_n or (0, [])
+        must_not = must_not or []
+        metadata = metadata or {}
+
+        # Raise an error if must_not is specified without should, must or at_least_n
+        if must_not and not(at_least_n[1] or should or must):
+            raise ValueError(
+                '"must_not" is not supported for SQLiteStorage without at least one term in '
+                '"must", "should" or "at_least_n"'
+            )
+
+        if search and not(at_least_n[1] or should or must):
+            raise ValueError(
+                'Ranking is not supported for metadata only searches in SQLiteStorage'
+            )
+
+        # Expand singular terms into lists for each variant to support variant search.
+        # ['term1', 'term2', ('term3', 'term4')] --> [('term1'), ('term2'), ('term3', 'term4')]
+        # Each tuple of terms is assigned a single search_id for determining matches.
+        # Note that for must_not and should the variation syntax is supported, even if there
+        # is no difference in behaviour.
+        search_term_groups = [_unpack_mixed_term_list(group) for group in [must, at_least_n[1], must_not, should]]
+        search_terms = [[term] for group in search_term_groups for terms in group for term in terms]
+
+        # If there are no terms or metadata specified, there are no results as this search
+        # is driven by the matching terms in must, should and at_least_n.
+        if len(search_terms) == 0 and not metadata:
+            return [None]
+
+        # Construct one row per term in the search to insert in the driving table.
+        # Note that grouped terms get assigned the same search_id - this is magic to make it work.
+        search_id_rows = []
+        search_id = 1
+
+        for i, group in enumerate(search_term_groups):
+            for terms in group:
+                for term in terms:
+                    # Columns: all_id, n_id, exclude_count, (not included in table)
+                    search_row = [None, None, 0, None]
+                    search_row[i] = search_id
+                    search_id_rows.append(search_row)
+                search_id += 1
+
+        # Generate the where clause, including the metadata specific details.
+        unstructured_where_clause, unstructured_fields = self._fielded_where_clause(include_fields, exclude_fields)
+
+        # Compute IDF component of the term weighting from the term_statistics on this index
+        n_frames = list(self._execute(
+            'select sum(frame_count) '
+            'from field_statistics '
+            'inner join unstructured_field field on field_statistics.field_id = field.id ' +
+            unstructured_where_clause, unstructured_fields)
+        )[0][0]
+
+        # Note here - this returns Null if a term doesn't exist
+        term_stats = list(self._executemany(
+            """
+            select sum(frames_occuring) as frame_frequency
+            from term_statistics
+            inner join vocabulary
+                on term_statistics.term_id = vocabulary.id
+            where vocabulary.term = ?
+            """, search_terms)
+        )
+
+        # Early exit if none of the terms match.
+        if sum(1 for i in term_stats if i[0] is not None) == 0:
+            if search:
+                return []
+            else:
+                return {}
+
+        # The none branch handles if the term lookup failed
+        term_idf = [(1 + math.log(n_frames / (n[0] + 1))) if n[0] is not None else 0 for n in term_stats]
+
+        # Truncate the temporary driving table
+        # Note that because of how searches work, this means that only a single search query
+        # can be active for a given reader, as SQLite temporary tables are only isolated across connections.
+        # For this reason, although this method can potentially be used as a generator,
+        # the IndexReader API always returns the complete resultset.
+        self._execute('delete from term_search_driver')
+
+        # Stage the terms to the driving table, including the necessary weighting
+        self._executemany("""
+            insert into term_search_driver(term_id, all_id, n_id, exclude_count, weight)
+                select id as term_id, ?2, ?3, ?4, ?5
+                from vocabulary
+                where term = ?1
+                order by term_id
+            """, [term + row[:3] + [weight] for term, row, weight in zip(search_terms, search_id_rows, term_idf)]
+        )
+
+        parameters = []
+
+        if metadata or unstructured_fields or return_documents:
+            subset_clause = 'inner join frame on post.frame_id = frame.id '
+
+            if unstructured_fields:
+                subset_clause += ' and frame.field_id in (select id from unstructured_field field {})'.format(
+                    unstructured_where_clause
+                )
+                parameters += unstructured_fields
+
+            # Note that by this point, all of the metadata values must be analysed and the operators validated by the
+            # IndexReader. In this storage layer we are dealing only with the representation of the value in the
+            # database.
+            if metadata:
+
+                metadata_clauses = []
+                # Whitelist of valid operators - we can't bind an operator in sql, so reject everything else.
+                valid_metadata_operators = set(('<', '>', '<=', '>=', '=', 'in'))
+
+                for metadata_field, operators in metadata.items():
+
+                    this_field = (
+                        'select document_id from document_data '
+                        'where field_id = (select id from structured_field where name = ?)'
+                    )
+                    parameters.append(metadata_field)
+
+                    for operator, value in operators.items():
+                        if operator not in valid_metadata_operators:
+                            raise ValueError('{} is not a supported operator'.format(operator))
+
+                        if operator == 'in':  # The values for an 'in' operator should be an iterable.
+                            this_field += 'and value {} ({}) \n'.format(operator, ', '.join(['?'] * len(value)))
+                            parameters.extend(value)
+
+                        else:
+                            this_field += 'and value {} ? \n'.format(operator)
+                            parameters.append(value)
+
+                    metadata_clauses.append(this_field)
+
+                # Note that all metadata queries are intersections: all metadata clauses must be matched.
+                subset_clause += 'and document_id in ({})'.format(' intersect '.join(metadata_clauses))
+
+        else:
+            subset_clause = ''
+
+        if not search and return_documents and pagination_key is not None:
+            filter_pagination = 'where document_id > ?'
+            parameters.append(pagination_key)
+        elif not search and pagination_key is not None:
+            filter_pagination = 'where frame_id > ?'
+            parameters.append(pagination_key)
+        else:
+            filter_pagination = ''
+
+        if return_documents:
+            groupby_clause = 'group by document_id'
+        else:
+            groupby_clause = 'group by frame_id'
+
+        having_clause = ''
+        # Construct term_inclusion clauses: avoid checking things that aren't needed.
+        if must:
+            # if all_count is NULL, term || all_count evaluates to null, and is not counted in the distinct
+            having_clause += 'and count(distinct all_id) = ? '
+            parameters.append(len(must))
+
+        if at_least_n[0]:
+            having_clause += 'and count(distinct n_id) >= ? '
+            parameters.append(at_least_n[0])
+
+        if must_not:
+            having_clause += 'and max(exclude_count) = 0 '
+
+        search_clause = ''
+
+        if search:
+            if pagination_key is not None:
+                having_clause += 'and (score < ? or (score = ? and {} > ?))'.format(
+                    'document_id' if return_documents else 'frame_id'
+                )
+                parameters.extend([pagination_key[1], pagination_key[1], pagination_key[0]])
+
+            # If we're searching, order by score descending and frame/document_id ascending for deterministic pagination
+            search_clause += 'order by score desc, {} '.format('document_id' if return_documents else 'frame_id')
+
+        elif limit:
+            search_clause += 'order by {} '.format('document_id' if return_documents else 'frame_id ')
+
+        if limit:
+            search_clause += 'limit ?'
+            parameters.append(limit)
+
+        # Now fill in the template, and actually execute the query.
+        results = self._execute(
+            query.format(
+                frame_or_document='document_id' if return_documents else 'frame_id',
+                filter_pagination=filter_pagination,
+                subset_clause=subset_clause,
+                groupby=groupby_clause,
+                having=having_clause,
+                search_clause=search_clause
+            ), parameters
+        )
+
+        return results
+
     def find_significant_bigrams(self, include_fields=None, exclude_fields=None, min_count=5, threshold=40):
         """Find significant collocations of words.
 
@@ -873,7 +1314,7 @@ class SqliteReader(StorageReader):
                     left_post.term_id as left_id,
                     right_post.term_id as right_id,
                     count(*) * 1.0 as bigram_count
-                from term_posting left_post
+                from frame_posting left_post
                 inner join frame_posting right_post
                     on left_post.frame_id = right_post.frame_id
                 {}
@@ -963,7 +1404,7 @@ class SqliteReader(StorageReader):
         invalid_fields = [field for field in fields if field not in valid_fields and field is not None]
 
         if invalid_fields:
-            raise ValueError('Invalid fields: {} do not exist or are not indexed'.format(invalid_fields))
+            raise NonIndexedFieldError('Invalid fields: {} do not exist or are not indexed'.format(invalid_fields))
         if include_fields:
             where_clause = 'where field.name in ({})'.format(', '.join(['?'] * len(include_fields)))
         elif exclude_fields:
@@ -1019,3 +1460,14 @@ def _count_bitwise_matches(position_bitstring):
         n += 1
 
     return n
+
+
+def _unpack_mixed_term_list(term_sequence):
+    """ Unpack the list of terms into term groups.
+
+    Assume that anything this isn't a string is an iterable that can be left along.
+
+    """
+    return [
+        [group] if isinstance(group, basestring) else group for group in term_sequence
+    ]

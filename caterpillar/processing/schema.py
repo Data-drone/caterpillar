@@ -34,7 +34,7 @@ class FieldType(object):
 
     """
     # Convenience hash of operators -> methods
-    FIELD_OPS = {'<': 'lt', '<=': 'lte', '>': 'gt', '>=': 'gte'}
+    FIELD_OPS = {'<': 'lt', '<=': 'lte', '>': 'gt', '>=': 'gte', '*=': 'equals_wildcard', '=': 'equals'}
 
     def __init__(self, analyser=EverythingAnalyser(), indexed=False, categorical=False, stored=True):
         """

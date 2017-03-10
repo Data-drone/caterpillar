@@ -12,9 +12,9 @@ import pytest
 from caterpillar.processing.analysis.analyse import DateTimeAnalyser
 from caterpillar.processing import schema
 from caterpillar.processing.index import IndexWriter, IndexReader, IndexConfig
-from caterpillar.processing.schema import BOOLEAN, FieldType, ID, NUMERIC, Schema, TEXT, FieldConfigurationError, \
-    DATETIME
-from caterpillar.searching.query.querystring import QueryStringQuery
+from caterpillar.processing.schema import (
+    BOOLEAN, FieldType, ID, NUMERIC, Schema, TEXT, FieldConfigurationError, DATETIME, CATEGORICAL_TEXT
+)
 
 
 # Plumbing tests
@@ -75,6 +75,10 @@ def test_schema():
     assert dt.lte('10:05 01/12/2015', '10:05 01/12/2016')
 
     assert list(BOOLEAN().analyse('1'))[0].value is True
+
+    c = CATEGORICAL_TEXT()
+    assert c.equals('cat', 'cat')
+    assert c.equals_wildcard('cat', 'ca*')
 
 
 def test_csv_schema():
@@ -159,11 +163,10 @@ def test_index_stored_fields():
         doc_id = writer.last_committed_documents[0]
 
         with IndexReader(tmp_dir) as reader:
-            searcher = reader.searcher()
-            hit = searcher.search(QueryStringQuery("*", 'text'), limit=1)[0]
-            assert 'text' not in hit.data
-            assert 'test2' not in hit.data
-            assert hit.data['test'] == 777
+            _, frame = list(reader.get_frames(None, frame_ids=[1]))[0]
+            assert frame['_field'] not in frame
+            assert 'test2' not in frame
+            assert frame['test'] == 777
 
             doc = reader.get_document(doc_id)
             assert 'text' not in doc
