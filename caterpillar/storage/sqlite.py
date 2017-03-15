@@ -797,6 +797,17 @@ class SqliteReader(StorageReader):
         else:  # Make sure to yield the final row.
             yield current_field, current_value, document_ids
 
+    def iterate_frame_attributes(self, frame_ids):
+        """Iterate through the attributes of the given frames. """
+        return self._executemany("""
+            select
+                type, value
+            from frame_attribute_posting post
+            inner join attribute
+                on attribute.id = post.attribute_id
+            where frame_id = ?
+        """, [(f_id,) for f_id in frame_ids])
+
     def iterate_attributes(self, include_fields=None, exclude_fields=None, return_documents=False):
         """
         Get the frame-attribute index.

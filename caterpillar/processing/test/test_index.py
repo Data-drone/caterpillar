@@ -275,6 +275,19 @@ def test_index_alice_attributes(index_dir):
             [text2_attribute_index.get(i, None) is None for i in ['numerical_score', 'sentiment', 'named_entity']]
         )
 
+        with IndexReader(index_dir) as reader:
+            attribute_frames = reader.get_frames(None, frame_ids=range(20))
+            for f_id, frame in attribute_frames:
+                assert frame['_attributes']['numerical_score'] == f_id // 10
+                if f_id % 3 == 0:
+                    assert frame['_attributes']['sentiment'] == 'positive'
+                else:
+                    assert 'sentiment' not in frame['_attributes']
+                if f_id % 11 == 0:
+                    assert frame['_attributes']['named_entity']
+                else:
+                    assert 'named_entity' not in frame['_attributes']
+
 
 def test_index_writer_rollback(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:

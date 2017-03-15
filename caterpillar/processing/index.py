@@ -819,6 +819,7 @@ class IndexReader(object):
             frame = json.loads(row[4])
             frame['_id'] = row[0]
             frame['_doc_id'] = row[1]
+            frame['_attributes'] = {key: value for key, value in self.__storage.iterate_frame_attributes([row[0]])}
             yield row[0], frame
 
     def get_frame_ids(self, field):
