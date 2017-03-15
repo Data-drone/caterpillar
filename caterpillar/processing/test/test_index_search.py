@@ -644,3 +644,64 @@ def test_range_paging_alice(index_dir):
 
             frames = reader.filter_range(pagination_key=2000, limit=None)
             assert len(frames) == total_frames - 2000
+
+
+def test_search_alice_attributes(index_dir):
+    """Whole bunch of functional tests on the index."""
+    with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'r') as f:
+        data = f.read()
+        analyser = TestAnalyser()
+        writer = IndexWriter(
+            index_dir, IndexConfig(
+                SqliteStorage, schema.Schema(
+                    text1=schema.TEXT(analyser=analyser), text2=schema.TEXT,
+                    document=schema.TEXT(analyser=analyser, indexed=False),
+                    blank=schema.NUMERIC(indexed=True), ref=schema.ID(indexed=True)
+                )
+            )
+        )
+        with writer:
+            writer.add_document(text1=data, text2=data, document='alice.txt', blank=None, ref=123, frame_size=2)
+
+        # Label all the frames with some nonsense attributes
+        with IndexReader(index_dir) as reader:
+            frame_ids = list(reader.get_frame_ids('text1'))
+
+        attribute_index = {}
+
+        for f_id in frame_ids:
+            attribute_index[f_id] = {}
+            attribute_index[f_id]['numerical_score'] = f_id // 10
+            if f_id % 3 == 0:
+                attribute_index[f_id]['sentiment'] = 'positive'
+            if f_id % 11 == 0:
+                attribute_index[f_id]['named_entity'] = str(f_id)
+
+        with writer:
+            writer.append_frame_attributes(attribute_index)
+
+        with IndexReader(index_dir) as reader:
+            positive_sentiment = reader._filter_attributes({'sentiment': {'=': 'positive'}})
+            assert len(positive_sentiment) == len(frame_ids) // 3
+            high_scores = reader._filter_attributes({'numerical_score': {'>=': 50}})
+            assert len(high_scores) == max(frame_ids) - 499
+            positive_high_scores = reader._filter_attributes(
+                {'numerical_score': {'>=': 50}, 'sentiment': {'=': 'positive'}}
+            )
+            assert len(positive_high_scores) == len(composition.match_all(positive_sentiment, high_scores))
+
+            empty_field = reader._filter_attributes({'sentiment': {'=': 'positive'}}, include_fields=['text2'])
+            assert len(empty_field) == 0
+
+            with pytest.raises(ValueError):
+                reader._filter_attributes({'sentiment': {'*=': 'positive'}})
+
+            positive_documents = reader._filter_attributes({'sentiment': {'=': 'positive'}}, return_documents=True)
+            assert len(positive_documents) == 1
+
+            paged_index = reader._filter_attributes({'sentiment': {'=': 'positive'}}, limit=20)
+            assert len(paged_index) == 20
+            assert max(paged_index) == 60
+            paged_index = reader._filter_attributes({'sentiment': {'=': 'positive'}}, limit=20, pagination_key=60)
+            assert len(paged_index) == 20
+            assert max(paged_index) == 120

@@ -142,6 +142,67 @@ create table frame_posting (
 without rowid;
 
 
+/* Frame attribute storage.
+
+This is the equivalent of the vocabulary table for semi-structured frame level data. This
+table allows a 1:many mapping of frames --> attributes. An attribute is any structured piece
+of information that can be extracted from a frame, such as sentiment scores, named entities,
+parsed email addresses or websites, twitter @handles and #hashtags etc.
+
+Although the data layout is conceptually similar to the term_posting + vocabulary table
+it is maintained separately here for two reasons:
+    1. Avoid overcomplicating the text search API with the addition of attribute types. (Also
+       avoid rewriting the complex queries in search.)
+    2. Simpler API - in the short term it is expected that attributes will be added
+       post indexing/separate to plain text indexing. This means it is advantageous to have
+       the attributes separate to the main table to better enhance write locality.
+
+In the future we may consider merging the two tables and having a unified view into
+unstructured attributes of a dataset. This might also allow more nuanced interpretation
+of text indexing - for example indexing terms with an attribute class of their parts of
+speech to allow more complex search operators/ disambiguation.
+
+*/
+
+/* Actual storage of the values of attributes.
+
+Note - if an attribute class should be 1:1 on a frame, this needs to be enforced at the
+application/reader level, as this schema needs to necessarily accept 1:many relationships.
+
+*/
+create table attribute (
+    id integer primary key,
+    type text,
+    value,
+    constraint attr_class_value unique (type, value) on conflict ignore
+);
+
+
+/* Attribute-frame tables
+
+Analogous to frame_posting and term_posting, store attribute presence on a
+frame, ordered by frame for analytical operations and by attribute for search operations.
+
+*/
+create table frame_attribute_posting (
+    frame_id integer,
+    attribute_id integer,
+    primary key (frame_id, attribute_id) on conflict ignore,
+    foreign key (frame_id) references frame(id),
+    foreign key (attribute_id) references attribute(id)
+)
+without rowid;
+
+create table attribute_frame_posting (
+    attribute_id integer,
+    frame_id integer,
+    primary key (attribute_id, frame_id) on conflict ignore,
+    foreign key (frame_id) references frame(id),
+    foreign key (attribute_id) references attribute(id)
+)
+without rowid;
+
+
 /* Plugin header and data tables. */
 create table plugin_registry (
     plugin_type text,
@@ -157,6 +218,7 @@ create table plugin_data (
     primary key(plugin_id, key) on conflict replace,
     foreign key(plugin_id) references plugin_registry(plugin_id) on delete cascade
 );
+
 
 /*
 An internal representation of the state of the index documents.
@@ -269,6 +331,14 @@ create table stage_posting (
     primary key(frame_id, term)
 );
 
+/* one row per attribute in a frame. */
+create table attribute_posting (
+    frame_id integer,
+    type text,
+    value,
+    primary key (frame_id, type, value)
+);
+
 create table setting(
     name text primary key on conflict replace,
     value
@@ -304,8 +374,11 @@ begin immediate;
 # Returns rows representing the current maximum frame and document ID's for assigning
 # ID's during the script execution.
 prepare_flush = """
--- For generating the term-frame_id table
-create index term_idx on stage_posting(term);
+-- For generating the term-frame_id and attribute-frame_id tables
+create index term_idx on stage_posting(term, frame_id);
+create index attribute_idx on attribute_posting(type, value, frame_id);
+create table distinct_attributes as
+select distinct type, value from attribute_posting;
 
 -- Generate term statistics of added documents
 create table term_statistics as
@@ -363,6 +436,7 @@ create table deleted_frame as
     select id
     from disk_index.frame
     where document_id in (select * from deleted_document);
+create index deleted_frame_idx on deleted_frame(id);
 
 delete from disk_index.term_posting
 -- Avoid full table scan by searching for term_id first
@@ -373,6 +447,19 @@ where term_id in (select distinct term_id
     and frame_id in (select * from deleted_frame);
 
 delete from disk_index.frame_posting
+    where frame_id in (select * from deleted_frame);
+
+delete from disk_index.attribute_frame_posting
+-- Avoid full table scan by searching for attribute_id first
+-- This is still going to be expensive.
+where attribute_id in (
+    select distinct attribute_id
+    from disk_index.frame_attribute_posting
+    where frame_id in (select * from deleted_frame)
+)
+    and frame_id in (select * from deleted_frame);
+
+delete from disk_index.frame_attribute_posting
     where frame_id in (select * from deleted_frame);
 
 -- Delete all the places the document occurs.
@@ -453,6 +540,35 @@ insert into disk_index.term_posting(term_id, frame_id, frequency, positions)
     inner join disk_index.vocabulary vocab
         on vocab.term = pos.term
     order by vocab.id;
+
+
+/* Insert new attribute-value pairs */
+insert into disk_index.attribute(type, value)
+    select type, value
+    from distinct_attributes attr
+    where not exists (
+        select 1
+        from disk_index.attribute at
+        where attr.type = at.type
+            and attr.value = at.value
+    );
+
+/* Add to the attribute-frame postings indexes */
+insert into disk_index.frame_attribute_posting(frame_id, attribute_id)
+    select frame_id, id
+    from attribute_posting post
+    inner join disk_index.attribute
+        on attribute.type = post.type
+        and attribute.value = post.value
+    order by frame_id, id;
+
+insert into disk_index.attribute_frame_posting(frame_id, attribute_id)
+    select frame_id, id
+    from attribute_posting post
+    inner join disk_index.attribute
+        on attribute.type = post.type
+        and attribute.value = post.value
+    order by id, frame_id;
 
 
 /* Update the statistics by combining on-disk, deleted and new values */
