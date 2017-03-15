@@ -553,22 +553,31 @@ insert into disk_index.attribute(type, value)
             and attr.value = at.value
     );
 
-/* Add to the attribute-frame postings indexes */
+/* Add to the attribute-frame postings indexes
+
+Note that we're making sure the frames actually exist.
+
+*/
+
 insert into disk_index.frame_attribute_posting(frame_id, attribute_id)
-    select frame_id, id
+    select frame_id, attribute.id
     from attribute_posting post
     inner join disk_index.attribute
         on attribute.type = post.type
         and attribute.value = post.value
-    order by frame_id, id;
+    inner join disk_index.frame
+        on frame.id = post.frame_id
+    order by frame_id, attribute.id;
 
 insert into disk_index.attribute_frame_posting(frame_id, attribute_id)
-    select frame_id, id
+    select frame_id, attribute.id
     from attribute_posting post
     inner join disk_index.attribute
         on attribute.type = post.type
         and attribute.value = post.value
-    order by id, frame_id;
+    inner join disk_index.frame
+        on frame.id = post.frame_id
+    order by attribute.id, frame_id;
 
 
 /* Update the statistics by combining on-disk, deleted and new values */
