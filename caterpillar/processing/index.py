@@ -857,19 +857,22 @@ class IndexReader(object):
 
     def get_metadata(self, text_field=None):
         """
-        Get the metadata index.
+        Iterate through the entire metadata index.
 
-        This method is a generator that yields a key, value tuple. The index is in the following format::
+        This method is a generator that yields an inverted index that shows
+        which frames or documents have a particular metadata field and the
+        value of that that metadata field. A tuple of the field name and the
+        corresponding values: frame_ids mapping is yielded on every iteration:
 
-            {
-                "field_name": {
-                    "value": ["frame_id", "frame_id"],
-                    "value": ["frame_id", "frame_id"],
-                    "value": ["frame_id", "frame_id"],
+
+            (
+                "attribute_name", {
+                    "value": ["frame_id1", "frame_id2"],
+                    "value": ["frame_id3"],
+                    "value": ["frame_id4", "frame_id5", ..., "frame_idn"],
                     ...
-                },
-                ...
-            }
+                }
+            )
 
         The optional text_field limits the returned values to frames from that field.
 
@@ -893,21 +896,34 @@ class IndexReader(object):
 
     def get_attributes(self, include_fields=None, exclude_fields=None, return_documents=False):
         """
-        Get the metadata index.
+        Iterate through the entire attribute index for either frames or documents.
 
-        This method is a generator that yields a key, value tuple. The index is in the following format::
+        This method is a generator that yields an inverted index that shows
+        which frames or documents have a particular attribute and the value of
+        that that attribute. A tuple of the attribute_name and the
+        corresponding values: frame_ids mapping is yielded on every iteration:
 
-            {
-                "field_name": {
-                    "value": ["frame_id", "frame_id"],
-                    "value": ["frame_id", "frame_id"],
-                    "value": ["frame_id", "frame_id"],
+            (
+                "attribute_name", {
+                    "value": ["frame_id1", "frame_id2"],
+                    "value": ["frame_id3"],
+                    "value": ["frame_id4", "frame_id5", ..., "frame_idn"],
                     ...
-                },
-                ...
-            }
+                }
+            )
 
-        The optional text_field limits the returned values to frames from that field.
+
+        Args
+
+            include_fields: list of unstructured fields to include in the analysis.
+                By default this is None, and all fields are included if exclude_fields is also None.
+
+            exclude_fields: list of unstructured fields to exclude from the analysis.
+                If include_fields is not None, this argument is ignored.
+
+            return_documents: if True, return documents with any frame matching that attribute-value
+                paid. Default is False. Because attributes correspond to the properties of an
+                individual frame, the resulting index needs to be interpreted with care.
 
         """
         metadata = self.__storage.iterate_attributes(
