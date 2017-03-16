@@ -510,6 +510,23 @@ class IndexWriter(object):
 
         logger.debug('Tokenization of document complete. {} frames staged for storage.'.format(len(frames)))
 
+    def append_frame_attributes(self, attribute_index):
+        """
+        Append new attributes to existing frames or documents.
+
+        Currently only 1:1 attributes are supported for a frame.
+
+        Currently only datatypes understood by SQLite are supported (numerical,
+        text, bytes and None).
+
+        Data format:
+            {
+                frame_id: {attribute_type: attribute_value}
+            }
+
+        """
+        self.__storage.append_frame_attributes(attribute_index)
+
     def delete_document(self, document_id):
         """
         Delete the document with given ``document_id`` (str).
@@ -802,6 +819,7 @@ class IndexReader(object):
             frame = json.loads(row[4])
             frame['_id'] = row[0]
             frame['_doc_id'] = row[1]
+            frame['_attributes'] = {key: value for key, value in self.__storage.iterate_frame_attributes([row[0]])}
             yield row[0], frame
 
     def get_frame_ids(self, field):
@@ -839,24 +857,78 @@ class IndexReader(object):
 
     def get_metadata(self, text_field=None):
         """
-        Get the metadata index.
+        Iterate through the entire metadata index.
 
-        This method is a generator that yields a key, value tuple. The index is in the following format::
+        This method is a generator that yields an inverted index that shows
+        which frames or documents have a particular metadata field and the
+        value of that that metadata field. A tuple of the field name and the
+        corresponding values: frame_ids mapping is yielded on every iteration:
 
-            {
-                "field_name": {
-                    "value": ["frame_id", "frame_id"],
-                    "value": ["frame_id", "frame_id"],
-                    "value": ["frame_id", "frame_id"],
+
+            (
+                "attribute_name", {
+                    "value": ["frame_id1", "frame_id2"],
+                    "value": ["frame_id3"],
+                    "value": ["frame_id4", "frame_id5", ..., "frame_idn"],
                     ...
-                },
-                ...
-            }
+                }
+            )
 
         The optional text_field limits the returned values to frames from that field.
 
         """
         metadata = self.__storage.iterate_metadata(text_field=text_field)
+
+        current_field, value, frame_ids = next(metadata)
+        current_values = {value: frame_ids}
+        while True:
+            try:
+                field, value, frame_ids = next(metadata)
+            except StopIteration:
+                yield current_field, current_values
+                break
+            if field == current_field:
+                current_values[value] = frame_ids
+            else:
+                yield current_field, current_values
+                current_field = field
+                current_values = {value: frame_ids}
+
+    def get_attributes(self, include_fields=None, exclude_fields=None, return_documents=False):
+        """
+        Iterate through the entire attribute index for either frames or documents.
+
+        This method is a generator that yields an inverted index that shows
+        which frames or documents have a particular attribute and the value of
+        that that attribute. A tuple of the attribute_name and the
+        corresponding values: frame_ids mapping is yielded on every iteration:
+
+            (
+                "attribute_name", {
+                    "value": ["frame_id1", "frame_id2"],
+                    "value": ["frame_id3"],
+                    "value": ["frame_id4", "frame_id5", ..., "frame_idn"],
+                    ...
+                }
+            )
+
+
+        Args
+
+            include_fields: list of unstructured fields to include in the analysis.
+                By default this is None, and all fields are included if exclude_fields is also None.
+
+            exclude_fields: list of unstructured fields to exclude from the analysis.
+                If include_fields is not None, this argument is ignored.
+
+            return_documents: if True, return documents with any frame matching that attribute-value
+                paid. Default is False. Because attributes correspond to the properties of an
+                individual frame, the resulting index needs to be interpreted with care.
+
+        """
+        metadata = self.__storage.iterate_attributes(
+            include_fields=include_fields, exclude_fields=exclude_fields, return_documents=return_documents
+        )
 
         current_field, value, frame_ids = next(metadata)
         current_values = {value: frame_ids}
@@ -1254,6 +1326,58 @@ class IndexReader(object):
             )
 
             return {key: [score] for key, score in results}
+
+    def _filter_attributes(
+        self, attributes, return_documents=False, include_fields=None, exclude_fields=None, limit=0, pagination_key=None
+    ):
+        """Return frames or documents containing specific attributes.
+
+        Currently this is a very thin skin over the underlying SQLite storage class - expect this interface to
+        be merged with regular term filtering and the schema field API in the future. No type conversion or checking
+        is performed - the attribute comparisons will be directly used as bound parameters in an SQL query.
+
+        Don't rely on this API to be stable!
+
+        Args:
+
+            attributes: A dictionary specifying attribute type, value and comparison operator.
+                Supported operators are: '=', '>', '>=', '<', '<='
+                Example attribute searches:
+                {
+                    'website': {'=': 'www.website.com'},
+                    'sentiment': {'=': 'positive'}
+                }
+                                {
+                    'named_entity': {'=': 'Sydney, Australia'},
+                    'sentiment_magnitude': {'>': 0.6}
+                    'sentiment_polarity': {'>': 0}
+                }
+
+
+            return_documents: True or False
+                If True, return all documents with at least one frame containing those attributes, otherwise
+                return only specific frames.
+
+            include_fields: list of unstructured fields to include in the analysis.
+                By default this is None, and all fields are included if exclude_fields is also None.
+
+            exclude_fields: list of unstructured fields to exclude from the analysis.
+                If include_fields is not None, this argument is ignored.
+
+            limit: default 0
+                Limit number of returned frames to this value
+
+            pagination_key: default None
+                A frame or document id to begin filter operation from. This allows efficient pagination operations.
+
+            """
+
+        results = self.__storage.filter_attributes(
+            attributes, return_documents=return_documents, include_fields=include_fields, exclude_fields=exclude_fields,
+            limit=limit, pagination_key=pagination_key
+        )
+
+        return {key[0]: [0] for key in results}
 
     def _validate_analyse_metadata(self, metadata_search_spec):
         """Validate that the fields and operators for this metadata search, and analyse the values."""

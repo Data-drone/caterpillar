@@ -208,6 +208,87 @@ def test_index_alice(index_dir):
             assert reader.get_frame_count('text') == 2
 
 
+def test_index_alice_attributes(index_dir):
+    """Whole bunch of functional tests on the index."""
+    with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
+        data = f.read()
+        analyser = TestAnalyser()
+        writer = IndexWriter(index_dir, IndexConfig(SqliteStorage,
+                                                    Schema(text1=TEXT(analyser=analyser), text2=TEXT,
+                                                           document=TEXT(analyser=analyser, indexed=False),
+                                                           blank=NUMERIC(indexed=True), ref=ID(indexed=True))))
+        with writer:
+            writer.add_document(text1=data, text2=data, document='alice.txt', blank=None, ref=123, frame_size=2)
+
+        # Label all the frames with some nonsense attributes
+        with IndexReader(index_dir) as reader:
+            frame_ids = list(reader.get_frame_ids('text1'))
+
+        attribute_index = {}
+
+        for f_id in frame_ids:
+            attribute_index[f_id] = {}
+            attribute_index[f_id]['numerical_score'] = f_id // 10
+            if f_id % 3 == 0:
+                attribute_index[f_id]['sentiment'] = 'positive'
+            if f_id % 11 == 0:
+                attribute_index[f_id]['named_entity'] = str(f_id)
+
+        with writer:
+            writer.append_frame_attributes(attribute_index)
+
+        with IndexReader(index_dir) as reader:
+            text1_attribute_index = list(reader.get_attributes(include_fields=['text1']))
+            text1_attribute_counts = {}
+            for attribute, values in text1_attribute_index:
+                text1_attribute_counts[attribute] = {}
+                for value, frames in values.iteritems():
+                    text1_attribute_counts[attribute][value] = len(frames)
+
+            text2_attribute_index = {key: values for key, values in reader.get_attributes(include_fields=['text2'])}
+
+            all_attribute_index = list(reader.get_attributes())
+            all_attribute_counts = {}
+            for attribute, values in all_attribute_index:
+                all_attribute_counts[attribute] = {}
+                for value, frames in values.iteritems():
+                    all_attribute_counts[attribute][value] = len(frames)
+
+            doc_attribute_index = list(reader.get_attributes(return_documents=True))
+            doc_attribute_counts = {}
+            for attribute, values in doc_attribute_index:
+                doc_attribute_counts[attribute] = {}
+                for value, docs in values.iteritems():
+                    doc_attribute_counts[attribute][value] = len(docs)
+
+        assert text1_attribute_counts['sentiment']['positive'] == 17
+        assert text1_attribute_counts['numerical_score'][1] == 10
+        assert text1_attribute_counts == all_attribute_counts
+        assert all(i == 1 for i in text1_attribute_counts['named_entity'].values())
+
+        assert all([
+            count == 1 for attribute, values in doc_attribute_counts.iteritems()
+            for value, count in values.iteritems()
+        ])
+
+        assert all(
+            [text2_attribute_index.get(i, None) is None for i in ['numerical_score', 'sentiment', 'named_entity']]
+        )
+
+        with IndexReader(index_dir) as reader:
+            attribute_frames = reader.get_frames(None, frame_ids=range(20))
+            for f_id, frame in attribute_frames:
+                assert frame['_attributes']['numerical_score'] == f_id // 10
+                if f_id % 3 == 0:
+                    assert frame['_attributes']['sentiment'] == 'positive'
+                else:
+                    assert 'sentiment' not in frame['_attributes']
+                if f_id % 11 == 0:
+                    assert frame['_attributes']['named_entity']
+                else:
+                    assert 'named_entity' not in frame['_attributes']
+
+
 def test_index_writer_rollback(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
         data = f.read()

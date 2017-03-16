@@ -294,6 +294,15 @@ class SqliteWriter(StorageWriter):
         else:
             raise ValueError('Unknown document_format {}'.format(document_format))
 
+    def append_frame_attributes(self, attribute_index):
+        """Append the attributes for the given frames to the index. """
+        row_generator = (
+            (frame_id, attribute_type, attribute_value)
+            for frame_id, values in attribute_index.iteritems()
+            for attribute_type, attribute_value in values.iteritems()
+        )
+        self._executemany('insert into attribute_posting values (?, ?, ?)', row_generator)
+
     def delete_documents(self, document_ids):
         """Delete a document with the given id from the index. """
         document_id_gen = ((document_id,) for document_id in document_ids)
@@ -788,6 +797,74 @@ class SqliteReader(StorageReader):
         else:  # Make sure to yield the final row.
             yield current_field, current_value, document_ids
 
+    def iterate_frame_attributes(self, frame_ids):
+        """Iterate through the attributes of the given frames. """
+        return self._executemany("""
+            select
+                type, value
+            from frame_attribute_posting post
+            inner join attribute
+                on attribute.id = post.attribute_id
+            where frame_id = ?
+        """, [(f_id,) for f_id in frame_ids])
+
+    def iterate_attributes(self, include_fields=None, exclude_fields=None, return_documents=False):
+        """
+        Get the frame-attribute index.
+
+        This method is a generator that yields tuples (attribute_type, value, [frame_ids])
+
+        The return_documents flag indicates whether the return values should be broadcast to frame_ids (default)
+        or document_ids.
+
+        """
+        where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields)
+
+        frames_or_documents = 'document_id' if return_documents else 'frame_id'
+
+        if fields:
+            frame_join = """
+            inner join frame
+                on frame.id = fp.frame_id
+                and field_id in (select id from unstructured_field field {})
+            """.format(where_clause)
+        elif return_documents:
+            frame_join = """
+                inner join frame on frame.id = fp.frame_id
+            """
+        else:
+            frame_join = ''
+
+        query = """
+            select {0}
+                attribute.type,
+                attribute.value,
+                {1} as identifier
+            from frame_attribute_posting fp
+                {2}
+            inner join attribute
+               on attribute.id = fp.attribute_id
+            order by type, value
+        """.format('distinct' if return_documents else '', frames_or_documents, frame_join)
+
+        rows = self._execute(query, fields)
+
+        current_field, current_value, document_id = next(rows)
+        document_ids = [document_id]
+
+        for row in rows:
+            field, value, document_id = row
+            # Rows are sorted by field, value, so as soon as the change can yield
+            if field == current_field and value == current_value:
+                document_ids.append(document_id)
+            else:
+                yield current_field, current_value, document_ids
+                current_field = field
+                current_value = value
+                document_ids = [document_id]
+        else:  # Make sure to yield the final row.
+            yield current_field, current_value, document_ids
+
     def iterate_bigram_positions(self, bigrams, include_fields=None, exclude_fields=None):
         """Return an iterator of (left_term, right_term, frame_id, frequency) tuples for the specified list of bigrams.
 
@@ -1267,6 +1344,84 @@ class SqliteReader(StorageReader):
         )
 
         return results
+
+    def filter_attributes(
+        self, attributes, return_documents=False, include_fields=None, exclude_fields=None, limit=0, pagination_key=None
+    ):
+        """
+        Return frames or documents containing specific attributes.
+
+        Currently this is a very thin skin over the underlying tables - expect this interface to
+        be merged with regular term filtering and the schema field API in the future. No type conversion or checking
+        is performed - the attribute comparisons will be directly used as bound parameters in an SQL query.
+
+        Don't rely on this API to be stable!
+
+        """
+        operator_whitelist = {'=', '>', '>=', '<', '<='}
+        where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields)
+        parameters = []
+
+        if fields:
+            field_clause = """
+                inner join frame
+                    on afp.frame_id = frame.id
+                    and field_id in (select id from unstructured_field field {})
+            """.format(where_clause)
+        elif return_documents:
+            field_clause = """
+                inner join frame
+                    on afp.frame_id = frame.id
+            """
+        else:
+            field_clause = ''
+
+        attribute_block = """
+            select {0}
+            from attribute
+            cross join attribute_frame_posting afp
+                on afp.attribute_id = attribute.id
+                {1}
+            where
+                attribute.type = ?
+                {2}
+                {3}
+        """
+
+        documents_or_frames = 'document_id' if return_documents else 'frame_id'
+        pagination_clause = 'and {} > ?'.format(documents_or_frames) if pagination_key is not None else ' '
+
+        attribute_blocks = []
+
+        for attribute_type, value_comparisons in attributes.items():
+            if any(operator not in operator_whitelist for operator in value_comparisons.keys()):
+                raise ValueError('Only {} operators are supported.'.format(operator_whitelist))
+
+            op_values = value_comparisons.items()
+            operator_clauses = '\n'.join(['and value {} ?'.format(op) for op, _ in op_values])
+            parameters.append(attribute_type)
+            parameters.extend(fields)
+            parameters.extend([v for _, v in op_values])
+            if pagination_key is not None:
+                parameters.append(pagination_key)
+
+            attribute_blocks.append(
+                attribute_block.format(
+                    documents_or_frames, field_clause, operator_clauses, pagination_clause)
+            )
+
+        if limit:
+            limit_clause = 'limit ?'
+            parameters.append(limit)
+        else:
+            limit_clause = ''
+
+        full_query = '{0} {1}'.format("""
+            intersect
+        """.join(attribute_blocks), limit_clause
+        )
+
+        return self._execute(full_query, parameters)
 
     def find_significant_bigrams(self, include_fields=None, exclude_fields=None, min_count=5, threshold=40):
         """Find significant collocations of words.
