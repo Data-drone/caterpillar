@@ -1399,8 +1399,8 @@ class SqliteReader(StorageReader):
 
             op_values = value_comparisons.items()
             operator_clauses = '\n'.join(['and value {} ?'.format(op) for op, _ in op_values])
-            parameters.append(attribute_type)
             parameters.extend(fields)
+            parameters.append(attribute_type)
             parameters.extend([v for _, v in op_values])
             if pagination_key is not None:
                 parameters.append(pagination_key)
