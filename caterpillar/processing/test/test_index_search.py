@@ -683,6 +683,11 @@ def test_search_alice_attributes(index_dir):
         with IndexReader(index_dir) as reader:
             positive_sentiment = reader._filter_attributes({'sentiment': {'=': 'positive'}})
             assert len(positive_sentiment) == len(frame_ids) // 3
+            positive_sentiment_field_selective = reader._filter_attributes(
+                {'sentiment': {'=': 'positive'}},
+                include_fields=['text1']
+            )
+            assert len(positive_sentiment_field_selective) == len(frame_ids) // 3
             high_scores = reader._filter_attributes({'numerical_score': {'>=': 50}})
             assert len(high_scores) == max(frame_ids) - 499
             positive_high_scores = reader._filter_attributes(
@@ -692,6 +697,11 @@ def test_search_alice_attributes(index_dir):
 
             empty_field = reader._filter_attributes({'sentiment': {'=': 'positive'}}, include_fields=['text2'])
             assert len(empty_field) == 0
+
+            complement_empty_field = reader._filter_attributes(
+                {'sentiment': {'=': 'positive'}},
+                exclude_fields=['text2'])
+            assert len(complement_empty_field) == len(positive_sentiment)
 
             with pytest.raises(ValueError):
                 reader._filter_attributes({'sentiment': {'*=': 'positive'}})
