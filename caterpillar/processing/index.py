@@ -65,9 +65,9 @@ import nltk
 
 from .analysis.analyse import PotentialBiGramAnalyser
 from .analysis.tokenize import ParagraphTokenizer, Token
-from caterpillar import VERSION
 from caterpillar.locking import PIDLockFile, LockTimeout, AlreadyLocked
 from caterpillar.storage import StorageNotFoundError
+from caterpillar import __version__ as version
 
 
 logger = logging.getLogger(__name__)
@@ -133,7 +133,7 @@ class IndexConfig(object):
         self._storage_reader_cls = storage_cls.reader
         self._storage_writer_cls = storage_cls.writer
         self._schema = schema
-        self._version = VERSION
+        self._version = version
 
     @property
     def storage_reader_cls(self):

@@ -14,12 +14,13 @@ from collections import Counter
 
 import pytest
 
+from caterpillar import __version__ as version
 from caterpillar.storage import Storage
 from caterpillar.storage.sqlite import SqliteStorage
 from caterpillar.processing.analysis.analyse import EverythingAnalyser
 from caterpillar.processing.index import (
     IndexWriter, IndexReader, find_bi_gram_words, IndexConfig, IndexNotFoundError, DocumentNotFoundError,
-    SettingNotFoundError, IndexWriteLockedError, VERSION
+    SettingNotFoundError, IndexWriteLockedError
 )
 from caterpillar.processing.schema import ID, NUMERIC, TEXT, FieldType, Schema
 from caterpillar.test_util import TestAnalyser, TestBiGramAnalyser
@@ -117,7 +118,7 @@ def test_index_config():
     """Test the IndexConfig object."""
     mock_storage = Storage('nothing', 'doing')
     conf = IndexConfig(mock_storage, Schema())
-    assert conf.version == VERSION
+    assert conf.version == version
 
     pickle_data = pickle.dumps(True)
     with pytest.raises(ValueError):
