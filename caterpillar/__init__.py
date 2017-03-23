@@ -1,14 +1,13 @@
 # Copyright (c) 2012-2014 Kapiche Limited
 # Author: Ryan Stuart <ryan@kapiche.com>
-import os
 from abc import abstractproperty
+from pkg_resources import get_distribution, DistributionNotFound
 
-version_file = open(os.path.join(os.path.dirname(__file__), 'VERSION'), 'r')
-full_version = version_file.read().strip().split('-')
-version_file.close()
-
-VERSION = full_version[0]  # Major version number, X.Y
-RELEASE = full_version[1] if len(full_version) > 1 else ''  # Release name
+try:
+    __version__ = get_distribution(__name__).version
+except DistributionNotFound:
+    # package is not installed
+    pass
 
 
 def abstract_method_tester(abc):

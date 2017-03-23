@@ -2,7 +2,6 @@
 # Author: Ryan Stuart <ryan@kapiche.com>
 from distutils.core import setup
 from io import open
-import os
 from setuptools.command.test import test as TestCommand
 import sys
 
@@ -23,11 +22,6 @@ class Tox(TestCommand):
 with open('README.rst', encoding='utf-8') as f:
     long_description = f.read()
 
-# Use the VERSION file to get caterpillar version
-version_file = os.path.join(os.path.dirname(__file__), 'caterpillar', 'VERSION')
-with open(version_file, encoding='utf-8') as fh:
-    caterpillar_version = fh.read().strip()
-
 requires = [
     'apsw',
     'arrow',
@@ -38,7 +32,7 @@ requires = [
 
 setup(
     name='caterpillar',
-    version=caterpillar_version,
+    use_scm_version=True,
     long_description=long_description,
     packages=[
         'caterpillar',
@@ -64,6 +58,7 @@ setup(
     ],
     keywords='indexing text analytics',
     install_requires=requires,
+    setup_requires=['setuptools_scm'],
     extras_require={
         'test': ['tox', 'pytest', 'pytest-cov', 'coverage', 'pep8', 'mock'],
     },
