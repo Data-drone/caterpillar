@@ -48,18 +48,17 @@ Roadmap
 We are working on porting our issues from our internal issue tracker over to a more visible system. But, for the time
 being, here is a general roadmap:
 
-* Move to (possibly only) Python 3 (see below).
+* Move to Python 3 (see below).
 * Revamp schema and field design.
-* Add a memory storage implementation.
-* Revamp query design.
+* Support more languages
 * Remove the NLTK dependency (great library, but only used for tokenisation).
-* Switch index structures over to a more efficient data structure (possibly numpy arrays or similar).
+* Switch index structures over to a more efficient data structure (In progress).
     
 The current plan is to move to using GitHub issues with HuBoard, but stay tuned.
     
 Python Version
 ==============
-Currently Python 2.7+ only. Work is underway to support Python 3+. **WARNING**: Caterpillar *might* become Python 3+ 
+Currently Python 2.7+ only. Work is underway to support Python 3+. **WARNING**: Caterpillar *will* become Python 3+ 
 **only** in the future. Stay tuned.
 
 BDFLs
@@ -73,11 +72,19 @@ Anyone who is willing! In other words none yet, but we are more then accepting o
 
 Contributing
 ============
-Not code will be merged unless it has 100% test coverage and passes pep8. We code with a line length of 120 characters 
-(see tox.ini [pep8] section) and we use `py.test <http://pytest.org/>`_ for testing. Tests are in a *test* sub-folder in 
-each package. We generally run coverage as follows::
+No code will be merged unless it has 100% test coverage and passes the flake8 linting. We code with a line length of 120 characters (see tox.ini [pep8] section) and we use `py.test <http://pytest.org/>`_ for testing. Tests are in a *test*sub-folder in each package. Tox is configured to run the test suite, reporting unit test passes, coverage and linting
+automatically.
 
-    coverage erase; coverage run --source caterpillar -m py.test -v caterpillar; coverage report
+.. code::
+
+    # Run the whole test suite:
+    tox
+
+    # Run just the linting checks by specifying a specific test environment:
+    tox -e flake8
+
+    # Pass some arguments to py.test through the tox runner (in this case run only a specific set of tests)
+    tox -e py27 -- -k test_index
 
 Copyright and License
 =====================

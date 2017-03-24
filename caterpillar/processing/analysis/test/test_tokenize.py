@@ -5,7 +5,9 @@ import os
 import pytest
 from arrow.parser import ParserError
 from itertools import product
-from caterpillar.processing.analysis.tokenize import *
+from caterpillar.processing.analysis.tokenize import (
+    Tokenizer, RegexpTokenizer, ParagraphTokenizer, WordTokenizer, EverythingTokenizer, DateTimeTokenizer
+)
 
 
 # Some basic error condition and plumbing tests #

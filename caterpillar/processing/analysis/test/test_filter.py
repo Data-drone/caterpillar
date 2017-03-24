@@ -2,7 +2,10 @@
 # Author: Ryan Stuart <ryan@kapiche.com>
 """Tests for the caterpillar.processing.analysis.filter module."""
 import pytest
-from caterpillar.processing.analysis.filter import *
+from caterpillar.processing.analysis.filter import (
+    StopFilter, PassFilter, Filter, SubstitutionFilter, LowercaseFilter, SearchFilter,
+    OuterPunctuationFilter, PossessiveContractionFilter
+)
 from caterpillar.processing.analysis.tokenize import WordTokenizer, Token, SimpleWordTokenizer
 
 
