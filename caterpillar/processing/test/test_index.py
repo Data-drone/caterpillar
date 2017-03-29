@@ -769,3 +769,6 @@ def test_concurrent_read_write_contention(index_dir):
     pool.close()
 
     assert max(x) == 100
+
+def test_failing_pipeline_test():
+    assert False
