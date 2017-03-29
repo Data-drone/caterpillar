@@ -2,7 +2,6 @@ pipeline {
   agent  any
   environment {
     GIT_COMMITTER_NAME = "jenkins"
-    GIT_COMMITTER_EMAIL = "jenkins@jenkins.io"
   }
   stages {
     stage("Tox") {
@@ -13,6 +12,7 @@ pipeline {
     stage("Archive Results"){
       steps {
         junit 'junit*.xml'
+        publishHTML([allowMissing: false, alwaysLinkToLastBuild: true, keepAll: true, reportDir: 'coverage_report', reportFiles: 'index.html', reportName: 'Coverage Report'])
       }
     }
   }
