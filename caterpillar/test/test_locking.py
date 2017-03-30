@@ -3,7 +3,6 @@
 """Tests for caterpillar/locking.py."""
 import os
 import errno
-from mock import patch
 import pytest
 
 from caterpillar.locking import PIDLockFile, AlreadyLocked, LockFailed, NotLocked, NotMyLock
