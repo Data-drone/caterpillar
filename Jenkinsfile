@@ -24,11 +24,27 @@ pipeline {
             string(
               credentialsId: 'devpi_test_index_url',
               variable: 'TWINE_REPOSITORY_URL'
+            ),
+            // Handle a weird edgecase in environment variable handling for twine
+            // This affects the jenkins user in particular, because there is no 
+            // .pypirc for them.
+            // https://github.com/pypa/twine/issues/206
+            string(
+              credentialsId: 'devpi_test_index_url',
+              variable: 'TWINE_REPOSITORY'
             )
           ]) {
-          sh 'python setup.py sdist bdist_wheel'
-          sh 'twine upload dist/*'
+          sh 'python setup.py sdist'
+          sh 'python -m twine upload dist/*'
         }
+      }
+    }
+    stage("Test Downstream"){
+      when {
+        branch 'master'
+      }
+      steps {
+        build job: '/Kapiche/caterpillar-influence/master', wait: false
       }
     }
   }
