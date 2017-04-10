@@ -9,7 +9,10 @@ import pytest
 import apsw
 
 from caterpillar.storage import StorageNotFoundError, DuplicateStorageError
-from caterpillar.storage.sqlite import SqliteReader, SqliteWriter, _count_bitwise_matches
+from caterpillar.storage.sqlite import (
+    SqliteReader, SqliteWriter, _count_bitwise_matches, CURRENT_SCHEMA,
+    MigrationError, SqliteSchemaMismatchError
+)
 
 
 @pytest.fixture
@@ -283,6 +286,62 @@ def test_filter_error(tmp_dir):
         reader.filter_metadata(metadata={'test_field': {'*=': 1}})
 
     reader.close()
+
+
+def test_open_migrate_old_schema_version(index_dir):
+    """Open and attempt to operate storage created with an earlier version. """
+    # Copy the old index to the temp dir, as we need to modify it.
+    migrate_index = os.path.join(index_dir, 'sample_index')
+    shutil.copytree('caterpillar/test_resources/alice_indexed_v0_10_0', migrate_index)
+    writer = SqliteWriter(migrate_index)
+    reader = SqliteReader(migrate_index)
+    cursor = writer._db_connection.cursor()
+
+    # Mismatched versions raise errors on begin
+    with pytest.raises(SqliteSchemaMismatchError):
+        writer.begin()
+
+    with pytest.raises(SqliteSchemaMismatchError):
+        reader.begin()
+
+    # Test migrating to a newer version that doesn't exist
+    # This relies on the on disk version being None, and -1 > None in Python
+    with pytest.raises(MigrationError):
+        writer.migrate(version=-1)
+
+    # Failed migrations should rollback - test by premangling the schema.
+    cursor.execute('create table migrations (test integer primary key)')
+    with pytest.raises(MigrationError):
+        writer.migrate()
+    assert writer.schema_version is None
+    cursor.execute('drop table migrations')
+
+    schema_version = writer.migrate()
+    assert schema_version == CURRENT_SCHEMA
+    # Ensure migrations are idempotent
+    schema_version = writer.migrate()
+    assert schema_version == CURRENT_SCHEMA
+
+    # Now that the database is at a real numerical version,
+    # test migrating to an older version that doesn't exist
+    with pytest.raises(MigrationError):
+        writer.migrate(version=-1)
+
+    # Mess with the schema version table, just to simulate newer schema versions than current.
+    cursor.execute('insert into migrations(id) values (?)', [schema_version + 1])
+    with pytest.raises(Exception):
+        reader.begin()
+
+    with pytest.raises(Exception):
+        writer.begin()
+
+    cursor.execute('delete from migrations where id = ?', [schema_version + 1])
+
+    schema_version = writer.migrate(0)
+    assert schema_version == 0
+
+    with pytest.raises(MigrationError):
+        writer.migrate(version=CURRENT_SCHEMA + 1)
 
 
 def test_duplicate_database(tmp_dir):
