@@ -1,9 +1,6 @@
 # Copyright (c) 2012-2014 Kapiche Limited
 # Author: Kris Rogers <kris@mammothlabs.com.au>, Ryan Stuart <ryan@kapiche.com>
 """Tests for caterpillar.storage.sqlite.py."""
-import os
-import shutil
-import tempfile
 
 import pytest
 import apsw
@@ -12,53 +9,38 @@ from caterpillar.storage import StorageNotFoundError, DuplicateStorageError
 from caterpillar.storage.sqlite import SqliteReader, SqliteWriter, _count_bitwise_matches
 
 
-@pytest.fixture
-def tmp_dir(request):
-    path = tempfile.mkdtemp()
-
-    def clean():
-        shutil.rmtree(path)
-
-    request.addfinalizer(clean)
-    new_path = os.path.join(path, "test")
-    os.makedirs(new_path)
-    return new_path
-
-
-def test_add_get_delete_fields(tmp_dir):
+def test_add_get_delete_fields(index_dir):
     """ Test adding indexed fields to the schema. """
-    writer = SqliteWriter(tmp_dir, create=True)
+    writer = SqliteWriter(index_dir, create=True)
 
-    add_fields1 = ['test', 'test2']
-    add_fields2 = ['test1', '']
+    add_fields1 = {'test': dict(type='text', arbitrary=7), 'test2': dict(type='text')}
+    add_fields2 = {'test1': {'potato': 'vegetable'}, '': {}}
     writer.begin()
-    writer.add_structured_fields(add_fields1)
-    writer.add_unstructured_fields(add_fields2)
+    writer.add_fields(**add_fields1)
+    writer.add_fields(**add_fields2)
+    writer.add_fields(testing={})
     writer.commit()
 
-    reader = SqliteReader(tmp_dir)
+    reader = SqliteReader(index_dir)
     reader.begin()
-    structured = reader.structured_fields
-    unstructured = reader.unstructured_fields
+    fields = reader.fields
     reader.commit()
 
-    for field in structured:
-        assert field in add_fields1
-    for field in unstructured:
-        assert field in add_fields2
+    for field in fields:
+        assert (
+            field in add_fields1 or
+            field in add_fields2 or
+            field == 'testing'
+        )
 
 
-def test_nonexistent_path(tmp_dir):
+def test_nonexistent_path(index_dir):
     with pytest.raises(StorageNotFoundError):
-        SqliteWriter(tmp_dir + '/nonexistent_dir')
+        SqliteWriter(index_dir + '/nonexistent_dir')
 
 
-def test_alternate_document_format(tmp_dir):
-    pass
-
-
-def test_bad_document_format(tmp_dir):
-    writer = SqliteWriter(tmp_dir, create=True)
+def test_bad_document_format(index_dir):
+    writer = SqliteWriter(index_dir, create=True)
 
     bad_document = [
         'A badly formatted document',
@@ -73,7 +55,7 @@ def test_bad_document_format(tmp_dir):
     ]
 
     writer.begin()
-    writer.add_unstructured_fields(['text'])
+    writer.add_fields(text=dict(type='text', field_setting=42))
 
     # Non matching fields
     with pytest.raises(ValueError):
@@ -87,10 +69,11 @@ def test_bad_document_format(tmp_dir):
     with pytest.raises(ValueError):
         writer.add_analyzed_document('unknown_format', bad_document)
 
+    writer.commit()
     writer.close()
 
 
-def test_add_get_document(tmp_dir):
+def test_add_get_document(index_dir):
 
     sample_format_document = (
         'An example document without anything fancy',
@@ -103,12 +86,16 @@ def test_add_get_document(tmp_dir):
         ]}
     )
 
-    writer = SqliteWriter(tmp_dir, create=True)
+    writer = SqliteWriter(index_dir, create=True)
 
     # Add one document
     writer.begin()
-    writer.add_structured_fields(['test_field', 'other_field'])
-    writer.add_unstructured_fields(['text'])
+    writer.add_fields(
+        test_field=dict(a=1, b=2, c=3),
+        other_field=dict(type='salad'),
+        text={}
+    )
+
     writer.add_analyzed_document('v1', sample_format_document)
 
     with pytest.raises(apsw.SQLError):
@@ -118,10 +105,10 @@ def test_add_get_document(tmp_dir):
 
     writer.commit()
 
-    reader_transaction = SqliteReader(tmp_dir)
+    reader_transaction = SqliteReader(index_dir)
     reader_transaction.begin()
 
-    reader = SqliteReader(tmp_dir)
+    reader = SqliteReader(index_dir)
 
     with pytest.raises(apsw.SQLError):
         reader._execute('select * from nonexistent_table')
@@ -165,7 +152,7 @@ def test_add_get_document(tmp_dir):
     assert sum(i[1] for i in reader.iterate_term_frequencies()) == 0
 
 
-def test_iterators(tmp_dir):
+def test_iterators(index_dir):
 
     sample_format_document = (
         'An example document without anything fancy',
@@ -178,19 +165,22 @@ def test_iterators(tmp_dir):
         ]}
     )
 
-    writer = SqliteWriter(tmp_dir, create=True)
+    writer = SqliteWriter(index_dir, create=True)
 
     # Add many documents.
     writer.begin()
-    writer.add_structured_fields(['test_field', 'other_field'])
-    writer.add_unstructured_fields(['text'])
+    writer.add_fields(
+        test_field=dict(a=1, b=2, c=3),
+        other_field=dict(type='salad'),
+        text={}
+    )
     for i in range(100):
         writer.add_analyzed_document('v1', sample_format_document)
     writer.commit()
 
     assert len(writer._SqliteWriter__last_added_documents) == 100
 
-    reader = SqliteReader(tmp_dir)
+    reader = SqliteReader(index_dir)
     reader.begin()
 
     positions = reader._iterate_positions(include_fields=['text'])
@@ -249,7 +239,7 @@ def test_iterators(tmp_dir):
     reader.close()
 
 
-def test_filter_error(tmp_dir):
+def test_filter_error(index_dir):
 
     sample_format_document = (
         'An example document without anything fancy',
@@ -262,17 +252,20 @@ def test_filter_error(tmp_dir):
         ]}
     )
 
-    writer = SqliteWriter(tmp_dir, create=True)
+    writer = SqliteWriter(index_dir, create=True)
 
     # Add many documents.
     writer.begin()
-    writer.add_structured_fields(['test_field', 'other_field'])
-    writer.add_unstructured_fields(['text'])
+    writer.add_fields(
+        test_field=dict(a=1, b=2, c=3),
+        other_field=dict(type='salad'),
+        text={}
+    )
     for i in range(100):
         writer.add_analyzed_document('v1', sample_format_document)
     writer.commit()
 
-    reader = SqliteReader(tmp_dir)
+    reader = SqliteReader(index_dir)
     reader.begin()
 
     with pytest.raises(ValueError):
@@ -285,10 +278,10 @@ def test_filter_error(tmp_dir):
     reader.close()
 
 
-def test_duplicate_database(tmp_dir):
-    SqliteWriter(tmp_dir, create=True)
+def test_duplicate_database(index_dir):
+    SqliteWriter(index_dir, create=True)
     with pytest.raises(DuplicateStorageError):
-        SqliteWriter(tmp_dir, create=True)
+        SqliteWriter(index_dir, create=True)
 
 
 def test_negative_positions():

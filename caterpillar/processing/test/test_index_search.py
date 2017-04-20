@@ -13,7 +13,7 @@ import os
 import pytest
 
 from caterpillar import composition
-from caterpillar.storage.sqlite import SqliteStorage
+from caterpillar.storage.sqlite import SqliteWriter, SqliteReader
 from caterpillar.processing.index import IndexWriter, IndexReader, IndexConfig, NonIndexedFieldError
 from caterpillar.processing import schema
 from caterpillar.test_util import TestAnalyser
@@ -22,32 +22,34 @@ from caterpillar.test_util import TestAnalyser
 def test_searching_filtering_nps(index_dir):
     """Test searching nps-backed data."""
     with open('caterpillar/test_resources/big.csv', 'rbU') as f:
-        analyser = TestAnalyser()
-        config = IndexConfig(
-            SqliteStorage, schema.Schema(
-                respondant=schema.NUMERIC,
-                region=schema.CATEGORICAL_TEXT(indexed=True),
-                store=schema.CATEGORICAL_TEXT(indexed=True),
-                liked=schema.TEXT(analyser=analyser),
-                disliked=schema.TEXT(analyser=analyser),
-                would_like=schema.TEXT(analyser=analyser),
-                nps=schema.NUMERIC(indexed=True),
-                fake=schema.NUMERIC(indexed=True),
-                fake2=schema.CATEGORICAL_TEXT(indexed=True),
-                fake3=schema.CATEGORICAL_TEXT(indexed=True)
+
+        with IndexWriter(SqliteWriter(index_dir, create=True)) as writer:
+            writer.add_fields(
+                respondant=dict(type='numeric'),
+                region=dict(type='categorical_text', indexed=True),
+                store=dict(type='categorical_text', indexed=True),
+                liked=dict(type='test_text'),
+                disliked=dict(type='test_text'),
+                would_like=dict(type='test_text'),
+                nps=dict(type='numeric', indexed=True),
+                fake=dict(type='numeric', indexed=True),
+                fake2=dict(type='categorical_text', indexed=True),
+                fake3=dict(type='categorical_text', indexed=True)
             )
-        )
-        with IndexWriter(index_dir, config) as writer:
             csv_reader = csv.reader(f)
             csv_reader.next()  # Skip header
             empty_rows = 0
             for row in csv_reader:
                 if len(row[3]) + len(row[4]) + len(row[5]) == 0:
                     empty_rows += 1
-                writer.add_document(respondant=row[0], region=row[1], store=row[2], liked=row[3],
-                                    disliked=row[4], would_like=row[5], nps=row[6], fake2=None, fake3=' spaces ')
+                writer.add_document(
+                    dict(
+                        respondant=row[0], region=row[1], store=row[2], liked=row[3],
+                        disliked=row[4], would_like=row[5], nps=row[6], fake2=None, fake3=' spaces '
+                    )
+                )
 
-        with IndexReader(index_dir) as reader:
+        with IndexReader(SqliteReader(index_dir)) as reader:
 
             results = reader.filter(should=['point', 'pointed', 'points'], include_fields=['would_like'])
             assert len(results) == 14
@@ -239,12 +241,13 @@ def test_reader_query_basic(index_dir):
     """Test querystring query basic functionality."""
     with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'rbU') as f:
         data = f.read()
-        config = IndexConfig(SqliteStorage, schema=schema.Schema(text1=schema.TEXT, text2=schema.TEXT))
-        with IndexWriter(index_dir, config) as writer:
-            writer.add_document(text1=data, text2=data)
+
+        with IndexWriter(SqliteWriter(index_dir, create=True)) as writer:
+            writer.add_fields(text1=dict(type='text'), text2=dict(type='text'))
+            writer.add_document(dict(text1=data, text2=data))
 
     # Simple terms
-    with IndexReader(index_dir) as reader:
+    with IndexReader(SqliteReader(index_dir)) as reader:
         alice_count = len(reader.filter(must=['Alice'], include_fields=['text1']))
         king_count = len(reader.filter(must=['King'], include_fields=['text1']))
         assert alice_count > 0
@@ -298,11 +301,11 @@ def test_reader_query_basic(index_dir):
         king_document_count = len(reader.filter(must=['King'], include_fields=['text1'], return_documents=True))
         assert alice_document_count == king_document_count == 1
 
-    with IndexWriter(index_dir, config) as writer:
-        writer.add_document(text1='a Alice', text2='b King')
+    with writer:
+        writer.add_document(dict(text1='a Alice', text2='b King'))
 
     # Simple terms
-    with IndexReader(index_dir) as reader:
+    with reader:
         alice_document_count1 = len(reader.filter(must=['Alice'], include_fields=['text1'], return_documents=True))
         king_document_count1 = len(reader.filter(must=['King'], include_fields=['text1'], return_documents=True))
         alice_document_count2 = len(reader.filter(must=['Alice'], include_fields=['text2'], return_documents=True))
@@ -316,18 +319,20 @@ def test_reader_query_basic(index_dir):
 
 def test_reader_query_advanced(index_dir):
     """Test querysting query advanced searching."""
-    config = IndexConfig(SqliteStorage, schema.Schema(liked=schema.TEXT, disliked=schema.TEXT,
-                                                      age=schema.NUMERIC(indexed=True),
-                                                      gender=schema.CATEGORICAL_TEXT(indexed=True),
-                                                      non_indexed=schema.CATEGORICAL_TEXT(indexed=False)))
-    with IndexWriter(index_dir, config) as writer:
-        writer.add_document(liked='product', disliked='service', age=20, gender='male')
-        writer.add_document(liked='service', disliked='product', age=30, gender='male')
-        writer.add_document(liked='service', disliked='price', age=40, gender='female')
-        writer.add_document(liked='product', disliked='product', age=80, gender='female')
+    with IndexWriter(SqliteWriter(index_dir, create=True)) as writer:
+        writer.add_fields(
+            liked=dict(type='text'), disliked=dict(type='text'),
+            age=dict(type='numeric', indexed=True),
+            gender=dict(type='categorical_text', indexed=True),
+            non_indexed=dict(type='categorical_text', indexed=False)
+        )
+        writer.add_document(dict(liked='product', disliked='service', age=20, gender='male'))
+        writer.add_document(dict(liked='service', disliked='product', age=30, gender='male'))
+        writer.add_document(dict(liked='service', disliked='price', age=40, gender='female'))
+        writer.add_document(dict(liked='product', disliked='product', age=80, gender='female'))
 
     # Metadata
-    with IndexReader(index_dir) as reader:
+    with IndexReader(SqliteReader(index_dir)) as reader:
         # Test presence of terms for each text_field
         # field: "liked":
         assert len(reader.filter(metadata={'age': {'=': 80}}, include_fields=['liked'])) == 1
@@ -385,12 +390,13 @@ def test_searching_alice(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'rbU') as f:
         f.seek(0)
         data = f.read()
-        analyser = TestAnalyser()
-        config = IndexConfig(SqliteStorage, schema=schema.Schema(text=schema.TEXT(analyser=analyser)))
-        with IndexWriter(index_dir, config) as writer:
-            writer.add_document(text=data, frame_size=2)
 
-        with IndexReader(index_dir) as reader:
+        with IndexWriter(SqliteWriter(index_dir, create=True)) as writer:
+            writer.add_fields(text=dict(type='test_text'))
+            writer.add_document(dict(text=data), frame_size=2)
+
+        with IndexReader(SqliteReader(index_dir)) as reader:
+
             assert len(reader.filter(should=['King'])) == 59
             assert len(reader.filter(should=['King', 'Queen'])) == 122 == \
                 len(reader.filter(should=['Queen', 'King']))
@@ -513,12 +519,12 @@ def test_searching_alice_simple(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'rbU') as f:
         f.seek(0)
         data = f.read()
-        analyser = TestAnalyser()
-        config = IndexConfig(SqliteStorage, schema=schema.Schema(text=schema.TEXT(analyser=analyser)))
-        with IndexWriter(index_dir, config) as writer:
-            writer.add_document(text=data, frame_size=2)
 
-        with IndexReader(index_dir) as reader:
+        with IndexWriter(SqliteWriter(index_dir, create=True)) as writer:
+            writer.add_fields(text=dict(type='text'))
+            writer.add_document(dict(text=data), frame_size=2)
+
+        with IndexReader(SqliteReader(index_dir)) as reader:
             results1 = reader.filter(should=['Alice', 'Caterpillar'])
             # Should be the same as results1 - supported for convenience
             results2 = reader.filter(should=[('Alice', 'Caterpillar')])
@@ -544,12 +550,12 @@ def test_searching_mt_warning(index_dir):
     """Test searching for mt warning data."""
     with open(os.path.abspath('caterpillar/test_resources/mt_warning_utf8.txt'), 'rbU') as f:
         data = f.read()
-        analyser = TestAnalyser()
-        config = IndexConfig(SqliteStorage, schema=schema.Schema(text=schema.TEXT(analyser=analyser)))
-        with IndexWriter(index_dir, config) as writer:
-            writer.add_document(text=data, frame_size=2)
 
-        with IndexReader(index_dir) as reader:
+        with IndexWriter(SqliteWriter(index_dir, create=True)) as writer:
+            writer.add_fields(text=dict(type='text'))
+            writer.add_document(dict(text=data), frame_size=2)
+
+        with IndexReader(SqliteReader(index_dir)) as reader:
             assert len(reader.filter(should=['1770'])) == 2
             assert len(reader.filter(should=['1,900'])) == 1
             assert len(reader.filter(should=['4.4'])) == 1
@@ -558,16 +564,15 @@ def test_searching_mt_warning(index_dir):
 def test_searching_twitter(index_dir):
     """Test searching twitter data."""
     with open('caterpillar/test_resources/twitter_sentiment.csv', 'rbU') as f:
-        analyser = TestAnalyser()
-        config = IndexConfig(SqliteStorage, schema=schema.Schema(text=schema.TEXT(analyser=analyser),
-                                                                 sentiment=schema.CATEGORICAL_TEXT(indexed=True)))
-        with IndexWriter(index_dir, config) as writer:
+
+        with IndexWriter(SqliteWriter(index_dir, create=True)) as writer:
+            writer.add_fields(text=dict(type='text'), sentiment=dict(type='categorical_text', indexed=True))
             csv_reader = csv.reader(f)
             csv_reader.next()  # Skip header
             for row in csv_reader:
-                writer.add_document(text=row[1], sentiment=row[0])
+                writer.add_document(dict(text=row[1], sentiment=row[0]))
 
-        with IndexReader(index_dir) as reader:
+        with IndexReader(SqliteReader(index_dir)) as reader:
             assert len(reader.filter(should=['@NYSenate'])) == 1
             assert len(reader.filter(should=['summerdays@gmail.com'])) == 1
 
@@ -583,21 +588,14 @@ def test_range_paging_alice(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'rbU') as f:
         f.seek(0)
         data = f.read()
-        analyser = TestAnalyser()
-        config = IndexConfig(
-            SqliteStorage,
-            schema=schema.Schema(
-                text1=schema.TEXT(analyser=analyser),
-                text2=schema.TEXT(analyser=analyser)
-            )
-        )
 
-        with IndexWriter(index_dir, config) as writer:
-            writer.add_document(text1=data, frame_size=2)
-            writer.add_document(text1=data, frame_size=2)
-            writer.add_document(text2=data, frame_size=2)
+        with IndexWriter(SqliteWriter(index_dir, create=True)) as writer:
+            writer.add_fields(text1=dict(type='text'), text2=dict(type='text'))
+            writer.add_document(dict(text1=data, frame_size=2))
+            writer.add_document(dict(text1=data, frame_size=2))
+            writer.add_document(dict(text2=data, frame_size=2))
 
-        with IndexReader(index_dir) as reader:
+        with IndexReader(SqliteReader(index_dir)) as reader:
             total_frames = reader.get_frame_count('text1') + reader.get_frame_count('text2')
             total_documents = reader.get_document_count()
 
@@ -650,21 +648,18 @@ def test_search_alice_attributes(index_dir):
     """Whole bunch of functional tests on the index."""
     with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'r') as f:
         data = f.read()
-        analyser = TestAnalyser()
-        writer = IndexWriter(
-            index_dir, IndexConfig(
-                SqliteStorage, schema.Schema(
-                    text1=schema.TEXT(analyser=analyser), text2=schema.TEXT,
-                    document=schema.TEXT(analyser=analyser, indexed=False),
-                    blank=schema.NUMERIC(indexed=True), ref=schema.ID(indexed=True)
-                )
+
+        with IndexWriter(SqliteWriter(index_dir, create=True)) as writer:
+            writer.add_fields(
+                text1=dict(type='text'), text2=dict(type='text'),
+                document=dict(type='text', indexed=False),
+                blank=dict(type='numeric', indexed=True),
+                ref=dict(type='id', indexed=True)
             )
-        )
-        with writer:
-            writer.add_document(text1=data, text2=data, document='alice.txt', blank=None, ref=123, frame_size=2)
+            writer.add_document(dict(text1=data, text2=data, document='alice.txt', blank=None, ref=123), frame_size=2)
 
         # Label all the frames with some nonsense attributes
-        with IndexReader(index_dir) as reader:
+        with IndexReader(SqliteReader(index_dir)) as reader:
             frame_ids = list(reader.get_frame_ids('text1'))
 
         attribute_index = {}
@@ -680,7 +675,7 @@ def test_search_alice_attributes(index_dir):
         with writer:
             writer.append_frame_attributes(attribute_index)
 
-        with IndexReader(index_dir) as reader:
+        with IndexReader(SqliteReader(index_dir)) as reader:
             positive_sentiment = reader._filter_attributes({'sentiment': {'=': 'positive'}})
             assert len(positive_sentiment) == len(frame_ids) // 3
             positive_sentiment_field_selective = reader._filter_attributes(

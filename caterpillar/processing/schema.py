@@ -7,19 +7,40 @@ schema and also provides a bunch of utility functions for working with schemas a
 """
 from __future__ import absolute_import, division
 
-import csv
+import logging
 import re
 import sys
 
-import regex
+import nltk
+import ujson as json
 
-from caterpillar.processing.analysis.analyse import BiGramAnalyser, EverythingAnalyser, \
+from caterpillar.processing.analysis.analyse import EverythingAnalyser, \
     DefaultAnalyser, DateTimeAnalyser
-from caterpillar.processing.analysis.tokenize import Token
+from caterpillar.processing.analysis.tokenize import Token, ParagraphTokenizer
+from caterpillar.test_util import TestAnalyser
+
+
+logger = logging.getLogger(__name__)
 
 
 class FieldConfigurationError(Exception):
-    pass
+    """There is a problem with the configuration of the field."""
+
+
+class NonIndexedFieldError(ValueError):
+    """The field is not a searchable indexed field. """
+
+
+class UnknownFieldError(ValueError):
+    """The field is not defined on the index. """
+
+
+class UnsupportedOperatorError(ValueError):
+    """The operator is not supported for the given field."""
+
+
+class NonSearchableOperatorError(ValueError):
+    """The operator is valid for the field, but not supported for search."""
 
 
 class FieldType(object):
@@ -201,6 +222,18 @@ class CATEGORICAL_TEXT(CategoricalFieldType):
         return re.match(wildcard_value, value) is not None
 
 
+class _TestText(TEXT):
+    """A text field type used for testing."""
+    def __init__(self, analyser=TestAnalyser(), indexed=True, stored=True):
+        """
+        Create a field similar to TEXT, but with controlled parameters for testing.
+
+        This should not be used other than testing.
+
+        """
+        super(_TestText, self).__init__(analyser=analyser, indexed=indexed, stored=stored)
+
+
 class DATETIME(FieldType):
     """Field type for datetimes.
 
@@ -330,211 +363,252 @@ class Schema(object):
         self._fields[name] = field_type
 
 
-class ColumnDataType(object):
+class CaterpillarLegacySchema(object):
     """
-    A ColumnDataType object identifies different data types in a CSV column.
+    An adapter for Schema objects to support the newer API.
 
-    There are five possible data types:
-    FLOAT -- A floating point number. Should be a string in a format that float() can parse.
-    INTEGER -- A integer. Should be in a format that int() can parse.
-    STRING -- A string type. This type ISN'T analysed. It is just stored.
-    TEXT -- A string type. This is like STRING but it IS analysed and stored (it is used to generate a frame stream).
-    IGNORE -- Ignore this column.
+    This allows migration from the previous mechanism of pickling objects outside the transactional mechanism
+    of a writer to the current mechanism of declaring state that is saved inside the index.
 
-    """
-    FLOAT = 1
-    INTEGER = 2
-    STRING = 3
-    TEXT = 4
-    IGNORE = 5
+    Also supports returning an old Schema object for some forward/backwards compatability.
 
+    Currently this is a very thin skin implementing a very similar API, expect this to change in the future.
 
-class ColumnSpec(object):
-    """
-    A ColumnSpec object represents information about a column in a CSV file.
-
-    This includes the column's name and its type.
+    Limitations:
+        - Only the default analysers for each FieldType are supported.
 
     """
 
-    def __init__(self, name, type):
+    field_to_config = {
+        TEXT: 'text',
+        NUMERIC: 'numeric',
+        ID: 'id',
+        BOOLEAN: 'boolean',
+        CATEGORICAL_TEXT: 'categorical_text',
+        DATETIME: 'datetime',
+        _TestText: 'test_text'
+    }
+    config_to_field = {config: field for field, config in field_to_config.items()}
+
+    def __init__(self, **fields):
         """
-        Create a new ColumnSpec. A ColumnSpec must have a name and a type.
-
-        Required Arguments:
-        name -- A string name for this column.
-        type -- The type of this column as a ColumnDataType object.
+        All keyword arguments to the constructor are treated as ``fieldname = {config_key: config_val}`` pairs.
 
         """
-        self.name = name
-        self.field_name = name.replace(' ', '')
-        self.type = type
 
+        self.__schema = Schema()
+        self.config = {}
+        self.add_fields(**fields)
 
-class CsvSchema(object):
-    """
-    This class represents the schema required to process a particular CSV data file.
+    def __iter__(self):
+        """Returns the field objects in this schema."""
+        return iter(self.__schema)
 
-    Required Arguments:
-    columns -- A list of ``ColumnSpec`` objects to define how the data should be processed.
-    has_header -- A boolean indicating whether the first row of the file contains headers.
-    dialect -- The dialect to use when parsing the file.
+    def __getitem__(self, name):
+        """Returns the field associated with the given field name."""
+        return self.__schema[name]
 
-    Optional Arguments:
-    sample_rows -- A list of row data that was used to generate the schema.
+    def __len__(self):
+        """Returns the number of fields in this schema."""
+        return len(self.__schema)
 
-    """
-    def __init__(self, columns, has_header, dialect, sample_rows=[]):
-        self.columns = columns
-        self.has_header = has_header
-        self.dialect = dialect
-        self.sample_rows = sample_rows
+    def __contains__(self, field_name):
+        """Returns True if a field by the given name is in this schema."""
+        return field_name in self.__schema
 
-    def as_index_schema(self, bi_grams=None, stopword_list=None):
+    def items(self):
+        """Returns a list of ``("field_name", field_object)`` pairs for the fields in this schema."""
+        return self.__schema.items()
+
+    def names(self):
+        """Returns a list of the names of the fields in this schema."""
+        return self.__schema.names()
+
+    def get_indexed_text_fields(self):
+        """Returns a list of the indexed text fields."""
+        return self.__schema.get_indexed_text_fields()
+
+    def get_indexed_structured_fields(self):
+        """Returns a list of the indexed structured (non-text) fields."""
+        return self.__schema.get_indexed_structured_fields()
+
+    def add_fields(self, **fields):
+
+        for name in sorted(fields.keys()):
+            if name in self.config:
+                raise FieldConfigurationError('Field {} already exists in this schema'.format(name))
+            config = fields[name]
+            self.config[name] = config
+            config_filtered = {
+                name: value for name, value in config.items()
+                if name in ['indexed', 'stored', 'categorical']
+            }
+            self.__schema.add(
+                name, CaterpillarLegacySchema.config_to_field[config['type']](**config_filtered)
+            )
+
+    @classmethod
+    def parse_legacy_schema(cls, schema):
+        """ Takes an instance of a `schema` object, and returns a config for a new declarative style schema. """
+        field_config = {}
+        for field_name, field_object in schema.items():
+
+            this_field = {}
+            this_field['indexed'] = field_object.indexed
+            this_field['stored'] = field_object.stored
+
+            try:
+                this_field['type'] = CaterpillarLegacySchema.field_to_config[type(field_object)]
+            except KeyError:
+                raise FieldConfigurationError('Could not match field to a known FieldType object')
+
+            field_config[field_name] = this_field
+
+        return field_config
+
+    def get_legacy_schema(self):
+        """ Return a legacy schema object for storing in the file system for forwards compatability."""
+
+        return self.__schema
+
+    def analyse(self, document, frame_size=2, encoding='utf-8', encoding_errors='strict'):
         """
-        Return a representation of this ``CsvSchema`` in the form of a ``Schema`` instance that can be
-        used for generating a text index.
+        Analyse the document, returning a break down of fields, values and frames to be stored.
 
-        Optional Arguments:
-        bi_grams -- A list of bi-grams to use for TEXT columns.
-        stopword_list -- A list of stop words to use instead of default English list.
+        We index :class:`TEXT <caterpillar.schema.TEXT>` fields by breaking them into frames for analysis. The
+        ``frame_size`` (int) param controls the size of those frames. Setting ``frame_size`` to an int < 1 will result
+        in all text being put into one frame or, to put it another way, the text not being broken up into frames.
+
+        .. note::
+            Because we always store a full positional index with each index, we are still able to do document level
+            searches like TF/IDF even though we have broken the text down into frames. So, don't fret!
+
+        ``encoding`` (str) and ``encoding_errors`` (str) are passed directly to :meth:`str.decode()` to decode the data
+        for all :class:`TEXT <caterpillar.schema.TEXT>` fields. Refer to its documentation for more information.
+
+        ``**fields`` is the fields and their values for this document. Calling this method will look something like
+        this::
+
+            >>> writer.add_document(field1=value1, field2=value2).
+
+        Any unrecognized fields are just ignored.
+
+        Raises :exc:`TypeError` if something other then str or bytes is given for a TEXT field and :exec:`IndexError`
+        if there are any problems decoding a field.
 
         """
-        schema = Schema()
-        for col in self.columns:
 
-            if col.type == ColumnDataType.IGNORE:
+        schema_fields = self.__schema.items()
+        sentence_tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
+
+        # Build the frames by performing required analysis.
+        frames = {}  # Frame data:: field_name -> [frame1, frame2, frame3]
+        term_positions = {}  # Term vector data:: field_name --> [{term1:freq, term2:freq}, {term2:freq, term3:freq}]
+
+        metadata = {}  # Inverted frame metadata:: field_name -> field_value
+
+        # Shell frame includes all non-indexed and categorical fields
+        shell_frame = {}
+        for field_name, field in schema_fields:
+            if (not field.indexed or field.categorical) and field.stored and field_name in document:
+                shell_frame[field_name] = document[field_name]
+
+        # Tokenize fields that need it
+        logger.debug('Starting tokenization of document')
+        frame_count = 0
+
+        # Analyze document level structured fields separately to inject in the frames.
+        for field_name, field in schema_fields:
+
+            if field_name not in document or document[field_name] is None \
+                    or not field.indexed or not field.categorical:
+                # Skip fields not supplied or with empty values for this document.
                 continue
 
-            elif col.type == ColumnDataType.FLOAT:
-                schema.add(col.field_name, NUMERIC(num_type=float))
+            # Record categorical values
+            for token in field.analyse(document[field_name]):
+                metadata[field_name] = token.value
 
-            elif col.type == ColumnDataType.INTEGER:
-                schema.add(col.field_name, NUMERIC(num_type=int))
+        # Now just the unstructured fields
+        for field_name, field in schema_fields:
 
-            elif col.type == ColumnDataType.STRING:
-                schema.add(col.field_name, CATEGORICAL_TEXT)
+            if field_name not in document or document[field_name] is None \
+                    or not field.indexed or field.categorical:
+                continue
 
-            elif col.type == ColumnDataType.TEXT:
-                if bi_grams is not None:
-                    schema.add(col.field_name, TEXT(analyser=BiGramAnalyser(bi_grams, stopword_list=stopword_list)))
+            # Start the index for this field
+            frames[field_name] = []
+            term_positions[field_name] = []
+
+            # Index non-categorical fields
+            field_data = document[field_name]
+            expected_types = (str, bytes, unicode)
+            if isinstance(field_data, str) or isinstance(field_data, bytes):
+                try:
+                    field_data = document[field_name] = field_data.decode(encoding, encoding_errors)
+                except UnicodeError as e:
+                    raise IndexError("Couldn't decode the {} field - {}".format(field_name, e))
+            elif type(field_data) not in expected_types:
+                raise TypeError("Expected str or bytes or unicode for text field {} but got {}".
+                                format(field_name, type(field_data)))
+            if frame_size > 0:
+                # Break up into paragraphs
+                paragraphs = ParagraphTokenizer().tokenize(field_data)
+            else:
+                # Otherwise, the whole document is considered as one paragraph
+                paragraphs = [Token(field_data)]
+
+            for paragraph in paragraphs:
+                # Next we need the sentences grouped by frame
+                if frame_size > 0:
+                    sentences = sentence_tokenizer.tokenize(paragraph.value, realign_boundaries=True)
+                    sentences_by_frames = [sentences[i:i + frame_size]
+                                           for i in xrange(0, len(sentences), frame_size)]
                 else:
-                    schema.add(col.field_name, TEXT(analyser=DefaultAnalyser(stopword_list=stopword_list)))
+                    sentences_by_frames = [[paragraph.value]]
+                for sentence_list in sentences_by_frames:
+                    token_position = 0
+                    # Build our frames
+                    frame = {
+                        '_field': field_name,
+                        '_positions': {},
+                        '_sequence_number': frame_count,
+                        '_metadata': metadata  # Inject the document level structured data into the frame
+                    }
+                    if field.stored:
+                        frame['_text'] = " ".join(sentence_list)
+                    for sentence in sentence_list:
+                        # Tokenize and index
+                        tokens = field.analyse(sentence)
 
-        return schema
+                        # Record positional information
+                        for token in tokens:
+                            # Add to the list of terms we have seen if it isn't already there.
+                            if not token.stopped:
+                                # Record word positions
+                                try:
+                                    frame['_positions'][token.value].append(token_position)
+                                except KeyError:
+                                    frame['_positions'][token.value] = [token_position]
 
-    def map_row(self, row):
-        """
-        Convert a row into dict form to make it easier to index.
+                            token_position += 1
 
-        Required Arguments:
-        row -- A list of values for a row.
+                    # Build the final frame and add to the index
+                    frame.update(shell_frame)
+                    # Serialised representation of the frame
+                    frames[field_name].append(json.dumps(frame))
 
-        """
-        row_data = {}
-        i = 0
-        for col in self.columns:
-            if col.type != ColumnDataType.IGNORE:
-                row_data[col.field_name] = row[i]
-            i += 1
-        return row_data
+                    # Generate the term-frequency vector for the frame:
+                    term_positions[field_name].append(frame['_positions'])
 
+        # Finally add the document to storage.
+        doc_fields = {}
 
-AVG_WORDS_TEXT = 5  # Minimum number of average words per row to consider a column as text
-NUM_PEEK_ROWS_CSV = 20  # Number of csv rows to consider when generating automatic schema
+        for field_name, field in schema_fields:
+            if field.stored and field_name in document:
+                # Only record stored fields against the document
+                doc_fields[field_name] = document[field_name]
 
+        doc_repr = json.dumps(doc_fields)
 
-def generate_csv_schema(csv_file, delimiter=',', encoding='utf8'):
-    """
-    Attempt to generate a schema for the csv file automatically.
-
-    Required Arguments:
-    csv_file -- The CSV file to generate a schema for.
-
-    Optional Arguments:
-    delimiter -- CSV delimiter character.
-    encoding -- Character encoding of the file.
-
-    Returns a 2-tuple containing the generated schema and the sample rows used to generate the schema.
-
-    """
-    dialect = csv.excel
-
-    # Check for headers
-    has_header = csv_has_header(csv_file, dialect)
-
-    # Now actually read the file
-    csv_file.seek(0)
-    reader = csv.reader(csv_file, dialect)
-    headers = []
-    if has_header:
-        headers = reader.next()
-
-    # Collect column statistics
-    sample_rows = []
-    column_stats = {}
-    for i in range(NUM_PEEK_ROWS_CSV):
-        try:
-            row = reader.next()
-        except StopIteration:
-            # No more rows
-            break
-        sample_rows.append(row)
-        for j in range(len(row)):
-            col = row[j]
-            if j not in column_stats:
-                column_stats[j] = {'total_words': 0}
-            column_stats[j]['total_words'] += len(regex.findall(r'\w+', col))
-
-    # Define columns and generate schema
-    columns = []
-    for index, stats in column_stats.items():
-        name = None
-        if headers and index < len(headers):
-            name = unicode(headers[index], encoding, errors='ignore')
-        if name is None or len(name) == 0:
-            name = str(index + 1)
-        if stats['total_words'] / NUM_PEEK_ROWS_CSV >= AVG_WORDS_TEXT:
-            # Enough words for a text column
-            columns.append(ColumnSpec(name, ColumnDataType.TEXT))
-        else:
-            # Didn't match anything, default to IGNORE
-            columns.append(ColumnSpec(name, ColumnDataType.IGNORE))
-
-    return CsvSchema(columns, has_header, dialect, sample_rows)
-
-
-MAX_HEADER_SIZE_PERCENTAGE = 0.33  # Maximum size for header row as a percentage of the average row size
-
-
-def csv_has_header(csv_file, dialect, num_check_rows=50):
-    """
-    Custom heuristic for recognising header in CSV files. Intended to be used as an alternative
-    for the ``csv.Sniffer.has_header`` method which doesn't work well for mostly-text CSV files.
-
-    The heuristic we use simply checks the total size of the header row compared to the average row size for
-    the following sample rows. If a large discrepancy is found, we assume that the first row contains headers.
-
-    Required Arguments:
-    csv_file -- The csv data file to analyse.
-    dialect -- CSV dialect to use.
-
-    Optional Arguments:
-    num_check_rows -- The number of rows to analyse (defaults to 50).
-
-    """
-    reader = csv.reader(csv_file, dialect)
-    header = reader.next()  # assume first row is header
-    header_size = sum([len(col) for col in header])
-
-    # Compute average row size
-    total_row_size = 0
-    checked = 0
-    for row in reader:
-        if checked == num_check_rows:
-            break
-        total_row_size += sum([len(col) for col in row])
-        checked += 1
-    avg_row_size = total_row_size / checked
-
-    return header_size / avg_row_size <= MAX_HEADER_SIZE_PERCENTAGE
+        return ('v1', (doc_repr, metadata, frames, term_positions))

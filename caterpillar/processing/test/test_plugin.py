@@ -6,10 +6,10 @@ import ujson as json
 import pytest
 
 from caterpillar import abstract_method_tester
-from caterpillar.processing.index import IndexConfig, IndexWriter, IndexReader
+from caterpillar.processing.index import IndexWriter, IndexReader
 from caterpillar.processing.plugin import AnalyticsPlugin
 from caterpillar.processing import schema
-from caterpillar.storage.sqlite import SqliteStorage
+from caterpillar.storage.sqlite import SqliteWriter, SqliteReader
 from caterpillar.storage import PluginNotFoundError
 from caterpillar.test_util import TestAnalyser
 
@@ -45,38 +45,38 @@ class TestPlugin(AnalyticsPlugin):
 def test_plugin(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'rbU') as f:
         data = f.read()
-        analyser = TestAnalyser()
 
-        with IndexWriter(index_dir, IndexConfig(SqliteStorage, schema.Schema(text=schema.TEXT(analyser=analyser)))) as \
-                writer:
-            writer.add_document(text=data, frame_size=2)
+        with IndexWriter(SqliteWriter(index_dir, create=True)) as writer:
+            writer.add_fields(text=dict(type='test_text'))
+            writer.add_document(dict(text=data), frame_size=2)
 
         # Run some plugins, and save in the index.
-        with IndexReader(index_dir) as reader:
+        with IndexReader(SqliteReader(index_dir)) as reader:
             test_plugins = [TestPlugin(reader, i) for i in range(1, 10)]
             for plugin in test_plugins:
                 plugin.run()
 
-            with IndexWriter(index_dir) as writer:
-                for i, plugin in enumerate(test_plugins):
-                    writer.set_plugin_state(plugin)
+        with writer:
+            for i, plugin in enumerate(test_plugins):
+                writer.set_plugin_state(plugin)
 
+        with reader:
             assert len(reader.list_plugins()) == 9 == len(writer.last_updated_plugins)
 
         # Restore the plugin from the index
-        with IndexReader(index_dir) as reader:
+        with reader:
             restore_plugin = TestPlugin(reader, 1)
             restore_plugin.load()
             assert test_plugins[0].internal_state == restore_plugin.internal_state
 
         # Make sure we can overwrite a plugin:
-        with IndexWriter(index_dir) as writer:
+        with writer:
             for i, plugin in enumerate(test_plugins):
                 writer.set_plugin_state(plugin)
 
         assert len(writer.last_updated_plugins) == len(test_plugins)
 
-        with IndexReader(index_dir) as reader:
+        with reader:
             plugin_list = reader.list_plugins()
             assert len(plugin_list) == 9
             # Load each of the plugins by ID
@@ -87,21 +87,21 @@ def test_plugin(index_dir):
 
         # Raise an error if plugin's type-settings combination not found
         with pytest.raises(PluginNotFoundError):
-            with IndexReader(index_dir) as reader:
+            with reader:
                 plugin_not_stored = TestPlugin(reader, 10)
                 plugin_not_stored.load()
 
         # Delete plugin data from the index
-        with IndexWriter(index_dir) as writer:
+        with writer:
             writer.delete_plugin_instance(restore_plugin)
 
-        with IndexReader(index_dir) as reader:
+        with reader:
             assert len(reader.list_plugins()) == 8
 
-        with IndexWriter(index_dir) as writer:
+        with writer:
             writer.delete_plugin_type(plugin_type='trivial_test_plugin')
 
-        with IndexReader(index_dir) as reader:
+        with reader:
             assert len(reader.list_plugins()) == 0
             # Ensure there is no dangling plugin data
             assert reader._IndexReader__storage._execute('select count(*) from plugin_data;').fetchone()[0] == 0

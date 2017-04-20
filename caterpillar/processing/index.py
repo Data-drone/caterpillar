@@ -63,14 +63,19 @@ import ujson as json
 
 import nltk
 
+from .schema import (
+    CaterpillarLegacySchema, NonIndexedFieldError, UnknownFieldError, UnsupportedOperatorError,
+    NonSearchableOperatorError
+)
 from .analysis.analyse import PotentialBiGramAnalyser
-from .analysis.tokenize import ParagraphTokenizer, Token
-from caterpillar.locking import PIDLockFile, LockTimeout, AlreadyLocked
-from caterpillar.storage import StorageNotFoundError
+from caterpillar.storage.sqlite import SqliteStorage, SqliteWriter
 from caterpillar import __version__ as version
 
 
 logger = logging.getLogger(__name__)
+
+
+LEGACY_CONFIG_FILE = "index.config"
 
 
 class CaterpillarIndexError(Exception):
@@ -97,24 +102,12 @@ class IndexWriteLockedError(CaterpillarIndexError):
     """There is already an existing writer for this index."""
 
 
-class NonIndexedFieldError(ValueError):
-    """The field is not a searchable indexed field. """
-
-
-class UnknownFieldError(ValueError):
-    """The field is not defined on the index. """
-
-
-class UnsupportedOperatorError(ValueError):
-    """The operator is not supported for the given field."""
-
-
-class NonSearchableOperatorError(ValueError):
-    """The operator is valid for the field, but not supported for search."""
-
-
 class IndexConfig(object):
     """
+    ..warning:
+    This class is deprecated and retained only to allow migration of older indexes. :class:`CaterpillarLegacySchema`
+    is provided as a bridge between old and new style index configuration.
+
     Stores configuration information about an index.
 
     This object is a core part of any index. It is serialised and stored with every index so that an index can be
@@ -196,7 +189,7 @@ class IndexWriter(object):
 
     Using IndexWriter this way should look something like this:
 
-        >>> writer = IndexWriter('/some/path/to/an/index')
+        >>> writer = IndexWriter(SqliteStorage('/some/path/to/an/index'))
         >>> try:
         ...     writer.begin(timeout=2)  # timeout in 2 seconds
         ...     # Do stuff, like add_document() etc...
@@ -215,7 +208,7 @@ class IndexWriter(object):
 
         >>> writer = IndexWriter('/some/path/to/a/index')
         >>> with writer:
-        ...     add_document(field="value")
+        ...     add_document({'field1': 'some value', 'field2': 10})
 
     Again, be warned that this will block until the write lock becomes available!
 
@@ -224,38 +217,23 @@ class IndexWriter(object):
 
     """
 
-    # Where is the config?
-    CONFIG_FILE = "index.config"
-
-    def __init__(self, path, config=None):
+    def __init__(self, storage_writer, schema_config=CaterpillarLegacySchema):
         """
-        Open an existing index for writing or create a new index for writing.
 
-        If ``path`` (str) doesn't exist and ``config`` is not None, then a new index will created when :meth:`begin` is
-        called (after the lock is acquired). Otherwise, :exc:`IndexNotFoundError` is raised.
+        Args
+            storage -- instance of a storage class
 
-        If present, ``config`` (IndexConfig) must be an instance of :class:`IndexConfig`.
+            schema_config -- a class, not an instance. Interprets the stored schema declaration and turns
+            into a functional analyser of documents.
 
         """
-        self._path = path
-        if not config and not os.path.exists(path):
-            # Index path doesn't exist and no schema passed
-            raise IndexNotFoundError('No index exists at {}'.format(path))
-        elif config and not os.path.exists(path):
-            # Index doesn't exist. Delay creating until we have the lock in begin().
-            self.__config = config
-            self.__schema = config.schema
-            self.__storage = None
-        else:
-            # Fetch the config
-            with open(os.path.join(path, IndexWriter.CONFIG_FILE), 'r') as f:
-                self.__config = IndexConfig.loads(f.read())
-            self.__storage = self.__config.storage_writer_cls(path, create=False)
-            self.__schema = self.__config.schema
-            self.__lock = None  # Should declare in __init__ and not outside.
+
+        self.__storage = storage_writer
+        self.__schema_config = schema_config
+        self.__begun = False  # Flag to indicate whether a transaction is active
         self.__committed = False
 
-        # Attribute to store the details of the most recent commit
+        # Attributes to store the details of the most recent commit
         self.last_committed_documents = []
         self.last_deleted_documents = []
         self.last_updated_plugins = []
@@ -269,53 +247,62 @@ class IndexWriter(object):
             self.rollback()
         else:
             self.commit()
-        self.close()
 
-    def begin(self, timeout=None):
+    def begin(self, *args, **kwargs):
         """
-        Acquire the write lock and begin the transaction.
+        Begin a transaction for modifying an index.
 
-        If this index has yet to be created, create it (folder and storage). If ``timeout``(int) is omitted (or None),
-        wait forever trying to lock the file. If ``timeout`` > 0, try to acquire the lock for that many seconds. If the
-        lock period expires and the lock hasn't been acquired raise :exc:`IndexWriteLockedError`. If timeout <= 0,
-        raise :exc:`IndexWriteLockedError` immediately if the lock can't be acquired.
+        *args and **kwargs are optional storage engine specific arguments to the begin method. For example,
+        a `timeout` argument can be passed to the `SqliteStorage` engine.
+
+        A schema object is constructed at this stage to allow analysis of documents. The schema does not
+        exist before the call to begin. Any modifications to the schema will be stored as part of the commit
+        call on the index, not before.
 
         """
-        created = os.path.exists(self._path)
-        if not created:
-            os.makedirs(self._path)
-        self.__lock = PIDLockFile(os.path.join(self._path, 'writer'))
-        try:
-            self.__lock.acquire(timeout=timeout)
-        except (AlreadyLocked, LockTimeout):
-            raise IndexWriteLockedError('Index {} is locked for writing'.format(self._path))
-        else:
-            logger.debug("Index write lock acquired for {}".format(self._path))
-            if not created:
-                # Store config
-                with open(os.path.join(self._path, IndexWriter.CONFIG_FILE), 'w') as f:
-                    f.write(self.__config.dumps())
-                # Initialize storage
-                storage = self.__config.storage_writer_cls(self._path, create=True)
+        self.__migrate_schema_config = False
 
-                # Initialise our fields:
-                storage.begin()
+        self.__storage.begin(*args, **kwargs)
 
-                storage.add_unstructured_fields([''])  # Metadata hack until we have document search
-                storage.add_unstructured_fields(self.__schema.get_indexed_text_fields())
-                storage.add_structured_fields(self.__schema.get_indexed_structured_fields())
+        field_config = self.__storage.get_field_settings()
 
-                storage.commit()
+        # Transitional arrangements for migrating old schemas.
+        if isinstance(self.__storage, SqliteWriter) and self.__schema_config == CaterpillarLegacySchema:
+            # Regardless of whether or not a schema object exists, set this flag. At the end of this operation
+            # we will write out a config object compatible with earlier versions to allow rollbacks.
+            self.__migrate_schema_config = True
 
-            if not self.__storage:
-                # This is a create or the index was created after this writer was opened.
-                self.__storage = self.__config.storage_writer_cls(self._path, create=False)
+            # If a field configuration is stored in the database, take that as the ground truth.
+            if len(field_config) == 0:
+                try:
+                    path = self.__storage._db_path
+                    with open(os.path.join(path, LEGACY_CONFIG_FILE), 'r') as f:
+                        config = IndexConfig.loads(f.read())
+                        field_config = self.__schema_config.parse_legacy_schema(config._schema)
 
-            self.__storage.begin()
+                    # Also write the schema config to the storage layer.
+                    self.__storage.add_fields(**field_config)
+
+                except IOError:  # No IndexConfig file exists to migrate forwards, this is an empty index.
+                    pass
+
+        self.__schema = self.__schema_config(**field_config)
 
     def commit(self):
-        """Commit changes made by this writer by calling :meth:``commit()`` on the storage instance."""
+        """
+        Commit changes made by this writer by calling :meth:``commit()`` on the storage instance.
+
+        Also saves a legacy schema file to the index directory for rollback to an earlier version.
+
+        """
         self.last_committed_documents, self.last_deleted_documents, self.last_updated_plugins = self.__storage.commit()
+        # Save out the config object to disk as well, to allow it to be restored on a rollback operation
+        if self.__migrate_schema_config:
+            legacy_config = IndexConfig(SqliteStorage, self.__schema.get_legacy_schema())
+            # Save updated schema
+            with open(os.path.join(self.__storage._db_path, LEGACY_CONFIG_FILE), 'w') as f:
+                f.write(legacy_config.dumps())
+
         self.__committed = True
 
     def rollback(self):
@@ -339,34 +326,24 @@ class IndexWriter(object):
         self.__storage.close()
         self.__storage = None
 
-        # Release the lock
-        logger.debug("Releasing index write lock for {}....".format(self._path))
-        self.__lock.release()
-
-    def add_document(self, frame_size=2, encoding='utf-8', encoding_errors='strict', **fields):
+    def add_document(self, document, *args, **kwargs):
         """
         Add a document to this index.
 
-        We index :class:`TEXT <caterpillar.schema.TEXT>` fields by breaking them into frames for analysis. The
-        ``frame_size`` (int) param controls the size of those frames. Setting ``frame_size`` to an int < 1 will result
-        in all text being put into one frame or, to put it another way, the text not being broken up into frames.
+        The document object is passed onto the schema for analysis, and the resulting analysed document is then
+        passed to the underlying storage instance for this index.
 
-        .. note::
-            Because we always store a full positional index with each index, we are still able to do document level
-            searches like TF/IDF even though we have broken the text down into frames. So, don't fret!
+        The optional *args and **kwargs are passed directly to the schema object, and can be used for call time
+        options for the schema.
 
-        ``encoding`` (str) and ``encoding_errors`` (str) are passed directly to :meth:`str.decode()` to decode the data
-        for all :class:`TEXT <caterpillar.schema.TEXT>` fields. Refer to its documentation for more information.
+        For the default CaterpillarLegacySchema, a document is a dictionary of field names to field values:
 
-        ``**fields`` is the fields and their values for this document. Calling this method will look something like
-        this::
+            {
+                'review_body': 'Here is the text from the body of the document.',
+                'timestamp': '20160101T08:00:00',
+                'rating': 5
+            }
 
-            >>> writer.add_document(field1=value1, field2=value2).
-
-        Any unrecognized fields are just ignored.
-
-        Raises :exc:`TypeError` if something other then str or bytes is given for a TEXT field and :exec:`IndexError`
-        if there are any problems decoding a field.
 
         Documents are assigned an ID only at commit time. the attribute ``last_committed_documents`` of the
         writer contains the ID's of the documents added in the last completed write transaction for that
@@ -374,141 +351,14 @@ class IndexWriter(object):
 
         """
         logger.debug('Adding document')
-        schema_fields = self.__schema.items()
-        sentence_tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
 
-        # Build the frames by performing required analysis.
-        frames = {}  # Frame data:: field_name -> [frame1, frame2, frame3]
-        term_positions = {}  # Term vector data:: field_name --> [{term1:freq, term2:freq}, {term2:freq, term3:freq}]
+        analysis_format, analysed_document = self.__schema.analyse(document, *args, **kwargs)
 
-        metadata = {}  # Inverted frame metadata:: field_name -> field_value
+        self.__storage.add_analyzed_document(analysis_format, analysed_document)
 
-        # Shell frame includes all non-indexed and categorical fields
-        shell_frame = {}
-        for field_name, field in schema_fields:
-            if (not field.indexed or field.categorical) and field.stored and field_name in fields:
-                shell_frame[field_name] = fields[field_name]
-
-        # Tokenize fields that need it
-        logger.debug('Starting tokenization of document')
-        frame_count = 0
-
-        # Analyze document level structured fields separately to inject in the frames.
-        for field_name, field in schema_fields:
-
-            if field_name not in fields or fields[field_name] is None \
-                    or not field.indexed or not field.categorical:
-                # Skip fields not supplied or with empty values for this document.
-                continue
-
-            # Record categorical values
-            for token in field.analyse(fields[field_name]):
-                metadata[field_name] = token.value
-
-        # Now just the unstructured fields
-        for field_name, field in schema_fields:
-
-            if field_name not in fields or fields[field_name] is None \
-                    or not field.indexed or field.categorical:
-                continue
-
-            # Start the index for this field
-            frames[field_name] = []
-            term_positions[field_name] = []
-
-            # Index non-categorical fields
-            field_data = fields[field_name]
-            expected_types = (str, bytes, unicode)
-            if isinstance(field_data, str) or isinstance(field_data, bytes):
-                try:
-                    field_data = fields[field_name] = field_data.decode(encoding, encoding_errors)
-                except UnicodeError as e:
-                    raise IndexError("Couldn't decode the {} field - {}".format(field_name, e))
-            elif type(field_data) not in expected_types:
-                raise TypeError("Expected str or bytes or unicode for text field {} but got {}".
-                                format(field_name, type(field_data)))
-            if frame_size > 0:
-                # Break up into paragraphs
-                paragraphs = ParagraphTokenizer().tokenize(field_data)
-            else:
-                # Otherwise, the whole document is considered as one paragraph
-                paragraphs = [Token(field_data)]
-
-            for paragraph in paragraphs:
-                # Next we need the sentences grouped by frame
-                if frame_size > 0:
-                    sentences = sentence_tokenizer.tokenize(paragraph.value, realign_boundaries=True)
-                    sentences_by_frames = [sentences[i:i + frame_size]
-                                           for i in xrange(0, len(sentences), frame_size)]
-                else:
-                    sentences_by_frames = [[paragraph.value]]
-                for sentence_list in sentences_by_frames:
-                    token_position = 0
-                    # Build our frames
-                    frame = {
-                        '_field': field_name,
-                        '_positions': {},
-                        '_sequence_number': frame_count,
-                        '_metadata': metadata  # Inject the document level structured data into the frame
-                    }
-                    if field.stored:
-                        frame['_text'] = " ".join(sentence_list)
-                    for sentence in sentence_list:
-                        # Tokenize and index
-                        tokens = field.analyse(sentence)
-
-                        # Record positional information
-                        for token in tokens:
-                            # Add to the list of terms we have seen if it isn't already there.
-                            if not token.stopped:
-                                # Record word positions
-                                try:
-                                    frame['_positions'][token.value].append(token_position)
-                                except KeyError:
-                                    frame['_positions'][token.value] = [token_position]
-
-                            token_position += 1
-
-                    # Build the final frame and add to the index
-                    frame.update(shell_frame)
-                    # Serialised representation of the frame
-                    frames[field_name].append(json.dumps(frame))
-
-                    # Generate the term-frequency vector for the frame:
-                    term_positions[field_name].append(frame['_positions'])
-
-        # Currently only frames are searchable. That means if a schema contains no text fields it isn't searchable
-        # at all. This block constructs a surrogate frame for storage in a catchall container to handle this case.
-        if not frames and metadata:
-            frame = {
-                '_field': '',  # There is no text field
-                '_positions': {},
-                '_sequence_number': frame_count,
-                '_metadata': metadata
-            }
-            frame.update(shell_frame)
-            try:
-                frames[''].append(json.dumps(frame))
-            except KeyError:
-                frames[''] = [json.dumps(frame)]
-            try:
-                term_positions[''].append(frame['_positions'])
-            except:
-                term_positions[''] = [frame['_positions']]
-
-        # Finally add the document to storage.
-        doc_fields = {}
-
-        for field_name, field in schema_fields:
-            if field.stored and field_name in fields:
-                # Only record stored fields against the document
-                doc_fields[field_name] = fields[field_name]
-
-        document = json.dumps(doc_fields)
-
-        self.__storage.add_analyzed_document('v1', (document, metadata, frames, term_positions))
-
-        logger.debug('Tokenization of document complete. {} frames staged for storage.'.format(len(frames)))
+        logger.debug(
+            'Tokenization of document complete. {} frames staged for storage.'.format(len(analysed_document[2]))
+        )
 
     def append_frame_attributes(self, attribute_index):
         """
@@ -574,17 +424,8 @@ class IndexWriter(object):
         All keyword arguments are treated as ``(field_name, field_type)`` pairs.
 
         """
-        for field_name, field in fields.iteritems():
-            self.__schema.add(field_name, field)
-            if field_name in self.__schema.get_indexed_text_fields():
-                self.__storage.add_unstructured_fields([field_name])
-            if field_name in self.__schema.get_indexed_structured_fields():
-                self.__storage.add_structured_fields([field_name])
-
-        self.__config.schema = self.__schema
-        # Save updated schema
-        with open(os.path.join(self._path, IndexWriter.CONFIG_FILE), 'w') as f:
-            f.write(self.__config.dumps())
+        self.__schema.add_fields(**fields)
+        self.__storage.add_fields(**fields)
 
     def set_setting(self, name, value):
         """Set the setting identified by ``name`` to ``value``."""
@@ -592,7 +433,6 @@ class IndexWriter(object):
 
 
 class IndexReader(object):
-
     """
     Read information from an existing index.
 
@@ -629,7 +469,7 @@ class IndexReader(object):
 
     """
 
-    def __init__(self, path):
+    def __init__(self, storage_reader, schema_config=CaterpillarLegacySchema):
         """
         Open a new IndexReader for the index at ``path`` (str).
 
@@ -637,19 +477,8 @@ class IndexReader(object):
         automatically called via :meth:`.__enter__`.
 
         """
-        self.__path = path
-        try:
-            with open(os.path.join(path, IndexWriter.CONFIG_FILE), "r") as f:
-                self.__config = IndexConfig.loads(f.read())
-            self.__storage = self.__config.storage_reader_cls(path)
-        except StorageNotFoundError:
-            logger.exception("Couldn't open storage for {}".format(path))
-            raise IndexNotFoundError("Couldn't find an index at {} (no storage)".format(path))
-        except IOError:
-            logger.exception("Couldn't read index config for {}".format(path))
-            raise IndexNotFoundError("Couldn't find an index at {} (no config)".format(path))
-        else:
-            self.__schema = self.__config.schema
+        self.__storage = storage_reader
+        self.__schema_config = schema_config
 
     @property
     def revision(self):
@@ -660,9 +489,9 @@ class IndexReader(object):
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self.close()
+        self.commit()
 
-    def begin(self):
+    def begin(self, *args, **kwargs):
         """
         Begin reading with this IndexReader.
 
@@ -672,7 +501,29 @@ class IndexReader(object):
             This method **must** be called before any reading can be done.
 
         """
-        self.__storage.begin()
+        self.__storage.begin(*args, **kwargs)
+
+        # Attempt to load a schema, checking both the ondisk config file and the storage object.
+        field_config = self.__storage.get_field_settings()
+
+        # Transitional arrangements for old schemas.
+        if isinstance(self.__storage, SqliteWriter) and self.__schema_config == CaterpillarLegacySchema:
+
+            # If a field configuration is stored in the database, take that as the ground truth.
+            if len(field_config) == 0:
+                try:
+                    path = self.__storage._db_path
+                    with open(os.path.join(path, LEGACY_CONFIG_FILE), 'r') as f:
+                        config = IndexConfig.loads(f.read())
+                        field_config = self.__schema_config.parse_legacy_schema(config._schema)
+
+                except IOError:  # No IndexConfig file exists to migrate forwards, this is an empty index.
+                    pass
+
+        self.__schema = self.__schema_config(**field_config)
+
+    def commit(self):
+        self.__storage.commit()
 
     def close(self):
         """
@@ -681,7 +532,6 @@ class IndexReader(object):
         Calling this method renders this instance unusable.
 
         """
-        self.__storage.commit()
         self.__storage.close()
 
     def get_positions_index(self, field):

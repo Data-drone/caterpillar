@@ -86,23 +86,26 @@ class StorageWriter(object):
         return
 
     @abc.abstractmethod
-    def add_structured_fields(self, field_names):
-        """Register a structured field on the index. """
+    def add_fields(self, **fields):
+        """Add fields identified by name:settings pairs to the index."""
         return
 
     @abc.abstractmethod
-    def add_unstructured_fields(self, field_names):
-        """Register an unstructured field on the index. """
+    def delete_fields(self, *field_names):
+        """Delete the named fields from the index."""
         return
 
     @abc.abstractmethod
-    def delete_structured_fields(self, field_names):
-        """Delete a structured field and the associated data from the index."""
-        return
+    def get_field_settings(self):
+        """Return the stored settings to generate the schema for this index.
 
-    @abc.abstractmethod
-    def delete_unstructured_fields(self, field_names):
-        """Delete an unstructured field from the index."""
+        The settings should be in the form:
+            {
+                "field_name": {"setting": value},
+                "other_field": {"setting1": value, "setting2": value2}
+            }
+
+        """
         return
 
     @abc.abstractmethod
@@ -179,18 +182,26 @@ class StorageReader(object):
         return
 
     @abc.abstractmethod
+    def get_field_settings(self):
+        """Return the stored settings to generate the schema for this index.
+
+        The settings should be in the form:
+            {
+                "field_name": {"setting": value},
+                "other_field": {"setting1": value, "setting2": value2}
+            }
+
+        """
+        return
+
+    @abc.abstractmethod
     def list_known_plugins(self):
         """Return a list of (plugin_name, plugin_settings, plugin_id) stored in this index."""
         return
 
     @abc.abstractproperty
-    def structured_fields(self):
-        """Get a list of the structured field names on this index."""
-        raise NotImplementedError
-
-    @abc.abstractproperty
-    def unstructured_fields(self):
-        """Get a list of the unstructured field names on this index."""
+    def fields(self):
+        """Get a list of the field names on this index."""
         raise NotImplementedError
 
     @abc.abstractproperty

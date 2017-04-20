@@ -29,13 +29,120 @@ def initialise_schema(writer):
     list(cursor.execute(V0_10_0_schema))
 
 
+def merge_field_tables_up(writer):
+    """
+    Unify structured and unstructured fields.
+
+    ID's for unstructured fields are preserved to avoid having to
+    modify the large frame table.
+
+    """
+    cursor = writer._db_connection.cursor()
+    cursor.execute("""
+        begin;
+        /* Merge the two field tables into a central location.
+
+        Note that merging these data tables takes care of the field_id
+        references for the search queries, it does not take into account
+        the necessary schema settings and other migrations. This is handled
+        by the migration logic in the IndexWriter object.
+        */
+        create table field (
+            id integer primary key,
+            name text unique
+        );
+
+        /* Stores key:value settings for a given field to create the analyser. */
+        create table field_setting(
+            field_id integer,
+            key text,
+            value,
+            primary key (field_id, key),
+            foreign key (field_id) references field(id)
+        );
+
+        /* Migrate actual field names together
+
+        Note that the underlying tables allowed a structured and unstructured field
+        of the same name: the one field per name was enforced at the Schema level.
+
+        The unstructured ID's are retained to avoid rewriting the large posting tables.
+
+        */
+        insert into field(id, name)
+            select id, name from unstructured_field;
+        insert or ignore into field(name)
+            select name from structured_field;
+
+        -- Modify the document data table to refer to the new field id's
+        create temporary table new_document_data as
+            select
+                field.id as field_id,
+                dd.value,
+                dd.document_id
+            from document_data dd
+            inner join structured_field sf
+                on sf.id = dd.field_id
+            inner join field
+                on sf.name = field.name
+            -- Order so we can reinsert in index order
+            order by field.id, dd.value, dd.document_id;
+
+        drop table document_data;
+        create table document_data (
+            field_id integer,
+            value,
+            document_id integer,
+            primary key(field_id, value, document_id),
+            foreign key(document_id) references document(id),
+            foreign key(field_id) references field(id)
+        );
+        insert into document_data (field_id, value, document_id)
+            select field_id, value, document_id
+            from temp.new_document_data;
+
+        delete from structured_field;
+        delete from unstructured_field;
+
+        insert into migrations(id, description) values(1, 'Merge field tables');
+
+        commit;
+    """)
+
+
+def merge_field_tables_down(writer):
+    """Revert the merge of structured and unstructured field tables."""
+    cursor = writer._db_connection.cursor()
+    cursor.execute("""
+        begin;
+        /*
+           The field table in schema version 1+ can potentially
+           be interpreted in both structured and unstructured ways
+           by different analysers. So the inverse transform here
+           has to consider any field as both structured and
+           unstructured. This is mostly for the join semantics, the
+           interpretation of the field is handled separately by the schema
+           objects.
+
+        */
+        insert into structured_field(id, name) select id, name from field;
+        insert into unstructured_field(id, name) select id, name from field;
+
+        drop table field;
+        drop table field_setting;
+        delete from migrations where id = 1;
+        commit;
+    """)
+
+
 up_migrations = {
-    0: initialise_schema
+    0: initialise_schema,
+    1: merge_field_tables_up
 }
 
 
 down_migrations = {
-
+    0: merge_field_tables_down
 }
 
 

@@ -10,10 +10,6 @@ updated until commit is called. At this point all of the contents of the index a
 leaving the final flush operation as a single SQL script we can drop the GIL and allow concurrent operation
 in multiple threads.
 
-Note that document deletes are 'soft' deletes. Wherever possible the document data is deleted, however in
-the document_data and term_posting tables a hard delete requires a full table scan, so this is not ordinarily
-performed.
-
 """
 from __future__ import division
 import logging
@@ -22,9 +18,10 @@ import os
 
 import apsw
 
-from caterpillar.processing.index import NonIndexedFieldError
+from caterpillar.locking import PIDLockFile, AlreadyLocked, LockTimeout
 from caterpillar.storage import StorageWriter, StorageReader, Storage, StorageNotFoundError, \
     DuplicateStorageError, PluginNotFoundError
+from caterpillar.processing.schema import NonIndexedFieldError
 
 from ._sqlite_scripts import cache_schema, prepare_flush, flush_cache
 from ._sqlite_migrations import up_migrations, down_migrations
@@ -33,10 +30,15 @@ logger = logging.getLogger(__name__)
 
 CURRENT_SCHEMA = max(up_migrations)
 EARLIEST_SCHEMA = min(down_migrations) if len(down_migrations) > 0 else CURRENT_SCHEMA
+REQUIRED_SCHEMA_VERSION = CURRENT_SCHEMA
 
 
 class MigrationError(Exception):
     """Error class for problems with migrations. """
+
+
+class SqliteSchemaMismatchError(Exception):
+    """Error to indicate that the storage object and the on disk schemas do not match. """
 
 
 class SqliteWriter(StorageWriter):
@@ -66,6 +68,7 @@ class SqliteWriter(StorageWriter):
         """
         self._db_path = path
         self._db = os.path.join(path, 'storage.db')
+        self.committed = False
 
         if not create and not os.path.exists(self._db):
             raise StorageNotFoundError('Can\'t find the resources required by SQLiteStorage. Is it corrupt?')
@@ -76,12 +79,17 @@ class SqliteWriter(StorageWriter):
         # used for coordination and configuration of on disk entries such as checking the schema version. All
         # non migration index changes should run through the temporary database.
         if create:
+            os.makedirs(self._db_path)
             self._db_connection = apsw.Connection(self._db, flags=apsw.SQLITE_OPEN_READWRITE | apsw.SQLITE_OPEN_CREATE)
             # Initialise the necessary schema details.
             self.migrate()
 
         else:
             self._db_connection = apsw.Connection(self._db, flags=apsw.SQLITE_OPEN_READWRITE)
+
+        # Set a short busy timer by default - this can be overridden in the call to begin.
+        self.__lock = PIDLockFile(os.path.join(self._db_path, 'writer'))
+        self._db_connection.setbusytimeout(1000)
 
     @property
     def schema_version(self):
@@ -98,7 +106,7 @@ class SqliteWriter(StorageWriter):
         except apsw.SQLError:
             return None
 
-    def begin(self, timeout=1000):
+    def begin(self, *args, **kwargs):
         """
         Begin a transaction.
 
@@ -106,6 +114,25 @@ class SqliteWriter(StorageWriter):
         commit or rollback methods are called.
 
         """
+        timeout = kwargs.get('timeout', None)
+
+        try:
+            self.__lock.acquire(timeout=timeout)
+        except (AlreadyLocked, LockTimeout):
+            raise Exception('Index {} is locked for writing'.format(self._path))
+
+        disk_schema = self.schema_version
+
+        if disk_schema > REQUIRED_SCHEMA_VERSION:
+            raise SqliteSchemaMismatchError("""
+                The on disk schema version, {}, is newer than the required schema version {}.
+                It may have been created with a newer version of caterpillar.
+            """.format(disk_schema, REQUIRED_SCHEMA_VERSION))
+        elif disk_schema < REQUIRED_SCHEMA_VERSION:
+            raise SqliteSchemaMismatchError("""
+                The on disk schema version, {}, is older than the required schema version {}.
+                Running storage.migrate() will migrate the index to the required version.
+            """.format(disk_schema, REQUIRED_SCHEMA_VERSION))
 
         # If we're opening for writing, don't connect to the index directly.
         # Instead setup a temporary in memory database with the minimal schema.
@@ -114,8 +141,10 @@ class SqliteWriter(StorageWriter):
         # readers. Setting this is used to handle the one case in our normal operations that WAL mode requires
         # an exclusive lock for cleaning up the WAL file and associated shared-memory index.
         # See section 8 for the edge cases: https://www.sqlite.org/wal.html
-        self._temp_connection.setbusytimeout(timeout)
+        self._temp_connection.setbusytimeout(1000)
+
         list(self._execute(cache_schema))
+
         self.doc_no = 0  # local only for this write transaction.
         self.frame_no = 0
         self.committed = False
@@ -136,12 +165,14 @@ class SqliteWriter(StorageWriter):
         self.committed = True
         self.doc_no = 0
         self.frame_no = 0
+        self.__lock.release()
 
         return self.__last_added_documents, self.__deleted_documents, self.__updated_plugins
 
     def rollback(self):
         """Rollback a transaction on an IndexWriter."""
         self._execute('rollback')
+        self.__lock.release()
         self.doc_no = 0
         self.frame_no = 0
 
@@ -152,6 +183,7 @@ class SqliteWriter(StorageWriter):
         This operates immediately: if the data has not been committed it will be destroyed.
 
         """
+        self._db_connection.close()
         self._temp_connection.close()
         self._temp_connection = None
 
@@ -183,31 +215,41 @@ class SqliteWriter(StorageWriter):
         )
         self._flushed = True  # Only needed for _merge_term_variants currently.
 
-    def add_structured_fields(self, field_names):
-        """Register a structured field on the index. """
-        for f in field_names:
-            self._execute('insert into structured_field(name) values(?)', [f])
+    def add_fields(self, **fields):
+        """Stage the config for the given fields to the index. """
+        rows = (
+            (field_name, key, value)
+            for field_name, values in fields.items()
+            for key, value in values.items()
+        )
+        self._executemany(
+            'insert into field_setting(name, key, value) values(?, ?, ?)', rows
+        )
+        self._executemany('insert into field values(?)', [[name] for name in fields.keys()])
 
-    def add_unstructured_fields(self, field_names):
-        """Register an unstructured field on the index. """
-        for f in field_names:
-            self._execute('insert into unstructured_field(name) values(?)', [f])
-
-    def delete_structured_fields(self, field_names):
-        """Delete a structured field and the associated data from the index.
-
-        Note this is a soft delete for the SqliteWriter class. Call
-        :meth:SqliteWriter.materialize_deletes to remove all the data related
-        to that field from the index. """
+    def delete_fields(self, *fieldnames):
+        """Delete the fields identified by name from the index. """
         raise NotImplementedError
 
-    def delete_unstructured_fields(self, field_names):
-        """Delete an unstructured field from the index.
+    def get_field_settings(self):
+        """Return the stored schema configuration for this index. """
+        cursor = self._db_connection.cursor()
+        rows = cursor.execute("""
+            select field.name, field_setting.key, field_setting.value
+            from field
+            inner join field_setting
+                on field.id = field_setting.field_id
+        """)
 
-        Note this is a soft delete for the SqliteWriter class. Call
-        :meth:SqliteWriter.materialize_deletes to remove all the data related
-        to that field from the index. """
-        raise NotImplementedError
+        settings = {}
+
+        for field, key, value in rows:
+            try:
+                settings[field][key] = value
+            except KeyError:
+                settings[field] = {key: value}
+
+        return settings
 
     def add_analyzed_document(self, document_format, document_data):
         """Add an analyzed document to the index.
@@ -375,7 +417,7 @@ class SqliteWriter(StorageWriter):
 
         If no version is specified, the migration will be to the latest version.
 
-        Any migration operation is specified in order of the version number of the migrations.
+        Any migration operation is performed in the order of the version numbers of the migrations.
 
         If the on disk index version is different to the current version the up or down functions will
         be called in order.
@@ -434,6 +476,7 @@ class SqliteReader(StorageReader):
     of this class begins a read transaction that does not end until commit is explicitly called.
 
     """
+
     def __init__(self, path):
         """Open or create a reader for the given storage location."""
 
@@ -444,15 +487,46 @@ class SqliteReader(StorageReader):
             raise StorageNotFoundError('Can\'t find the resources required by SQLiteStorage. Is it corrupt?')
 
         self._db_connection = apsw.Connection(self._db, flags=apsw.SQLITE_OPEN_READONLY)
-
         self._db_connection.setbusytimeout(1000)
 
-    def begin(self):
-        """Begin a read transaction."""
+    @property
+    def schema_version(self):
+        """Return the numerical ID of the current on disk schema version.
+
+        If no schema_version information can be found in the form of a migrations table,
+        None is returned. This indicates that either the DB is empty, not properly formed, or may
+        simply have been created before the migrations table has existed (circa version 0.10.0).
+
+        """
+        cursor = self._db_connection.cursor()
+        try:
+            return list(cursor.execute('select max(id) from migrations;'))[0][0]
+        except apsw.SQLError:
+            return None
+
+    def begin(self, *args, **kwargs):
+        """
+        Begin a read transaction.
+
+        After calling begin, all operations on this reader will see a consistent view of the database.
+        """
+        disk_schema = self.schema_version
+
+        if disk_schema > REQUIRED_SCHEMA_VERSION:
+            raise SqliteSchemaMismatchError("""
+                The on disk schema version, {}, is newer than the required schema version {}.
+                It may have been created with a newer version of caterpillar.
+            """)
+        elif disk_schema < REQUIRED_SCHEMA_VERSION:
+            raise SqliteSchemaMismatchError("""
+                The on disk schema version, {}, is older than the required schema version {}.
+                Running storage.migrate() will migrate the index to the required version.
+            """)
+
         self._execute('begin')
         # Temporary table for searches - only visible to this reader.
         self._execute("""
-            create temporary table term_search_driver(
+            create temporary table if not exists term_search_driver(
                 term_id integer,  -- Drives the lookup in the index
                 --These three columns drive the counts for deciding on matches
                 all_id integer,
@@ -465,13 +539,32 @@ class SqliteReader(StorageReader):
 
     def commit(self):
         """End the read transaction."""
-        self._db_connection.cursor().execute('commit')
-        return
+        self._execute('delete from temp.term_search_driver')
+        self._execute('commit')
 
     def close(self):
         """Close the reader, freeing up the database connection objects. """
         self._db_connection.close()
         self._db_connection = None
+
+    def get_field_settings(self):
+        """Return the stored schema configuration for this index. """
+        rows = self._execute("""
+            select field.name, field_setting.key, field_setting.value
+            from field
+            inner join field_setting
+                on field.id = field_setting.field_id
+        """)
+
+        settings = {}
+
+        for field, key, value in rows:
+            try:
+                settings[field][key] = value
+            except KeyError:
+                settings[field] = {key: value}
+
+        return settings
 
     def get_plugin_state(self, plugin_type, plugin_settings):
         """Return a dictionary of key-value pairs identifying that state of this plugin."""
@@ -510,15 +603,9 @@ class SqliteReader(StorageReader):
         return list(self._execute("select plugin_type, settings, plugin_id from plugin_registry;"))
 
     @property
-    def structured_fields(self):
-        """Get a list of the structured field names on this index."""
-        rows = list(self._execute('select name from structured_field'))
-        return [row[0] for row in rows]
-
-    @property
-    def unstructured_fields(self):
-        """Get a list of the unstructured field names on this index."""
-        rows = list(self._execute('select name from unstructured_field'))
+    def fields(self):
+        """Get a list of the field names on this index."""
+        rows = list(self._execute('select name from field'))
         return [row[0] for row in rows]
 
     def count_vocabulary(self, include_fields=None, exclude_fields=None):
@@ -528,7 +615,7 @@ class SqliteReader(StorageReader):
         vocab_size = list(self._execute(
             'select count(distinct term_id) '
             'from term_statistics stats '
-            'inner join unstructured_field field '
+            'inner join field '
             '    on stats.field_id = field.id ' + where_clause,
             fields
         ))
@@ -551,7 +638,7 @@ class SqliteReader(StorageReader):
             inner join vocabulary voc
                on voc.id = stats.term_id
                {}
-            inner join unstructured_field field
+            inner join field
                on stats.field_id = field.id
                {}
             group by voc.term
@@ -574,7 +661,7 @@ class SqliteReader(StorageReader):
                 from term_statistics ts
                 inner join vocabulary v
                     on ts.term_id = v.id
-                inner join unstructured_field field
+                inner join field
                     on field.id = ts.field_id
                 {}
                 """.format(where_clause),
@@ -595,7 +682,7 @@ class SqliteReader(StorageReader):
                 on vocab.id = post.term_id
             inner join frame
                 on frame.id = post.frame_id
-            inner join unstructured_field field
+            inner join field
                 on field.id = frame.field_id
             {}
             order by term, frame.id
@@ -649,7 +736,7 @@ class SqliteReader(StorageReader):
             joined_where = """
                 inner join frame
                     on frame.id = frame_post.frame_id
-                inner join unstructured_field field
+                inner join field
                     on field.id = frame.field_id
                 {}""".format(where_clause)
         else:
@@ -713,7 +800,7 @@ class SqliteReader(StorageReader):
         where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields)
         return list(self._execute(
             'select count(*) from frame '
-            'inner join unstructured_field field '
+            'inner join field '
             '   on field.id = frame.field_id ' + where_clause,
             fields
         ))[0][0]
@@ -747,7 +834,7 @@ class SqliteReader(StorageReader):
             return self._executemany(
                 'select frame.id, document_id, field.name, sequence, stored '
                 'from frame '
-                'inner join unstructured_field field '
+                'inner join field '
                 '   on field.id = frame.field_id '
                 'where frame.id = ?', [[frame_id] for frame_id in frame_ids]
             )
@@ -756,7 +843,7 @@ class SqliteReader(StorageReader):
             return self._execute(
                 'select frame.id, document_id, field.name, sequence, stored '
                 'from frame '
-                'inner join unstructured_field field '
+                'inner join field '
                 '   on field.id = frame.field_id ' + where_clause,
                 fields
             )
@@ -777,7 +864,7 @@ class SqliteReader(StorageReader):
             field_join = """
                 inner join frame
                     on frame.id = frame_posting.frame_id
-                inner join unstructured_field field
+                inner join field
                     on field.id = frame.field_id
             """ if fields else ''
             rows = self._execute("""
@@ -829,13 +916,13 @@ class SqliteReader(StorageReader):
         The optional text_field specifier allow filtering frames to just the included text field.
 
         """
-        where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields, structured=True)
+        where_clause, fields = self._fielded_where_clause(include_fields, exclude_fields)
 
         if text_field and fields:
-            where_clause += ' and text_field.name = ?'
+            where_clause += ' and text_field.name = ? '
             fields += [text_field]
         elif text_field:
-            where_clause = ' where text_field.name = ?'
+            where_clause = ' where text_field.name = ? '
             fields += [text_field]
 
         if frames:
@@ -844,9 +931,9 @@ class SqliteReader(StorageReader):
                 'from document_data '
                 'inner join frame '
                 '   on frame.document_id = document_data.document_id '
-                'inner join structured_field field '
+                'inner join field '
                 '   on field.id = document_data.field_id '
-                'inner join unstructured_field text_field '
+                'inner join field text_field '
                 '   on text_field.id = frame.field_id ' + where_clause +
                 'order by document_data.field_id, value',
                 fields
@@ -855,7 +942,7 @@ class SqliteReader(StorageReader):
             rows = self._execute(
                 'select field.name, value, document_id '
                 'from document_data '
-                'inner join structured_field field '
+                'inner join field '
                 '   on field.id = document_data.field_id ' + where_clause +
                 'order by field_id, value',
                 fields
@@ -904,7 +991,7 @@ class SqliteReader(StorageReader):
             frame_join = """
             inner join frame
                 on frame.id = fp.frame_id
-                and field_id in (select id from unstructured_field field {})
+                and field_id in (select id from field {})
             """.format(where_clause)
         elif return_documents:
             frame_join = """
@@ -958,7 +1045,7 @@ class SqliteReader(StorageReader):
             extra_join = """
                 inner join frame
                     on frame.id = right_post.frame_id
-                inner join unstructured_field field
+                inner join field
                     on field.id = frame.field_id
             """
             # Mangle the normal where clause for fielded search: this query is difficult to structure to match this.
@@ -1029,7 +1116,7 @@ class SqliteReader(StorageReader):
                 frame_or_document = """
                 (select id from frame
                  where frame.field_id in (
-                    select id from unstructured_field field
+                    select id from field
                     {}
                 ))
                 """.format(where_clause)
@@ -1079,7 +1166,7 @@ class SqliteReader(StorageReader):
             # Template for each field - fill in the field name and append the parameters.
             this_field = """
                 select document_id from document_data
-                where field_id = (select id from structured_field where name = ?)
+                where field_id = (select id from field where name = ?)
             """
 
             parameters.append(metadata_field)
@@ -1125,7 +1212,7 @@ class SqliteReader(StorageReader):
                 """
             where_field, fields = self._fielded_where_clause(include_fields, exclude_fields)
             if fields:
-                field_selector = 'and field_id in (select field.id from unstructured_field field {})'
+                field_selector = 'and field_id in (select field.id from field {})'
                 field_selector = field_selector.format(where_field)
                 parameters.extend(fields)
             else:
@@ -1272,7 +1359,7 @@ class SqliteReader(StorageReader):
         n_frames = list(self._execute(
             'select sum(frame_count) '
             'from field_statistics '
-            'inner join unstructured_field field on field_statistics.field_id = field.id ' +
+            'inner join field on field_statistics.field_id = field.id ' +
             unstructured_where_clause, unstructured_fields)
         )[0][0]
 
@@ -1320,7 +1407,7 @@ class SqliteReader(StorageReader):
             subset_clause = 'inner join frame on post.frame_id = frame.id '
 
             if unstructured_fields:
-                subset_clause += ' and frame.field_id in (select id from unstructured_field field {})'.format(
+                subset_clause += ' and frame.field_id in (select id from field {})'.format(
                     unstructured_where_clause
                 )
                 parameters += unstructured_fields
@@ -1338,7 +1425,7 @@ class SqliteReader(StorageReader):
 
                     this_field = (
                         'select document_id from document_data '
-                        'where field_id = (select id from structured_field where name = ?)'
+                        'where field_id = (select id from field where name = ?)'
                     )
                     parameters.append(metadata_field)
 
@@ -1444,7 +1531,7 @@ class SqliteReader(StorageReader):
             field_clause = """
                 inner join frame
                     on afp.frame_id = frame.id
-                    and field_id in (select id from unstructured_field field {})
+                    and field_id in (select id from field {})
             """.format(where_clause)
         elif return_documents:
             field_clause = """
@@ -1532,12 +1619,12 @@ class SqliteReader(StorageReader):
             post_join = """
                 inner join frame
                     on frame.id = right_post.frame_id
-                inner join unstructured_field field
+                inner join field
                     on field.id = frame.field_id
             """
             # Mangle the normal where clause for fielded search: this query is difficult to structure to match this.
             post_where = 'and ' + where_clause[5:]
-            term_join = 'inner join unstructured_field field on field.id = ts.field_id and ' + where_clause[5:]
+            term_join = 'inner join field on field.id = ts.field_id and ' + where_clause[5:]
         else:
             post_where = post_join = term_join = ''
 
@@ -1623,7 +1710,7 @@ class SqliteReader(StorageReader):
             logger.exception(e)
             raise e
 
-    def _fielded_where_clause(self, include_fields, exclude_fields, structured=False):
+    def _fielded_where_clause(self, include_fields, exclude_fields):
         """Generate a where clause for field inclusion, validating the fields at the same time.
 
         Include fields takes priority if both include and exclude fields are specified.
@@ -1632,7 +1719,7 @@ class SqliteReader(StorageReader):
 
         """
         fields = include_fields or exclude_fields or []
-        valid_fields = self.structured_fields if structured else self.unstructured_fields
+        valid_fields = self.fields
         # Catch None as a valid field to allow current reader level interface to specify None as a field.
         invalid_fields = [field for field in fields if field not in valid_fields and field is not None]
 

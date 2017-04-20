@@ -10,11 +10,14 @@ The schema scripts for the bulk operations of the :class:`.SqliteStorage`.
 cache_schema = """
 begin;
 
-create table structured_field (
+create table field (
     name text primary key
 );
-create table unstructured_field (
-    name text primary key
+
+create table field_setting(
+    name text,
+    key text,
+    value
 );
 
 /* The source table for the document representation. */
@@ -190,10 +193,14 @@ delete from disk_index.document_data where document_id in (select * from deleted
 
 
 /* Add new indexed fields */
-insert into disk_index.structured_field(name)
-    select * from structured_field;
-insert into disk_index.unstructured_field(name)
-    select * from unstructured_field;
+insert into disk_index.field(name)
+    select * from field;
+
+insert into disk_index.field_setting(field_id, key, value)
+    select f.id, key, value
+    from main.field_setting fs
+    inner join disk_index.field f
+        on f.name = fs.name;
 
 
 /* Update vocabulary with new terms. Insert highest frequency first. */
@@ -223,7 +230,7 @@ insert into disk_index.document_data(document_id, field_id, value)
         fields.id,
         value
     from document_data data
-    inner join disk_index.structured_field fields
+    inner join disk_index.field fields
         on fields.name = data.field_name;
 
 
@@ -235,7 +242,7 @@ insert into disk_index.frame(id, document_id, field_id, sequence, stored)
         sequence,
         stored
     from frame
-    inner join disk_index.unstructured_field fields
+    inner join disk_index.field fields
         on fields.name = frame.field_name;
 
 
@@ -312,7 +319,7 @@ with update_stat as (
     from main.term_statistics stats
     inner join disk_index.vocabulary v
         on v.term = stats.term
-    inner join disk_index.unstructured_field fields
+    inner join disk_index.field fields
         on fields.name = stats.field_name
 
     union all
@@ -400,8 +407,7 @@ inner join disk_index.plugin_registry disk_reg
     using (settings, plugin_type);
 
 
-delete from structured_field;
-delete from unstructured_field;
+delete from field;
 delete from document;
 delete from document_data;
 delete from deleted_document;
