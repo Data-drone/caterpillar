@@ -1,10 +1,12 @@
 # Copyright (c) 2012-2014 Kapiche Limited
 # Author: Kris Rogers <kris@kapiche.com>, Ryan Stuart <ryan@kapiche.com>
+
 """
-An index represents a collection of documents and associated information about those documents. When a document is added
-to an index using an :class:`.IndexWriter`, some or all of its fields will be analysed
-(see :mod:`caterpillar.processing.schema`) and information about those fields stored in various sub-indexes.
-Caterpillar stores a number of sub-indexes:
+An index represents a collection of documents and associated information about those documents, and is a composition
+of a schema that provides an interpretation of documents, and a storage engine that serialised the documents to disk.
+When a document is added to an index using an :class:`.IndexWriter`, some or all of its fields will be analysed (see
+:mod:`caterpillar.processing.schema`) and information about those fields stored in various sub-indexes. Caterpillar
+stores a number of sub-indexes:
 
 * The frequencies index::
     {
@@ -30,27 +32,31 @@ Caterpillar stores a number of sub-indexes:
     }
 
 Documents can be added to an index using an :class:`.IndexWriter`. Data can be read from an index using
-:class:`.IndexReader`. There can only ever be one ``IndexWriter`` active per index. There can be an unlimited number of
-``IndexReader``s active per index.
+:class:`.IndexReader`. The access behaviour of the storage layer is controlled by the low level implementation:
+the only implementation available by default (SqliteWriter/Reader) serialises writes, so only one IndexWriter can
+be operating on this storage type at a time. Alternative storage implementations may expose different behaviour.
 
 The type of index stored by caterpillar is different from those stored by regular information retrieval libraries (like
 Lucene for example). Caterpillar is designed for text analytics as well as information retrieval. One side affect of
 this is that caterpillar breaks documents down into *frames*. Breaking documents down into smaller parts (or context
-blocks) enables users to implement their own statistical methods for analysing text. Frames are a configurable
-component. See :class:`.IndexWriter` for more information.
+blocks) enables users to implement their own statistical methods for analysing text. Frames are a configurable component
+managed by the default schema interpreter. See :class:`../schema/CaterpillarLegacySchema` for more information.
 
 Here is a quick example:
 
     >>> from caterpillar.processing import index
-    >>> from caterpillar.processing import schema
-    >>> from caterpillar.storage.sqlite import SqliteStorage
-    >>> config = index.IndexConfig(SqliteStorage, schema.Schema(text=schema.TEXT))
-    >>> with index.IndexWriter('/tmp/test_index', config) as writer:
-    ...     writer.add_document(text="This is my text")...
-    >>> with index.IndexReader('/tmp/test_index') as reader:
+    >>> from caterpillar.storage.sqlite import SqliteWriter, SqliteReader
+    >>> with index.IndexWriter(SqliteWriter('/tmp/test_index', create=True)) as writer:
+    ...     writer.add_document(dict(text="This is my text"))...
+    >>> doc_id = writer.last_committed_documents[0]
+    >>> with index.IndexReader(SqliteReader('/tmp/test_index')) as reader:
     ...     reader.get_document_count()
     ...
     1
+    >>> with index.IndexReader(SqliteReader('/tmp/test_index')) as reader:
+    ...     reader.get_document(doc_id)
+    ...
+    {'text': "This is my text"}
 
 """
 
@@ -170,26 +176,32 @@ class IndexConfig(object):
 class IndexWriter(object):
 
     """
-    Write to an existing index or create a new index and write to it.
+    Modify an existing index.
 
-    An instance of an ``IndexWriter`` represents a transaction. To begin the transaction, you need to call
-    :meth:`.begin` on this writer. There can only be one active IndexWriter transaction per index. This is enforced
-    via a write lock on the index. When you begin the write transaction the IndexWriter instance tries to acquire the
-    write lock. By default it will block indefinitely until it gets the write lock but this can be overridden using the
-    ``timeout`` argument to `begin()`. If `begin()` times-out when trying to get a lock, then
-    :exc:`IndexWriteLockedError` is raised.
+    An instance of an ``IndexWriter`` represents an interface to change the contents of a specific on stored index. All
+    changes to an index are managed through a transactional interface, before any changes can be made the :meth:`.begin`
+    method must be called on this writer. No changes will be finalised until a corresponding call to :meth:`.commit` is
+    made.
+
+    Access to the underlying storage resource is controlled by that resource: for example the default SqliteWriter
+    interface serialises access through a write lock. When you begin the write transaction the IndexWriter instance
+    calls the underlying storage instance to secure any resources. Storage specific arguments can be passed through
+    additional arguments to :meth:`.begin`. For example, the SqliteWriter interface takes an optional timeout argument
+    and will block indefinitely until it gets the write lock if this is not provided.
 
     Once you have performed all the writes/deletes you like you need to call :meth:`.commit` to finalise the
     transaction. Alternatively, if there was a problem during your transaction, you can call :meth:`.rollback` instead
-    to revert any changes you made using this writer. **IMPORTANT** - Finally, you need to call :meth:`.close` to
-    release the lock.
+    to revert any changes you made using this writer. **IMPORTANT** - Calling commit or rollback ends a transaction,
+    allowing other writers access, however not all resources (such as database connections) are released until
+    :meth:`.close` is called. This allows reuse of reader and writer objects.
 
     Using IndexWriter this way should look something like this:
 
-        >>> writer = IndexWriter(SqliteStorage('/some/path/to/an/index'))
+        >>> writer = IndexWriter(SqliteWriter('/some/path/to/an/index', create=True))
         >>> try:
         ...     writer.begin(timeout=2)  # timeout in 2 seconds
         ...     # Do stuff, like add_document() etc...
+        ...     writer.add_fields(text=dict(type='text'))
         ...     writer.commit()  # Write the changes...
         ... except IndexWriteLockedError:
         ...     # Do something else, maybe try again
@@ -198,19 +210,21 @@ class IndexWriter(object):
         ... finally:
         ...     writer.close()  # Release lock
 
-    This class is also a context manager and so can be used via the with statement. **HOWEVER**, be aware that using
-    this class in a context manager will block indefinitely until the lock becomes available. Using the context manager
-    has the added benefit of calling ``commit()``/``rollback()`` (if an exception breaks the context) and ``close()`` \
-    for you automatically::
+    This class is also a context manager for transactions and so can be used via the with statement. **HOWEVER**, be
+    aware that using this class as a context manager does not allow passing arguments to the underlying storage engine,
+    and will block indefinitely on SqliteWriter until the lock becomes available. Using the context manager has the
+    added benefit of calling ``commit()``/``rollback()`` (if an exception breaks the context). The context manager will
+    not call :meth:`.close` however.
 
-        >>> writer = IndexWriter('/some/path/to/a/index')
+        >>> writer = IndexWriter(SqliteWriter('/some/path/to/a/index', create=True))
         >>> with writer:
         ...     add_document({'field1': 'some value', 'field2': 10})
 
     Again, be warned that this will block until the write lock becomes available!
 
-    Finally, pay particular attention to the ``frame_size`` arguments of :meth:`.add_document`. This determines the size
-    of the frames the document will be broken up into.
+    Finally, note that add_document passes the provided document object and any optional arguments onto the schema. The
+    default CaterpillarLegacySchema interprets documents as objects that map fields to value (eg. a dictionary) and
+    provides a simple declarative interface for handling some common field types such as text and datetimes.
 
     """
 
@@ -220,8 +234,8 @@ class IndexWriter(object):
         Args
             storage -- instance of a storage class
 
-            schema_config -- a class, not an instance. Interprets the stored schema declaration and turns
-            into a functional analyser of documents.
+            schema_config -- a class, not an instance, that when passed the settings stored in storage engine will be a
+            fully initialised schema.
 
         """
 
@@ -418,7 +432,7 @@ class IndexWriter(object):
         """
         Add new fields to the schema.
 
-        All keyword arguments are treated as ``(field_name, field_type)`` pairs.
+        All keyword arguments are treated as ``(field_name, {field_setting: field_value})`` pairs.
 
         """
         self.__schema.add_fields(**fields)
@@ -433,11 +447,13 @@ class IndexReader(object):
     """
     Read information from an existing index.
 
-    Once an IndexReader is opened, it will **not** see any changes written to the index by an :class:`IndexWriter`. To
-    see any new changes you must open a new IndexReader.
+    Initialising an `IndexReader` opens all necessary objects to begin reading, but no access to the underlying resource
+    should be done outside a transaction, using the begin and commit methods. Once the begin method has been called, an
+    IndexReader will see a consistent snapshot of the index as of the call to begin. No write changes to the interface
+    occuring during a transaction will be visible to the reader.
 
-    To search an index, use :meth:`.searcher` to fetch an :class:`caterpillar.searching.IndexSearcher` instance to
-    execute the search with. A searcher will only work while this IndexReader remains open.
+    The `filter*` methods provide fast access to search and filter by full text search, metadata and fine grained
+    per frame attribute information.
 
     Access to the raw underlying associations, frequencies and positions index is provided by this class but a caller
     needs to be aware that these may consume a **LARGE** amount of memory depending on the size of the index. As such,
@@ -445,9 +461,12 @@ class IndexReader(object):
 
     Once you are finished with an IndexReader you need to call the :meth:`.close` method.
 
-    IndexReader is a context manager and can be used via the with statement to make this easier. For example::
+    IndexReader is a context manager and can be used via the with statement to make this easier. This will call begin
+    and commit on entering the context manager, but will not call close to free resources for you at the end.
 
-        >>> with IndexReader('/path/to/index') as r:
+    For example::
+
+        >>> with IndexReader(SqliteReader('/path/to/index')) as r:
         ...    # Do stuff
         ...    doc = r.get_document(d_id)
         >>> # Reader is closed
@@ -456,8 +475,7 @@ class IndexReader(object):
         While opening an IndexReader is quite cheap, it definitely isn't free. If you are going to do a large amount of
         reading over a relatively short time span, it is much better to do so using one reader.
 
-    There is no limit to the number of IndexReader objects which can be active on an index. IndexReader objects are also
-    thread-safe.
+    There is no limit to the number of IndexReader objects which can be active on an index.
 
     IndexReader doesn't cache any data. Every time you ask for data, the underlying :class:`caterpillar.storage.Storage`
     instance is used to fetch that data. If you were to call :meth:`,get_associations_index` 10 times, each time the
@@ -468,7 +486,7 @@ class IndexReader(object):
 
     def __init__(self, storage_reader, schema_config=CaterpillarLegacySchema):
         """
-        Open a new IndexReader for the index at ``path`` (str).
+        Open a new IndexReader for the storage_reader instance.
 
         This constructor only creates the instance. Before you start reading you need to call :meth:`.begin` which is
         automatically called via :meth:`.__enter__`.
