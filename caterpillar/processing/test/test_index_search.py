@@ -14,9 +14,7 @@ import pytest
 
 from caterpillar import composition
 from caterpillar.storage.sqlite import SqliteWriter, SqliteReader
-from caterpillar.processing.index import IndexWriter, IndexReader, IndexConfig, NonIndexedFieldError
-from caterpillar.processing import schema
-from caterpillar.test_util import TestAnalyser
+from caterpillar.processing.index import IndexWriter, IndexReader, NonIndexedFieldError
 
 
 def test_searching_filtering_nps(index_dir):

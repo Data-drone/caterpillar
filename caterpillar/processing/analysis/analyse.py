@@ -2,8 +2,9 @@
 # Author: Ryan Stuart <ryan@kapiche.com>
 """Tools to perform analysis of text streams (aka tokenizing and filtering)."""
 from caterpillar.processing.analysis import stopwords
-from caterpillar.processing.analysis.filter import StopFilter, PositionalLowercaseWordFilter, BiGramFilter, \
-    PotentialBiGramFilter, OuterPunctuationFilter, PossessiveContractionFilter
+from caterpillar.processing.analysis.filter import (
+    StopFilter, PositionalLowercaseWordFilter, OuterPunctuationFilter, PossessiveContractionFilter
+)
 from caterpillar.processing.analysis.tokenize import EverythingTokenizer, \
     SimpleWordTokenizer, DateTimeTokenizer
 
@@ -49,7 +50,7 @@ class DefaultAnalyser(Analyser):
     """
     _tokenizer = SimpleWordTokenizer(detect_compound_names=True)
 
-    def __init__(self, stopword_list=[], min_word_size=1):
+    def __init__(self, stopword_list=tuple(), min_word_size=1):
         super(DefaultAnalyser, self).__init__()
         if stopword_list is None:
             stopword_list = stopwords.ENGLISH
@@ -60,65 +61,6 @@ class DefaultAnalyser(Analyser):
             StopFilter(stopword_list, minsize=min_word_size),
             PositionalLowercaseWordFilter(0),
         ]
-
-    def get_tokenizer(self):
-        return self._tokenizer
-
-    def get_filters(self):
-        return self._filters
-
-
-class BiGramAnalyser(Analyser):
-    """
-    A bi-gram ``Analyser`` that behaves exactly like the ``DefaultAnalyser`` except it also makes use of a
-    ``BiGramFilter``.
-
-    This analyser uses a ``WordTokenizer`` in combination with a ``StopFilter``, ``PositionalLowercaseWordFilter`` and a
-    ``BiGramFilter``.
-
-    Required Arguments
-    bi_grams -- a list of string n-grams to match. Passed directly to ``BiGramFilter``.
-
-    Optional Arguments:
-    stopword_list -- A list of stop words to override the default English one.
-
-    """
-    _tokenizer = SimpleWordTokenizer(detect_compound_names=True)
-
-    def __init__(self, bi_grams, stopword_list=None):
-        if stopword_list is None:
-            stopword_list = stopwords.ENGLISH
-        self._filters = [
-            OuterPunctuationFilter(leading_allow=['@', '#']),
-            PossessiveContractionFilter(),
-            StopFilter(stopword_list, minsize=stopwords.MIN_WORD_SIZE),
-            PositionalLowercaseWordFilter(0),
-            BiGramFilter(bi_grams),
-        ]
-
-    def get_tokenizer(self):
-        return self._tokenizer
-
-    def get_filters(self):
-        return self._filters
-
-
-class PotentialBiGramAnalyser(Analyser):
-    """
-    A PotentialBiGramAnalyser returns a list of possible bi-grams from a stream.
-
-    This analyser uses a ``WordTokenizer`` in combination with a ``StopFilter``, ``PositionalLowercaseWordFilter`` and a
-    ``PotentialBiGramFilter`` to generate a stream of possible bi-grams.
-
-    """
-    _tokenizer = SimpleWordTokenizer(detect_compound_names=True)
-    _filters = [
-        OuterPunctuationFilter(leading_allow=['@', '#']),
-        PossessiveContractionFilter(),
-        StopFilter(stopwords.ENGLISH, minsize=stopwords.MIN_WORD_SIZE),
-        PositionalLowercaseWordFilter(0),
-        PotentialBiGramFilter(),
-    ]
 
     def get_tokenizer(self):
         return self._tokenizer

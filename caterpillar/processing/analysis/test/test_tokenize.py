@@ -95,6 +95,8 @@ def test_word_tokenizer_email_simple():
     words = []
     for t in tokens:
         words.append(t.value)
+        x = t.copy()
+        assert x.value == t.value
     assert words[7] == 'John_Smith@domain123.org.au'
 
 

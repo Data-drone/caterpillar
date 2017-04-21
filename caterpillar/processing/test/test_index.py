@@ -4,26 +4,21 @@
 from __future__ import division
 
 import csv
-import pickle
+import multiprocessing as mp
+import os
 import shutil
 import tempfile
-import multiprocessing as mp
-import multiprocessing.dummy as mt  # threading dummy with same interface as multiprocessing
-import os
 from collections import Counter
 
 import pytest
 
-from caterpillar import __version__ as version
-from caterpillar.storage import Storage
+from caterpillar.storage import StorageNotFoundError
 from caterpillar.storage.sqlite import SqliteWriter, SqliteReader
-from caterpillar.processing.analysis.analyse import EverythingAnalyser
 from caterpillar.processing.index import (
-    IndexWriter, IndexReader, find_bi_gram_words, IndexConfig, IndexNotFoundError, DocumentNotFoundError,
-    SettingNotFoundError, IndexWriteLockedError
+    IndexWriter, IndexReader,
+    DocumentNotFoundError, SettingNotFoundError
 )
-from caterpillar.processing.schema import CaterpillarLegacySchema, ID, NUMERIC, TEXT
-from caterpillar.test_util import TestAnalyser, TestBiGramAnalyser
+from caterpillar.processing.schema import TEXT
 
 
 def test_index_open(index_dir):
@@ -38,8 +33,6 @@ def test_index_open(index_dir):
             text1={'type': 'test_text'},
             text2={'type': 'test_text'},
             document={'type': 'test_text', 'indexed': False},
-            # TODO: Add the default catchall field back.
-            # flag=FieldType(analyser=EverythingAnalyser(), indexed=True, categorical=True)
         )
 
         # Just initialise the index to check the first revision number
@@ -65,6 +58,9 @@ def test_index_open(index_dir):
             assert isinstance(reader.get_schema()['text2'], TEXT)
             assert reader.revision == (1, 1, 0, 104)
 
+            with pytest.raises(KeyError):
+                reader.get_term_frequency('Nonexistentterm', 'text1')
+
             with pytest.raises(DocumentNotFoundError):
                 reader.get_frame(10000, 'text1`')
 
@@ -80,33 +76,23 @@ def test_index_open(index_dir):
             assert isinstance(reader.get_schema()['text1'], TEXT)
             assert reader.revision == (2, 2, 0, 208)
 
-    # TODO: figure out what the semantics should be in this situation.
-    # How should the index API work with the low level layers.
-    # I'm of the opinion these should be solely relegated to the storage layers, and the Index
-    # objects should take no part in handling these.
+        path = tempfile.mkdtemp()
+        new_dir = os.path.join(path, "no_reader")
+        try:
+            with pytest.raises(StorageNotFoundError):
+                with IndexWriter(SqliteWriter(new_dir, create=True)) as writer:
+                    writer.add_fields(text={'type': 'text'})
 
-    #     path = tempfile.mkdtemp()
-    #     new_dir = os.path.join(path, "no_reader")
-    #     try:
-    #         # with pytest.raises(IndexNotFoundError):
-    #         #     IndexWriter(new_dir, IndexConfig(SqliteStorage, Schema(text=TEXT)))
-    #         #     IndexReader(new_dir)  # begin() was never called on the writer
-    #         with pytest.raises(IndexNotFoundError):
-    #             with IndexWriter(SqliteWriter(new_dir)) as writer:
-    #                 writer.add_fields(text={'type': 'text'})
+                os.remove(os.path.join(new_dir, "storage.db"))
+                IndexReader(SqliteReader(new_dir))  # The written container no longer exists
+        finally:
+            shutil.rmtree(path)
 
-    #             os.remove(os.path.join(new_dir, "storage.db"))
-    #             IndexReader(SqliteReader(new_dir))  # The written container no longer exists
-    #     finally:
-    #         shutil.rmtree(path)
+    with pytest.raises(StorageNotFoundError):
+        IndexReader(SqliteReader("fake"))
 
-    # with pytest.raises(IndexNotFoundError):
-    #     IndexReader(SqliteReader("fake"))
-
-
-# def test_index_writer_not_found(index_dir):
-#     with pytest.raises(IndexNotFoundError):
-#         IndexWriter(index_dir)
+    with pytest.raises(StorageNotFoundError):
+        IndexWriter(SqliteWriter("fake"))
 
 
 def test_index_settings(index_dir):
@@ -325,21 +311,19 @@ def test_index_writer_rollback(index_dir):
             assert reader.get_document_count() == 0
 
 
-# TODO: confirm the locking semantics: what else do we have to cover here???
-# def test_index_writer_lock(index_dir):
-#     with IndexWriter(index_dir, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser)))) as writer1:
-#         writer1.add_document(text="Blah")
-#         writer2 = IndexWriter(index_dir)
-#         with pytest.raises(IndexWriteLockedError):
-#             writer2.begin(timeout=0.5)
+def test_index_writer_lock(index_dir):
+    with IndexWriter(SqliteWriter(index_dir, create=True)) as writer:
+        writer.add_document(dict(text="Blah"))
+        writer2 = IndexWriter(SqliteWriter(index_dir))
+        with pytest.raises(Exception):
+            writer2.begin(timeout=0.5)
 
 
 def test_index_frames_docs_alice(index_dir):
     with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
         data = f.read()
         writer = IndexWriter(SqliteWriter(index_dir, create=True))
-        # Schema(text=TEXT(analyser=analyser),
-        # document=TEXT(analyser=analyser, indexed=False))))
+
         with writer:
             writer.add_fields(text=dict(type='test_text'))
             writer.add_document(dict(text=data, document='alice.txt'), frame_size=2)
@@ -379,9 +363,6 @@ def test_index_alice_bigram_discovery(index_dir):
             writer.add_document(dict(text=data), frame_size=2)
 
         with IndexReader(SqliteReader(index_dir)) as reader:
-            bi_grams = find_bi_gram_words(reader.get_frames('text'))
-            assert len(bi_grams) == 4
-            assert 'golden key' in bi_grams
             index_bigrams = reader.detect_significant_ngrams(min_count=5, threshold=40)
             assert ('golden', 'key') in index_bigrams
 
@@ -402,9 +383,6 @@ def test_moby_bigram_discovery(index_dir):
             writer.add_document(dict(text=data), frame_size=2)
 
         with IndexReader(SqliteReader(index_dir)) as reader:
-            bi_grams = find_bi_gram_words(reader.get_frames('text'))
-            assert len(bi_grams) == 10
-            assert 'ivory leg' in bi_grams
             index_bigrams = reader.detect_significant_ngrams(min_count=5, threshold=40)
             assert ('ivory', 'leg') in index_bigrams
 
@@ -421,8 +399,6 @@ def test_wikileaks_bigram_discovery(index_dir):
             writer.add_document(dict(text=data), frame_size=2)
 
         with IndexReader(SqliteReader(index_dir)) as reader:
-            bi_grams = find_bi_gram_words(reader.get_frames('text'))
-            assert len(bi_grams) == 29
             index_bigrams = reader.detect_significant_ngrams(min_count=5, threshold=40, include_fields=['text'])
             assert len(index_bigrams) == 30
             assert ('internet', 'service') in index_bigrams
@@ -440,8 +416,6 @@ def test_employee_survey_bigram_discovery(index_dir):
             writer.add_document(dict(text=data), frame_size=2)
 
         with IndexReader(SqliteReader(index_dir)) as reader:
-            bi_grams = find_bi_gram_words(reader.get_frames('text'))
-            assert len(bi_grams) == 7
             index_bigrams = reader.detect_significant_ngrams(min_count=5, threshold=40)
             assert len(index_bigrams) == 16
             assert ('pay', 'rise') in index_bigrams
@@ -492,45 +466,6 @@ def test_term_frequency_vectors(index_dir):
             assert frequency <= 99
 
         assert frame_count == len(total_frames)
-
-# TODO: deprecate find_bigrams altogether?
-# def test_index_alice_merge_bigram(index_dir):
-#     """Test constructing indexes with the bigram analyser. """
-#     with open(os.path.abspath('caterpillar/test_resources/alice.txt'), 'r') as f:
-#         f.seek(0)
-#         data = f.read()
-
-#         with IndexWriter(SqliteWriter(index_dir, create=True)) as writer:
-#             writer.add_fields(text=dict(type='text'))
-#             writer.add_document(text=data)
-
-#         with IndexReader(SqliteReader(index_dir)) as reader:
-#             min_bigram_count = 3
-#             bi_grams = find_bi_gram_words(reader.get_frames('text'), min_count=min_bigram_count)
-#             # Remove the detected bigram 'kid gloves', that only ever occurs after 'white kid'
-#             # In the bigram analyzer, detected bigrams are consumed in lexical order.
-#             bi_grams = [b for b in bi_grams if b != 'kid gloves']
-
-#         bigram_index = os.path.join(tempfile.mkdtemp(), "bigram")
-#         try:
-#             analyser = TestBiGramAnalyser(bi_grams)
-#             with IndexWriter(bigram_index, IndexConfig(SqliteStorage, Schema(text=TEXT(analyser=analyser)))) as writer:
-#                 writer.add_document(text=data)
-
-#             # Verify found bigrams exist in both
-#             with IndexReader(index_dir) as original_reader, IndexReader(bigram_index) as bigrams:
-
-#                 for bigram in bi_grams:
-#                     assert bigrams.get_term_frequency(bigram, 'text')
-
-#                 for term, frequency in original_reader.get_frequencies('text'):
-#                     try:
-#                         assert bigrams.get_term_frequency(term, 'text') <= frequency
-#                     except KeyError:  # The bigram analyzer and default analyzer behave differently
-#                         continue
-
-#         finally:
-#             shutil.rmtree(bigram_index)
 
 
 def test_alice_case_folding(index_dir):
@@ -681,7 +616,6 @@ def test_index_document_delete(index_dir):
             assert reader.get_term_frequency('Alice', 'text') == 23
 
 
-# TODO: add data validation for deletes to the storage layer.
 def test_index_multi_document_delete(index_dir):
     """Sanity test for deleting multiple documents."""
     with open(os.path.abspath('caterpillar/test_resources/alice_test_data.txt'), 'r') as f:
@@ -752,7 +686,7 @@ def _acquire_write_single_doc(index_dir):
     writer.close()
 
 
-def _read_document_count(index_dir):
+def _read_document_count(index_dir):  # pragma: no cover
     """Write something to the index, then attempt to read it."""
     with IndexWriter(SqliteWriter(index_dir)) as writer:
         writer.add_document(dict(field1='test some text'))
@@ -770,19 +704,14 @@ def test_concurrent_write_contention(index_dir):
     with IndexWriter(SqliteWriter(index_dir, create=True)) as writer:
         writer.add_fields(field1=dict(type='text'))
 
-    # Easier case: contention from threads in the same process
     n = 100
-    pool = mt.Pool(16)
-    pool.map(_acquire_write_single_doc, [index_dir] * n)
-    pool.close()
 
-    # Attempt high contention document writes
     pool = mp.Pool(16)
     pool.map(_acquire_write_single_doc, [index_dir] * n)
     pool.close()
 
     with IndexReader(SqliteReader(index_dir)) as reader:
-        assert reader.get_document_count() == 200
+        assert reader.get_document_count() == 100
 
 
 def test_concurrent_read_write_contention(index_dir):
@@ -792,9 +721,34 @@ def test_concurrent_read_write_contention(index_dir):
     with IndexWriter(SqliteWriter(index_dir, create=True)) as writer:
         writer.add_fields(field1=dict(type='text'))
 
-    # Read and write documents concurrently.
-    pool = mp.Pool(16)  # Pool for readers
+    pool = mp.Pool(16)
     x = pool.map(_read_document_count, [index_dir] * 100)
     pool.close()
 
     assert max(x) == 100
+
+
+def test_open_migrate_old_index_version(index_dir):
+    """Open and attempt to operate storage created with an earlier version. """
+    # Copy the old index to the temp dir, as we need to modify it.
+    migrate_index = os.path.join(index_dir, 'sample_index')
+    shutil.copytree('caterpillar/test_resources/alice_indexed_0_10_0', migrate_index)
+
+    storage_writer = SqliteWriter(migrate_index)
+    storage_writer.migrate()
+
+    with IndexReader(SqliteReader(migrate_index)) as reader:
+        assert reader.filter(must=['Alice'], include_fields=['text'])
+        assert reader.get_document_count() == 1
+        text_fields = reader.get_schema().get_indexed_text_fields()
+        assert len(text_fields) == 1 and 'text' in text_fields
+
+    with IndexWriter(storage_writer) as writer:
+        writer.add_fields(more_text=dict(type='text'))
+        writer.add_document(dict(text='Some more words', more_text='Some other words'))
+
+    with IndexReader(SqliteReader(migrate_index)) as reader:
+        assert reader.filter(must=['Alice'], include_fields=['text'])
+        assert reader.get_document_count() == 2
+        text_fields = reader.get_schema().get_indexed_text_fields()
+        assert len(text_fields) == 2 and 'text' in text_fields and 'more_text' in text_fields

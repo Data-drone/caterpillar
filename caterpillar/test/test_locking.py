@@ -5,7 +5,7 @@ import os
 import errno
 import pytest
 
-from caterpillar.locking import PIDLockFile, AlreadyLocked, LockFailed, NotLocked, NotMyLock
+from caterpillar.locking import PIDLockFile, AlreadyLocked, LockFailed, NotLocked, NotMyLock, LockTimeout
 
 
 def test_lock_acquire(index_dir):
@@ -47,6 +47,11 @@ def test_lock_release(index_dir, monkeypatch):
     lock1.acquire()
     lock1.release()
     assert not lock1.is_locked()
+
+    lock1.acquire()
+    with pytest.raises(LockTimeout):
+        lock2.acquire(timeout=0.1)
+    lock1.release()
 
     lock1.acquire()
     monkeypatch.setattr(os, "getpid", lambda: 1)  # Modify os.getpid() to get the error we want.

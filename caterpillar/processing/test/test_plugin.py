@@ -8,10 +8,8 @@ import pytest
 from caterpillar import abstract_method_tester
 from caterpillar.processing.index import IndexWriter, IndexReader
 from caterpillar.processing.plugin import AnalyticsPlugin
-from caterpillar.processing import schema
 from caterpillar.storage.sqlite import SqliteWriter, SqliteReader
 from caterpillar.storage import PluginNotFoundError
-from caterpillar.test_util import TestAnalyser
 
 
 class TestPlugin(AnalyticsPlugin):

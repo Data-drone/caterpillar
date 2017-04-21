@@ -2,11 +2,16 @@
 # Author: Kris Rogers <kris@mammothlabs.com.au>, Ryan Stuart <ryan@kapiche.com>
 """Tests for caterpillar.storage.sqlite.py."""
 
+import os
 import pytest
+import shutil
+
 import apsw
 
 from caterpillar.storage import StorageNotFoundError, DuplicateStorageError
-from caterpillar.storage.sqlite import SqliteReader, SqliteWriter, _count_bitwise_matches
+from caterpillar.storage.sqlite import (
+    SqliteReader, SqliteWriter, _count_bitwise_matches, SqliteSchemaMismatchError, CURRENT_SCHEMA, MigrationError
+)
 
 
 def test_add_get_delete_fields(index_dir):
@@ -276,6 +281,72 @@ def test_filter_error(index_dir):
         reader.filter_metadata(metadata={'test_field': {'*=': 1}})
 
     reader.close()
+
+
+def test_open_migrate_old_schema_version(index_dir):
+    """Open and attempt to operate storage created with an earlier version. """
+    # Copy the old index to the temp dir, as we need to modify it.
+    migrate_index = os.path.join(index_dir, 'sample_index')
+    shutil.copytree('caterpillar/test_resources/alice_indexed_0_10_0', migrate_index)
+    writer = SqliteWriter(migrate_index)
+    reader = SqliteReader(migrate_index)
+    writer2 = SqliteWriter(migrate_index)
+    cursor = writer._db_connection.cursor()
+
+    with pytest.raises(SqliteSchemaMismatchError):
+        writer.begin()
+
+    with pytest.raises(SqliteSchemaMismatchError):
+        reader.begin()
+
+    schema_version = writer.migrate()
+    assert schema_version == CURRENT_SCHEMA
+    # Ensure migrations are idempotent
+    schema_version = writer.migrate()
+    assert schema_version == CURRENT_SCHEMA
+
+    writer.begin()
+    with pytest.raises(Exception):
+        writer2.begin(timeout=1)
+    writer.commit()
+
+    reader.begin()
+    reader.commit()
+
+    # Mess with the schema version table, just to simulate newer schema versions than current.
+    cursor.execute('insert into migrations(id) values (?)', [schema_version + 1])
+    with pytest.raises(Exception):
+        reader.begin()
+
+    with pytest.raises(Exception):
+        writer.begin()
+
+    cursor.execute('delete from migrations where id = ?', [schema_version + 1])
+
+    with pytest.raises(ValueError):
+        writer.migrate(version=1000)
+
+    with pytest.raises(ValueError):
+        writer.migrate(version=-1)
+
+    writer.begin()
+    with pytest.raises(Exception):
+        writer2.migrate(timeout=1)
+    writer.rollback()
+
+    schema_version = writer.migrate(0)
+    assert schema_version == 0
+
+    with pytest.raises(ValueError):
+        writer.migrate(version=0.5)
+    assert writer.schema_version == 0
+
+    # Mangle the on disk schema so that a migration fails and rollsback correctly
+    cursor.execute('create table field_setting (test integer primary key)')
+    with pytest.raises(MigrationError):
+        writer.migrate(version=1)
+
+    assert writer.schema_version == 0
 
 
 def test_duplicate_database(index_dir):

@@ -192,8 +192,14 @@ delete from disk_index.frame where document_id in (select * from deleted_documen
 delete from disk_index.document_data where document_id in (select * from deleted_document);
 
 
-/* Add new indexed fields */
-insert into disk_index.field(name)
+/* Add new indexed fields
+
+A field can be added either as an addition to the Index schema, or via migration
+from an earlier version of the index layout. Duplicates are managed via the
+CaterpillarLegacySchema object, so we don't need to worry about them here.
+
+*/
+insert or ignore into disk_index.field(name)
     select * from field;
 
 insert into disk_index.field_setting(field_id, key, value)

@@ -80,15 +80,16 @@ class SqliteWriter(StorageWriter):
         # non migration index changes should run through the temporary database.
         if create:
             os.makedirs(self._db_path)
+            self.__lock = PIDLockFile(os.path.join(self._db_path, 'writer'))
             self._db_connection = apsw.Connection(self._db, flags=apsw.SQLITE_OPEN_READWRITE | apsw.SQLITE_OPEN_CREATE)
             # Initialise the necessary schema details.
             self.migrate()
 
         else:
+            self.__lock = PIDLockFile(os.path.join(self._db_path, 'writer'))
             self._db_connection = apsw.Connection(self._db, flags=apsw.SQLITE_OPEN_READWRITE)
 
         # Set a short busy timer by default - this can be overridden in the call to begin.
-        self.__lock = PIDLockFile(os.path.join(self._db_path, 'writer'))
         self._db_connection.setbusytimeout(1000)
 
     @property
@@ -101,10 +102,16 @@ class SqliteWriter(StorageWriter):
 
         """
         cursor = self._db_connection.cursor()
-        try:
-            return list(cursor.execute('select max(id) from migrations;'))[0][0]
-        except apsw.SQLError:
+        # Check if the migrations table exists in the sqlite admin tables.
+        # If the table doesn't exist the second query raises a generic SQLiteError
+        # exception, which isn't specific enough to be useful.
+        migrations_row = list(cursor.execute(
+            "select 1 from sqlite_master where type='table' and name='migrations'"
+        ))
+        if len(migrations_row) == 0:
             return None
+        else:
+            return list(cursor.execute('select max(id) from migrations;'))[0][0]
 
     def begin(self, *args, **kwargs):
         """
@@ -121,29 +128,35 @@ class SqliteWriter(StorageWriter):
         except (AlreadyLocked, LockTimeout):
             raise Exception('Index {} is locked for writing'.format(self._path))
 
-        disk_schema = self.schema_version
+        try:
+            disk_schema = self.schema_version
 
-        if disk_schema > REQUIRED_SCHEMA_VERSION:
-            raise SqliteSchemaMismatchError("""
-                The on disk schema version, {}, is newer than the required schema version {}.
-                It may have been created with a newer version of caterpillar.
-            """.format(disk_schema, REQUIRED_SCHEMA_VERSION))
-        elif disk_schema < REQUIRED_SCHEMA_VERSION:
-            raise SqliteSchemaMismatchError("""
-                The on disk schema version, {}, is older than the required schema version {}.
-                Running storage.migrate() will migrate the index to the required version.
-            """.format(disk_schema, REQUIRED_SCHEMA_VERSION))
+            if disk_schema > REQUIRED_SCHEMA_VERSION:
+                raise SqliteSchemaMismatchError("""
+                    The on disk schema version, {}, is newer than the required schema version {}.
+                    It may have been created with a newer version of caterpillar.
+                """.format(disk_schema, REQUIRED_SCHEMA_VERSION))
+            elif disk_schema < REQUIRED_SCHEMA_VERSION:
+                raise SqliteSchemaMismatchError("""
+                    The on disk schema version, {}, is older than the required schema version {}.
+                    Running storage.migrate() will migrate the index to the required version.
+                """.format(disk_schema, REQUIRED_SCHEMA_VERSION))
 
-        # If we're opening for writing, don't connect to the index directly.
-        # Instead setup a temporary in memory database with the minimal schema.
-        self._temp_connection = apsw.Connection(':memory:')
-        # We serialise writers during a write lock, and in normal cases the WAL mode avoids writers blocking
-        # readers. Setting this is used to handle the one case in our normal operations that WAL mode requires
-        # an exclusive lock for cleaning up the WAL file and associated shared-memory index.
-        # See section 8 for the edge cases: https://www.sqlite.org/wal.html
-        self._temp_connection.setbusytimeout(1000)
+            # If we're opening for writing, don't connect to the index directly.
+            # Instead setup a temporary in memory database with the minimal schema.
+            self._temp_connection = apsw.Connection(':memory:')
+            # We serialise writers during a write lock, and in normal cases the WAL mode avoids writers blocking
+            # readers. Setting this is used to handle the one case in our normal operations that WAL mode requires
+            # an exclusive lock for cleaning up the WAL file and associated shared-memory index.
+            # See section 8 for the edge cases: https://www.sqlite.org/wal.html
+            self._temp_connection.setbusytimeout(1000)
 
-        list(self._execute(cache_schema))
+            list(self._execute(cache_schema))
+
+        # Make sure to release the lock if something goes wrong
+        except Exception:
+            self.__lock.release()
+            raise
 
         self.doc_no = 0  # local only for this write transaction.
         self.frame_no = 0
@@ -163,9 +176,9 @@ class SqliteWriter(StorageWriter):
         self._flush()
         self._execute('commit; detach database disk_index;')
         self.committed = True
+        self.__lock.release()
         self.doc_no = 0
         self.frame_no = 0
-        self.__lock.release()
 
         return self.__last_added_documents, self.__deleted_documents, self.__updated_plugins
 
@@ -184,8 +197,14 @@ class SqliteWriter(StorageWriter):
 
         """
         self._db_connection.close()
+        self._db_connection = None
         self._temp_connection.close()
         self._temp_connection = None
+
+        try:
+            self.__lock.release()
+        except Exception:
+            pass
 
     def _prepare_flush(self):
         """Prepare to flush the cached data to the index.
@@ -225,7 +244,7 @@ class SqliteWriter(StorageWriter):
         self._executemany(
             'insert into field_setting(name, key, value) values(?, ?, ?)', rows
         )
-        self._executemany('insert into field values(?)', [[name] for name in fields.keys()])
+        self._executemany('insert or ignore into field values(?)', [[name] for name in fields.keys()])
 
     def delete_fields(self, *fieldnames):
         """Delete the fields identified by name from the index. """
@@ -366,9 +385,16 @@ class SqliteWriter(StorageWriter):
         self._executemany('insert into attribute_posting values (?, ?, ?)', row_generator)
 
     def delete_documents(self, document_ids):
-        """Delete a document with the given id from the index. """
-        document_id_gen = ((document_id,) for document_id in document_ids)
-        self._executemany('insert into deleted_document(id) values(?)', document_id_gen)
+        """
+        Delete a document with the given id from the index.
+
+        The provided keys must be integeres.
+
+        """
+        # Keys are converted to valid integers -- inserting a null into this table will cause
+        # an id key to be generated, which could result in the wrong document to be deleted.
+        document_id_rows = [(int(document_id),) for document_id in document_ids]
+        self._executemany('insert into deleted_document(id) values(?)', document_id_rows)
 
     def set_plugin_state(self, plugin_type, plugin_settings, plugin_state):
         """ Set the plugin state in the index to the given state.
@@ -411,7 +437,7 @@ class SqliteWriter(StorageWriter):
             logger.exception(e)
             raise e
 
-    def migrate(self, version=None):
+    def migrate(self, version=None, timeout=None):
         """
         Migrate the on disk database to the specified version.
 
@@ -423,18 +449,26 @@ class SqliteWriter(StorageWriter):
         be called in order.
 
         """
+        try:
+            self.__lock.acquire(timeout=timeout)
+        except (AlreadyLocked, LockTimeout):
+            raise Exception('Index {} is locked for writing'.format(self._path))
+
         on_disk_version = self.schema_version
         # If version is not specified, migrate to the current version.
         desired_version = CURRENT_SCHEMA if version is None else version
 
         if desired_version == on_disk_version:
+            self.__lock.release()
             return on_disk_version
 
         if desired_version > CURRENT_SCHEMA:
+            self.__lock.release()
             raise ValueError('Version {} is newer than the latest version {}'.format(desired_version, CURRENT_SCHEMA))
 
         if desired_version > on_disk_version:  # Migrating to newer versions
             if desired_version not in up_migrations:
+                self.__lock.release()
                 raise ValueError('No up migration exists for version {}'.format(desired_version))
             run_migrations = sorted(
                 (migration_id, migration)
@@ -444,6 +478,7 @@ class SqliteWriter(StorageWriter):
 
         elif desired_version < on_disk_version:  # Migrating to older versions
             if desired_version not in down_migrations:
+                self.__lock.release()
                 raise ValueError('No down migration exists for version {}'.format(desired_version))
             run_migrations = sorted({
                 (migration_id, migration)
@@ -464,6 +499,8 @@ class SqliteWriter(StorageWriter):
                     on_disk_version, desired_version, migration_id, current_id
                 )
             )
+        finally:
+            self.__lock.release()
 
         return self.schema_version
 
@@ -499,10 +536,16 @@ class SqliteReader(StorageReader):
 
         """
         cursor = self._db_connection.cursor()
-        try:
-            return list(cursor.execute('select max(id) from migrations;'))[0][0]
-        except apsw.SQLError:
+        # Check if the migrations table exists in the sqlite admin tables.
+        # If the table doesn't exist the second query raises a generic SQLiteError
+        # exception, which isn't specific enough to be useful.
+        migrations_row = list(cursor.execute(
+            "select 1 from sqlite_master where type='table' and name='migrations'"
+        ))
+        if len(migrations_row) == 0:
             return None
+        else:
+            return list(cursor.execute('select max(id) from migrations;'))[0][0]
 
     def begin(self, *args, **kwargs):
         """

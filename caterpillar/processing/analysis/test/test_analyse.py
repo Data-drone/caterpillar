@@ -2,7 +2,7 @@
 # Author: Ryan Stuart <ryan@kapiche.com>
 """Tests for the caterpillar.processing.analysis.analyse module."""
 import pytest
-from caterpillar.processing.analysis.analyse import Analyser, DefaultAnalyser, BiGramAnalyser, \
+from caterpillar.processing.analysis.analyse import Analyser, DefaultAnalyser, \
     EverythingAnalyser, DateTimeAnalyser
 from caterpillar.processing.analysis.tokenize import Tokenizer
 
@@ -22,11 +22,8 @@ def test_default_analyser():
     assert len(analyser.get_filters()) == 4
     assert isinstance(analyser.get_tokenizer(), Tokenizer)
 
-
-def test_bigram_analyser():
-    analyser = BiGramAnalyser([])
-
-    assert len(analyser.get_filters()) == 5
+    analyser = DefaultAnalyser(stopword_list=None)
+    assert len(analyser.get_filters()) == 4
     assert isinstance(analyser.get_tokenizer(), Tokenizer)
 
 
