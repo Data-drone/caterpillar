@@ -567,11 +567,11 @@ class CaterpillarLegacySchema(object):
                 else:
                     sentences_by_frames = [[paragraph.value]]
                 for sentence_list in sentences_by_frames:
+                    frame_positions = {}
                     token_position = 0
                     # Build our frames
                     frame = {
                         '_field': field_name,
-                        '_positions': {},
                         '_sequence_number': frame_count,
                         '_metadata': metadata  # Inject the document level structured data into the frame
                     }
@@ -587,9 +587,9 @@ class CaterpillarLegacySchema(object):
                             if not token.stopped:
                                 # Record word positions
                                 try:
-                                    frame['_positions'][token.value].append(token_position)
+                                    frame_positions[token.value].append(token_position)
                                 except KeyError:
-                                    frame['_positions'][token.value] = [token_position]
+                                    frame_positions[token.value] = [token_position]
 
                             token_position += 1
 
@@ -599,7 +599,7 @@ class CaterpillarLegacySchema(object):
                     frames[field_name].append(json.dumps(frame))
 
                     # Generate the term-frequency vector for the frame:
-                    term_positions[field_name].append(frame['_positions'])
+                    term_positions[field_name].append(frame_positions)
 
         # Finally add the document to storage.
         doc_fields = {}
