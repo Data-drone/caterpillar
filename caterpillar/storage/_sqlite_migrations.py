@@ -35,13 +35,13 @@ class Migration(object):
     @abc.abstractmethod
     def up():
         """Migrate a database from `from_schema_version` to `to_schema_version`."""
-        return
+        raise NotImplementedError
 
     @staticmethod
     @abc.abstractmethod
     def down():
         """Migrate a database from `to_schema_version` back to `from_schema_version`."""
-        return
+        raise NotImplementedError
 
 
 class InitialiseSchema(Migration):
