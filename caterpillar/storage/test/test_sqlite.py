@@ -344,6 +344,27 @@ def test_open_migrate_old_schema_version(index_dir):
         writer.migrate(version=CURRENT_SCHEMA + 1)
 
 
+def test_forward_backwards_migration(index_dir):
+    """Migrate forward and backward to confirm the functionality works."""
+    migrate_index = os.path.join(index_dir, 'sample_index')
+    shutil.copytree('caterpillar/test_resources/alice_indexed_v0_10_0', migrate_index)
+
+    writer = SqliteWriter(migrate_index)
+    reader = SqliteReader(migrate_index)
+
+    assert writer.migrate(version=None) is None
+    assert writer.migrate(version='latest') == CURRENT_SCHEMA
+
+    reader.begin()
+    term_frequencies = list(reader.iterate_term_frequencies(terms=['Alice']))
+    assert term_frequencies[0][1] == 296
+    reader.commit()
+
+    assert writer.migrate(version=None) is None
+    with pytest.raises(SqliteSchemaMismatchError):
+        reader.begin()
+
+
 def test_duplicate_database(tmp_dir):
     SqliteWriter(tmp_dir, create=True)
     with pytest.raises(DuplicateStorageError):

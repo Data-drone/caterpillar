@@ -26,13 +26,13 @@ from caterpillar.processing.index import NonIndexedFieldError
 from caterpillar.storage import StorageWriter, StorageReader, Storage, StorageNotFoundError, \
     DuplicateStorageError, PluginNotFoundError
 
-from ._sqlite_migrations import up_migrations, down_migrations
+from ._sqlite_migrations import MIGRATIONS
 from ._sqlite_scripts import cache_schema, prepare_flush, flush_cache
 
 logger = logging.getLogger(__name__)
 
-CURRENT_SCHEMA = max(up_migrations)
-EARLIEST_SCHEMA = min(down_migrations) if len(down_migrations) > 0 else CURRENT_SCHEMA
+CURRENT_SCHEMA = MIGRATIONS[-1].to_schema_version
+EARLIEST_SCHEMA = None
 
 
 class MigrationError(Exception):
@@ -379,21 +379,19 @@ class SqliteWriter(StorageWriter):
             logger.exception(e)
             raise e
 
-    def migrate(self, version=None):
+    def migrate(self, version='latest'):
         """
         Migrate the on disk database to the specified version.
 
-        If no version is specified, the migration will be to the latest version.
+        The keyword version 'latest' (default) will always migrate the database to the latest schema version.
 
-        Any migration operation is specified in order of the version number of the migrations.
-
-        If the on disk index version is different to the current version the up or down functions will
-        be called in order.
+        Migrating to a schema version other than the latest may result in the index not being readable with
+        the current version of caterpillar.
 
         """
         on_disk_version = self.schema_version
         # If version is not specified, migrate to the current version.
-        desired_version = CURRENT_SCHEMA if version is None else version
+        desired_version = CURRENT_SCHEMA if version is 'latest' else version
 
         if desired_version == on_disk_version:
             return on_disk_version
@@ -403,36 +401,54 @@ class SqliteWriter(StorageWriter):
                 'Version {} is newer than the latest version {}'.format(desired_version, CURRENT_SCHEMA)
             )
 
+        apply_migrations = []
+        step_version = on_disk_version
+
         if desired_version > on_disk_version:  # Migrating to newer versions
-            if desired_version not in up_migrations:
-                raise MigrationError('No up migration exists for version {}'.format(desired_version))
-            run_migrations = sorted(
-                (migration_id, migration)
-                for migration_id, migration in up_migrations.items()
-                if desired_version >= migration_id > on_disk_version
-            )
+            direction = 'up'
+            for migration in MIGRATIONS:
+                # The migration can be applied to this version, and it doesn't overshoot the desired version.
+                # TODO: make sure there is a valid migration path to the desired version, instead of just greedily
+                # applying whatever migrations don't overshoot.
+                # This isn't necessary until we have more than one possible migration path through the list of versions.
+                if migration.from_schema_version == step_version and migration.to_schema_version <= desired_version:
+                    apply_migrations.append(migration)
+                    step_version = migration.to_schema_version
 
         elif desired_version < on_disk_version:  # Migrating to older versions
-            if desired_version not in down_migrations:
-                raise MigrationError('No down migration exists for version {}'.format(desired_version))
-            run_migrations = sorted({  # pragma: no cover
-                (migration_id, migration)
-                for migration_id, migration in down_migrations.items()
-                if desired_version <= migration_id < on_disk_version
-            }, reverse=True)
+            direction = 'down'
+            while True:
+                for migration in MIGRATIONS:
+                    if migration.to_schema_version == step_version and migration.from_schema_version >= desired_version:
+                        apply_migrations.append(migration)
+                        step_version = migration.from_schema_version
+                        # Restart the migration check from the beginning so down migrations are applied in the
+                        # same order as up migrations.
+                        break
+                else:
+                    break
 
-        try:
-            current_id = on_disk_version
-            for migration_id, migration in run_migrations:
-                migration(self)
-                current_id = migration_id
-        except Exception:
-            cursor = self._db_connection.cursor()
-            cursor.execute('rollback')
-            raise MigrationError(
-                'Migration from {} to {} failed migration at version {}. Now at {}.'.format(
-                    on_disk_version, desired_version, migration_id, current_id
+        if apply_migrations:
+
+            try:
+                for migration in apply_migrations:
+                    if direction == 'up':
+                        migration.up(self)
+                    else:
+                        migration.down(self)
+
+            except Exception:
+                cursor = self._db_connection.cursor()
+                cursor.execute('rollback')
+                raise MigrationError(
+                    'Migration from {} to {} failed migration at migration {}. Now at {}.'.format(
+                        on_disk_version, desired_version, migration, self.schema_version
+                    )
                 )
+
+        else:
+            raise MigrationError(
+                'Could not find a valid migration path from version {} to {}'.format(on_disk_version, desired_version)
             )
 
         return self.schema_version
