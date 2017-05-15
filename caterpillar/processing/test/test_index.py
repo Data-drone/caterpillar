@@ -715,13 +715,16 @@ def test_field_names(index_dir):
         assert reader.get_document_count() == 1
 
 
-def _acquire_write_single_doc(index_dir):
+# coverage seems to have trouble picking up these two functions because they're called
+# in separate processes. We exclude them from coverage because we know they have to
+# run in order for the tests to pass.
+def _acquire_write_single_doc(index_dir):  # pragma: no cover
     """Write a single document."""
     with IndexWriter(index_dir) as writer:
         writer.add_document(field1='test some text')
 
 
-def _read_document_count(index_dir):
+def _read_document_count(index_dir):  # pragma: no cover
     """Write something to the index, then attempt to read it."""
     with IndexWriter(index_dir) as writer:
         writer.add_document(field1='test some text')

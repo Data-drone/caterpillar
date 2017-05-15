@@ -26,10 +26,21 @@ from caterpillar.processing.index import NonIndexedFieldError
 from caterpillar.storage import StorageWriter, StorageReader, Storage, StorageNotFoundError, \
     DuplicateStorageError, PluginNotFoundError
 
-from ._sqlite_schema import disk_schema, cache_schema, prepare_flush, flush_cache
-
+from ._sqlite_migrations import MIGRATIONS
+from ._sqlite_scripts import cache_schema, prepare_flush, flush_cache
 
 logger = logging.getLogger(__name__)
+
+CURRENT_SCHEMA = MIGRATIONS[-1].to_schema_version
+EARLIEST_SCHEMA = None
+
+
+class MigrationError(Exception):
+    """Error class for problems with migrations. """
+
+
+class SqliteSchemaMismatchError(Exception):
+    """When the required version and the on disk version do not match. """
 
 
 class SqliteWriter(StorageWriter):
@@ -53,6 +64,9 @@ class SqliteWriter(StorageWriter):
 
         If ``create`` is True and the DB already exist, then :exc:`DuplicateStorageError` is raised.
 
+        Note that the initialisation call does not prepare the index for changes - the begin() method must be
+        called before any changes can be made.
+
         """
         self._db_path = path
         self._db = os.path.join(path, 'storage.db')
@@ -62,19 +76,33 @@ class SqliteWriter(StorageWriter):
         elif create and os.path.exists(self._db):
             raise DuplicateStorageError('There already appears to be something stored at {}'.format(path))
 
+        # Note that after init, a database connection is available on the object for the on disk db. This is
+        # used for coordination and configuration of on disk entries such as checking the schema version. All
+        # non migration index changes should run through the temporary database.
         if create:
-            connection = apsw.Connection(self._db, flags=apsw.SQLITE_OPEN_READWRITE | apsw.SQLITE_OPEN_CREATE)
-            cursor = connection.cursor()
+            self._db_connection = apsw.Connection(self._db, flags=apsw.SQLITE_OPEN_READWRITE | apsw.SQLITE_OPEN_CREATE)
+            # Initialise the necessary schema details.
+            self.migrate()
 
-            # Setup schema and necessary pragmas (on disk). Note that the disk_schema script returns rows from the
-            # pragma statements - the list call makes sure that all statements are run, even if we don't care about the
-            # returned rows.
-            list(cursor.execute(disk_schema))
+        else:
+            self._db_connection = apsw.Connection(self._db, flags=apsw.SQLITE_OPEN_READWRITE)
 
-            # The database is never written to directly, hence it is closed after initialisation.
-            connection.close()
+    @property
+    def schema_version(self):
+        """Return the numerical ID of the current on disk schema version.
 
-    def begin(self):
+        If no schema_version information can be found in the form of a migrations table,
+        None is returned. This indicates that either the DB is empty, not properly formed, or may
+        simply have been created before the migrations table has existed (circa version 0.10.0).
+
+        """
+        cursor = self._db_connection.cursor()
+        try:
+            return list(cursor.execute('select max(id) from migrations;'))[0][0]
+        except apsw.SQLError:
+            return None
+
+    def begin(self, timeout=1000):
         """
         Begin a transaction.
 
@@ -82,20 +110,25 @@ class SqliteWriter(StorageWriter):
         commit or rollback methods are called.
 
         """
-
+        # Do the check in begin - otherwise we would never be able to migrate indexes using this interface.
+        if self.schema_version != CURRENT_SCHEMA:
+            raise SqliteSchemaMismatchError(
+                'The on disk database version {} does not match the required version: {}'.format(
+                    self.schema_version, CURRENT_SCHEMA
+                )
+            )
         # If we're opening for writing, don't connect to the index directly.
         # Instead setup a temporary in memory database with the minimal schema.
-        self._db_connection = apsw.Connection(':memory:')
+        self._temp_connection = apsw.Connection(':memory:')
         # We serialise writers during a write lock, and in normal cases the WAL mode avoids writers blocking
         # readers. Setting this is used to handle the one case in our normal operations that WAL mode requires
         # an exclusive lock for cleaning up the WAL file and associated shared-memory index.
         # See section 8 for the edge cases: https://www.sqlite.org/wal.html
-        self._db_connection.setbusytimeout(1000)
+        self._temp_connection.setbusytimeout(timeout)
         list(self._execute(cache_schema))
         self.doc_no = 0  # local only for this write transaction.
         self.frame_no = 0
         self.committed = False
-        self._flushed = False
 
     def commit(self):
         """Commit a transaction.
@@ -108,8 +141,7 @@ class SqliteWriter(StorageWriter):
         Returns a list of the added documents.
 
         """
-        if not self._flushed:
-            self._flush()
+        self._flush()
         self._execute('commit; detach database disk_index;')
         self.committed = True
         self.doc_no = 0
@@ -130,10 +162,8 @@ class SqliteWriter(StorageWriter):
         This operates immediately: if the data has not been committed it will be destroyed.
 
         """
-        # If we have committed, the resources have already been released.
-        if not self.committed:
-            self._db_connection.close()
-            self._db_connection = None
+        self._temp_connection.close()
+        self._temp_connection = None
 
     def _prepare_flush(self):
         """Prepare to flush the cached data to the index.
@@ -332,7 +362,8 @@ class SqliteWriter(StorageWriter):
         self._execute('insert into setting values(?, ?)', [name, value])
 
     def _execute(self, query, data=None):
-        cursor = self._db_connection.cursor()
+        """Execute a query against the in memory database."""
+        cursor = self._temp_connection.cursor()
         try:
             return cursor.execute(query, data)
         except apsw.SQLError as e:
@@ -340,12 +371,87 @@ class SqliteWriter(StorageWriter):
             raise e
 
     def _executemany(self, query, data=None):
-        cursor = self._db_connection.cursor()
+        """Execute a query against the in memory database."""
+        cursor = self._temp_connection.cursor()
         try:
             return cursor.executemany(query, data)
         except apsw.SQLError as e:
             logger.exception(e)
             raise e
+
+    def migrate(self, version='latest'):
+        """
+        Migrate the on disk database to the specified version.
+
+        The keyword version 'latest' (default) will always migrate the database to the latest schema version.
+
+        Migrating to a schema version other than the latest may result in the index not being readable with
+        the current version of caterpillar.
+
+        """
+        on_disk_version = self.schema_version
+        # If version is not specified, migrate to the current version.
+        desired_version = CURRENT_SCHEMA if version is 'latest' else version
+
+        if desired_version == on_disk_version:
+            return on_disk_version
+
+        if desired_version > CURRENT_SCHEMA:
+            raise MigrationError(
+                'Version {} is newer than the latest version {}'.format(desired_version, CURRENT_SCHEMA)
+            )
+
+        apply_migrations = []
+        step_version = on_disk_version
+
+        if desired_version > on_disk_version:  # Migrating to newer versions
+            direction = 'up'
+            for migration in MIGRATIONS:
+                # The migration can be applied to this version, and it doesn't overshoot the desired version.
+                # TODO: make sure there is a valid migration path to the desired version, instead of just greedily
+                # applying whatever migrations don't overshoot.
+                # This isn't necessary until we have more than one possible migration path through the list of versions.
+                if migration.from_schema_version == step_version and migration.to_schema_version <= desired_version:
+                    apply_migrations.append(migration)
+                    step_version = migration.to_schema_version
+
+        elif desired_version < on_disk_version:  # Migrating to older versions
+            direction = 'down'
+            while True:
+                for migration in MIGRATIONS:
+                    if migration.to_schema_version == step_version and migration.from_schema_version >= desired_version:
+                        apply_migrations.append(migration)
+                        step_version = migration.from_schema_version
+                        # Restart the migration check from the beginning so down migrations are applied in the
+                        # same order as up migrations.
+                        break
+                else:
+                    break
+
+        if apply_migrations:
+
+            try:
+                for migration in apply_migrations:
+                    if direction == 'up':
+                        migration.up(self)
+                    else:
+                        migration.down(self)
+
+            except Exception:
+                cursor = self._db_connection.cursor()
+                cursor.execute('rollback')
+                raise MigrationError(
+                    'Migration from {} to {} failed migration at migration {}. Now at {}.'.format(
+                        on_disk_version, desired_version, migration, self.schema_version
+                    )
+                )
+
+        else:
+            raise MigrationError(
+                'Could not find a valid migration path from version {} to {}'.format(on_disk_version, desired_version)
+            )
+
+        return self.schema_version
 
 
 class SqliteReader(StorageReader):
@@ -369,8 +475,30 @@ class SqliteReader(StorageReader):
 
         self._db_connection.setbusytimeout(1000)
 
+    @property
+    def schema_version(self):
+        """Return the numerical ID of the current on disk schema version.
+
+        If no schema_version information can be found in the form of a migrations table,
+        None is returned. This indicates that either the DB is empty, not properly formed, or may
+        simply have been created before the migrations table has existed (circa version 0.10.0).
+
+        """
+        cursor = self._db_connection.cursor()
+        try:
+            return list(cursor.execute('select max(id) from migrations;'))[0][0]
+        except apsw.SQLError:
+            return None
+
     def begin(self):
         """Begin a read transaction."""
+        # Do the check in begin - otherwise we would never be able to migrate indexes using this interface.
+        if self.schema_version != CURRENT_SCHEMA:
+            raise SqliteSchemaMismatchError(
+                'The on disk database version {} does not match the required version: {}'.format(
+                    self.schema_version, CURRENT_SCHEMA
+                )
+            )
         self._execute('begin')
         # Temporary table for searches - only visible to this reader.
         self._execute("""
